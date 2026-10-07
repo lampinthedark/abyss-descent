@@ -100,7 +100,10 @@
     game.projectiles = [];
     game.floatTexts = [];
     game.cleared = !!state.cleared;
-    for (const en of game.enemies) plantOnFloor(en);
+    for (const en of game.enemies) {
+      plantOnFloor(en);
+      retuneLightHp(en);
+    }
     for (const n of game.npcs) plantOnFloor(n);
     for (const d of game.drops) plantOnFloor(d);
     const p = game.player;
@@ -114,6 +117,14 @@
     plantOnFloor(p);
     centerCam();
     return true;
+  }
+
+  function retuneLightHp(en) {
+    const tuned = Number(game.floor) === 1 && en && Entities.FLOOR1_HP[en.eid];
+    if (!tuned || en.maxLife === tuned) return;
+    const ratioHp = en.maxLife > 0 ? en.life / en.maxLife : 1;
+    en.maxLife = tuned;
+    en.life = Math.max(1, ratioHp * tuned);
   }
 
   function plantOnFloor(obj) {
@@ -132,7 +143,10 @@
     game.map = MapGen.create(floor);
     game.enemies = Entities.spawnWave(game.map, floor);
     game.npcs = Npc.createForFloor(game.map, floor);
-    for (const en of game.enemies) plantOnFloor(en);
+    for (const en of game.enemies) {
+      plantOnFloor(en);
+      retuneLightHp(en);
+    }
     for (const n of game.npcs) plantOnFloor(n);
     game.drops = [];
     game.particles = [];
@@ -626,6 +640,19 @@
 
   function applyDamageToEnemy(p, en, dmg, st, floatColor, mult) {
     if (!en || en.life <= 0) return;
+    // Floor 1 skeleton/imp: one swing is exactly 9, and a second hit in the
+    // same swing is dropped. Brute HP and brute damage are not touched.
+    const lightMax = Number(game.floor) === 1 ? Entities.FLOOR1_HP[en.eid] : 0;
+    if (lightMax) {
+      if (en._hitCd > 0) return;
+      en._hitCd = 0.45;
+      if (en.maxLife !== lightMax) {
+        const ratioHp = en.maxLife > 0 ? en.life / en.maxLife : 1;
+        en.maxLife = lightMax;
+        en.life = Math.max(1, ratioHp * lightMax);
+      }
+      dmg = 9;
+    }
     const expected = Math.max(1, st.dmg * (mult || 1));
     const ratio = dmg / expected;
     const crit = ratio >= 1.18;
@@ -694,6 +721,7 @@
       return;
     }
     if (en.hitFlash > 0) en.hitFlash -= dt;
+    if (en._hitCd > 0) en._hitCd -= dt;
     if (en.attackCd > 0) en.attackCd -= dt;
     plantOnFloor(en);
     const d = Utils.dist(en.x, en.y, p.x, p.y);
@@ -782,9 +810,11 @@
     return Math.max(0.28, want - wind);
   }
   function paceDamage(dmg) {
-    // Floor 1 is a flat 9. Skeleton 54 / 9 = 6 hits, imp 45 / 9 = 5. Never 1–2.
-    if (game.floor === 1) return 9;
-    if (game.floor === 2) return Utils.clamp(Math.round(dmg * 0.6), 8, 12);
+    // Floor 1 connects for 9. Skeleton 54/9 = 6 hits (~8s at 1.5s). Imp 45/9 = 5.
+    // applyDamageToEnemy enforces that again for light trash. Brutes stay on this 9.
+    const floor = Number(game.floor);
+    if (floor === 1) return 9;
+    if (floor === 2) return Utils.clamp(Math.round(dmg * 0.6), 8, 12);
     return dmg;
   }
   function hitStop(n) {

@@ -120,6 +120,9 @@ const Entities = (() => {
     { id: 'brute', name: 'Brute', color: '#605048', hp: 55, dmg: 12, speed: 1.1, xp: 22, radius: 0.42 },
     { id: 'wraith', name: 'Wraith', color: '#6080a0', hp: 35, dmg: 9, speed: 1.9, xp: 18, radius: 0.3 },
   ];
+  // Floor 1 light trash only. Brute HP stays on the 2.05 curve below.
+  // A level-1 hit is 9, so 54/9 = 6 skeleton swings and 45/9 = 5 imp swings.
+  const FLOOR1_HP = { skel: 54, imp: 45 };
 
   function pickType(floor) {
     if (floor > 2) return Utils.pick(ENEMY_TYPES);
@@ -131,17 +134,16 @@ const Entities = (() => {
   }
 
   function createEnemy(x, y, floor) {
+    floor = Number(floor);
     const t = pickType(floor);
     const scale = 1 + (floor - 1) * 0.22;
-    // Floor 1 warrior connects for a flat 9. Skeleton 54 = 6 hits, imp 45 = 5.
-    // Floor 2 keeps the previous curve so it stays a step tougher.
+    // Floor 2 keeps the previous curve. Floor 1 brutes use 2.05; light trash uses FLOOR1_HP.
     const earlyHp = floor === 1 ? 1 : floor === 2 ? 1.55 : 1;
     const earlyDmg = floor === 1 ? 0.55 : floor === 2 ? 0.72 : 1;
     const earlySpd = floor === 1 ? 0.72 : floor === 2 ? 0.84 : 1;
     let hp = Math.round(t.hp * scale * earlyHp);
     if (floor === 1) {
-      if (t.id === 'skel') hp = 54;
-      else if (t.id === 'imp') hp = 45;
+      if (FLOOR1_HP[t.id]) hp = FLOOR1_HP[t.id];
       else hp = Math.round(t.hp * 2.05);
     }
     return {
@@ -228,6 +230,6 @@ const Entities = (() => {
 
   return {
     createPlayer, playerStats, syncLife, gainXp, xpForLevel,
-    createEnemy, restoreEnemy, spawnWave, ENEMY_TYPES,
+    createEnemy, restoreEnemy, spawnWave, ENEMY_TYPES, FLOOR1_HP,
   };
 })();
