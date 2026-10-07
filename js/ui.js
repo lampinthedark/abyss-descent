@@ -59,48 +59,84 @@ const UI = (() => {
     ctx.clearRect(0, 0, w, h);
     const cls = Classes.get(classId);
     const c = cls.colors;
+    const wash = classId === 'warrior' ? 'rgba(180,40,30,0.28)'
+      : classId === 'rogue' ? 'rgba(40,140,80,0.22)' : 'rgba(80,110,220,0.25)';
+    ctx.fillStyle = wash;
+    ctx.beginPath(); ctx.ellipse(w / 2, h * 0.72, 30, 12, 0, 0, Math.PI * 2); ctx.fill();
     ctx.save();
-    ctx.translate(w / 2, h / 2 + 6);
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath(); ctx.ellipse(0, 14, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
-    // cape
-    ctx.fillStyle = c.cape;
-    ctx.beginPath();
-    ctx.moveTo(-10, -2); ctx.quadraticCurveTo(-16, 10, -8, 18);
-    ctx.lineTo(8, 18); ctx.quadraticCurveTo(16, 10, 10, -2); ctx.fill();
-    // torso
-    ctx.fillStyle = c.armor;
-    ctx.fillRect(-9, -6, 18, 16);
-    // pauldrons
-    ctx.fillStyle = c.accent;
-    ctx.fillRect(-12, -6, 5, 6);
-    ctx.fillRect(7, -6, 5, 6);
-    // head
-    ctx.fillStyle = c.skin;
-    ctx.beginPath(); ctx.arc(0, -12, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.translate(w / 2, h / 2 + 10);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.ellipse(0, 16, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
     if (classId === 'warrior') {
-      ctx.fillStyle = '#808890';
-      ctx.fillRect(-8, -18, 16, 5);
+      ctx.fillStyle = c.cape;
+      ctx.beginPath();
+      ctx.moveTo(-16, -4); ctx.quadraticCurveTo(-22, 12, -10, 20);
+      ctx.lineTo(10, 20); ctx.quadraticCurveTo(18, 8, 12, -6); ctx.fill();
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(-6, 6, 5, 10); ctx.fillRect(2, 6, 5, 10);
+      ctx.fillStyle = '#12141a';
+      ctx.fillRect(-13, -8, 26, 16);
+      ctx.fillStyle = c.armor;
+      ctx.fillRect(-11, -6, 22, 14);
       ctx.fillStyle = c.accent;
-      ctx.fillRect(-2, -22, 4, 5);
+      ctx.beginPath(); ctx.arc(-13, -4, 6, 0, Math.PI * 2); ctx.arc(13, -4, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3a2818';
+      ctx.fillRect(-11, 4, 22, 3);
+      ctx.fillStyle = c.skin;
+      ctx.beginPath(); ctx.arc(0, -14, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#9aa2ae';
+      ctx.beginPath();
+      ctx.moveTo(-8, -14); ctx.lineTo(-6, -24); ctx.lineTo(6, -24); ctx.lineTo(8, -14); ctx.fill();
+      ctx.fillStyle = c.accent;
+      ctx.fillRect(-2, -28, 4, 6);
+      ctx.fillStyle = '#5a6470';
+      ctx.beginPath(); ctx.moveTo(-16, -2); ctx.lineTo(-22, 8); ctx.lineTo(-12, 14); ctx.lineTo(-8, 2); ctx.fill();
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.save();
+      ctx.translate(12, -2); ctx.rotate(-0.7);
       ctx.fillStyle = c.weapon;
-      ctx.fillRect(10, -8, 3, 20);
-      ctx.fillRect(8, -10, 7, 4);
+      ctx.fillRect(0, -2, 20, 4);
+      ctx.fillStyle = '#d0b050'; ctx.fillRect(18, -3, 5, 6);
+      ctx.restore();
     } else if (classId === 'rogue') {
-      ctx.fillStyle = '#1a2820';
-      ctx.beginPath(); ctx.arc(0, -12, 8, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = c.weapon;
-      ctx.save(); ctx.translate(-10, 0); ctx.rotate(-0.4); ctx.fillRect(0, 0, 14, 2.5); ctx.restore();
-      ctx.save(); ctx.translate(10, 0); ctx.rotate(0.4); ctx.fillRect(-14, 0, 14, 2.5); ctx.restore();
-    } else {
+      ctx.fillStyle = '#061410';
+      ctx.beginPath();
+      ctx.moveTo(0, -24); ctx.lineTo(12, -8); ctx.lineTo(8, 20); ctx.lineTo(-8, 20); ctx.lineTo(-12, -8); ctx.fill();
+      ctx.fillStyle = c.armor;
+      ctx.fillRect(-6, -4, 12, 16);
       ctx.fillStyle = c.accent;
-      ctx.beginPath(); ctx.moveTo(-4, -18); ctx.lineTo(0, -24); ctx.lineTo(4, -18); ctx.fill();
+      ctx.fillRect(-6, 6, 12, 2);
+      ctx.fillStyle = c.skin;
+      ctx.beginPath(); ctx.arc(0, -10, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0c1c16';
+      ctx.beginPath(); ctx.arc(0, -12, 8, Math.PI * 1.05, Math.PI * 1.95); ctx.fill();
+      ctx.fillRect(-8, -12, 16, 3);
       ctx.fillStyle = c.weapon;
-      ctx.fillRect(-1.5, -4, 3, 22);
-      ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(120,160,255,0.5)';
-      ctx.beginPath(); ctx.arc(0, -8, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(-8, 2); ctx.rotate(-0.9); ctx.fillRect(0, -1.2, 16, 2.4); ctx.restore();
+      ctx.save(); ctx.translate(8, 2); ctx.rotate(0.5); ctx.fillRect(0, -1.2, 16, 2.4); ctx.restore();
+      ctx.fillStyle = c.accent;
+      ctx.fillRect(-14, 12, 3, 3); ctx.fillRect(12, 8, 3, 3);
+    } else {
+      ctx.fillStyle = c.cape;
+      ctx.beginPath();
+      ctx.moveTo(0, -22); ctx.lineTo(16, 20); ctx.lineTo(-16, 20); ctx.fill();
+      ctx.fillStyle = c.armor;
+      ctx.beginPath();
+      ctx.moveTo(0, -18); ctx.lineTo(12, 18); ctx.lineTo(-12, 18); ctx.fill();
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-8, 6); ctx.lineTo(8, 6); ctx.stroke();
+      ctx.fillStyle = c.skin;
+      ctx.beginPath(); ctx.arc(0, -16, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1030';
+      ctx.beginPath(); ctx.moveTo(-7, -16); ctx.lineTo(0, -32); ctx.lineTo(7, -16); ctx.fill();
+      ctx.fillStyle = c.accent;
+      ctx.beginPath(); ctx.arc(0, -20, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c8b090';
+      ctx.fillRect(8, -6, 3, 22);
+      ctx.fillStyle = c.weapon;
+      ctx.beginPath(); ctx.arc(9.5, -10, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(180,200,255,0.55)';
+      ctx.beginPath(); ctx.arc(9.5, -10, 10, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
@@ -114,7 +150,7 @@ const UI = (() => {
     els['class-cards'].innerHTML = Classes.LIST.map(cls => {
       const b = cls.base;
       return `<div class="class-card" data-class="${cls.id}">
-        <div class="class-preview"><canvas width="72" height="56" data-icon="${cls.id}"></canvas></div>
+        <div class="class-preview"><canvas width="96" height="78" data-icon="${cls.id}"></canvas></div>
         <h3>${cls.name}</h3>
         <div class="tag">${tags[cls.id]}</div>
         <div class="blurb">${cls.blurb}</div>

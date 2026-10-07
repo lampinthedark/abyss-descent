@@ -6,7 +6,7 @@
   <title>Abyss Descent — Isometric ARPG</title>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=2" />
 </head>
 <body>
   <div id="game-wrap">
@@ -34,6 +34,7 @@
       <div id="hud-btns">
         <button type="button" id="btn-inv" title="Inventory (I)">Bag</button>
         <button type="button" id="btn-skills" title="Skills (K)">Skills</button>
+        <button type="button" id="btn-mute" class="js-mute" data-compact="1" title="Mute (M)">🔊</button>
         <button type="button" id="btn-pause" title="Pause (Esc)">❚❚</button>
       </div>
       <div id="msg-log"></div>
@@ -53,8 +54,10 @@
         <ul class="controls-hint">
           <li><b>Click / Tap</b> — move, attack, or talk to NPCs</li>
           <li><b>I</b> — inventory · <b>K</b> — skill tree · <b>Esc</b> — pause</li>
+          <li><b>M</b> or Sound — mute and unmute (remembered on this device)</li>
           <li>Speak to the living · cleanse demons · find the portal</li>
         </ul>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
         <button type="button" id="btn-continue" class="big-btn hidden">Continue Descent</button>
         <p id="continue-summary" class="continue-summary hidden"></p>
         <button type="button" id="btn-choose" class="big-btn">Choose Your Fate</button>
@@ -68,6 +71,7 @@
         <div id="class-cards" class="class-cards"></div>
         <button type="button" id="btn-start" class="big-btn" disabled>Start Descent</button>
         <button type="button" id="btn-back-title" class="big-btn secondary">Back</button>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
       </div>
     </div>
 
@@ -77,6 +81,7 @@
         <button type="button" id="btn-resume" class="big-btn">Resume</button>
         <button type="button" id="btn-save" class="big-btn secondary">Save Progress</button>
         <button type="button" id="btn-restart" class="big-btn secondary">Restart Run</button>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
       </div>
     </div>
 
@@ -86,6 +91,7 @@
         <p id="death-msg">The abyss claims another soul.</p>
         <button type="button" id="btn-retry-floor" class="big-btn">Retry Floor</button>
         <button type="button" id="btn-full-restart" class="big-btn secondary">New Run</button>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
       </div>
     </div>
 
@@ -111,15 +117,16 @@
     </div>
   </div>
 
-  <script src="js/utils.js"></script>
-  <script src="js/classes.js"></script>
-  <script src="js/loot.js"></script>
-  <script src="js/skills.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/npc.js"></script>
-  <script src="js/entities.js"></script>
-  <script src="js/save.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/utils.js?v=2"></script>
+  <script src="js/classes.js?v=2"></script>
+  <script src="js/loot.js?v=2"></script>
+  <script src="js/skills.js?v=2"></script>
+  <script src="js/map.js?v=2"></script>
+  <script src="js/npc.js?v=2"></script>
+  <script src="js/entities.js?v=2"></script>
+  <script src="js/save.js?v=2"></script>
+  <script src="js/audio.js?v=2"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/game.js?v=2"></script>
 </body>
 </html>
