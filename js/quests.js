@@ -109,10 +109,22 @@ const Quests = (() => {
     return isComplete(p, 'silence') || isComplete(p, 'embers');
   }
 
+  function silenceMet(q) {
+    return !!(q && q.need > 0 && q.have >= q.need && q.step === 'return');
+  }
+
+  function normalizeSilence(p) {
+    const q = get(p, 'silence');
+    if (!q) return null;
+    if (q.need > 0 && q.have >= q.need) q.step = 'return';
+    else if (q.step === 'return') q.step = 'hunt';
+    return q;
+  }
+
   function readyIds(p, npcId, ctx) {
     const ids = [];
-    const silence = get(p, 'silence');
-    if (silence && silence.step === 'return' && (npcId === 'hermit' || npcId === 'knight')) ids.push('silence');
+    const silence = normalizeSilence(p);
+    if (silenceMet(silence) && (npcId === 'hermit' || npcId === 'knight')) ids.push('silence');
     const embers = get(p, 'embers');
     if (embers && embers.step === 'return' && (npcId === 'hermit' || npcId === 'knight')) ids.push('embers');
     const oath = get(p, 'oath');
@@ -174,7 +186,11 @@ const Quests = (() => {
     const d = DEFS[id];
     let text = '';
     if (id === 'silence') {
-      text = 'The stair is not quiet yet. Demons slain: ' + q.have + '/' + q.need + '. Come back when it is done.';
+      if (!(q.need > 0)) {
+        text = 'The stair is not quiet yet. Demons still have to walk it before this vow can be kept.';
+      } else {
+        text = 'The stair is not quiet yet. Demons slain: ' + q.have + '/' + q.need + '. Come back when it is done.';
+      }
     } else if (id === 'embers') {
       text = 'Warden embers still burn on this floor. You hold ' + q.have + '/' + q.need + '. Look for the glowing coals.';
     } else if (ctx.floor >= 2) {
@@ -240,8 +256,9 @@ const Quests = (() => {
     if (id === 'oath' && !canOfferOath(p)) return false;
     let q = null;
     if (id === 'silence') {
+      // Kills before accept do not count. A cleared floor stays a hunt until a pack exists.
       const living = Math.max(0, (ctx && ctx.living) || 0);
-      q = { step: living <= 0 ? 'return' : 'hunt', need: living, have: 0 };
+      q = { step: 'hunt', need: living, have: 0 };
     } else if (id === 'embers') {
       q = { step: 'gather', need: 2, have: 0 };
     } else if (id === 'oath') {
@@ -289,12 +306,13 @@ const Quests = (() => {
     if (actionId === 'portal-descend') {
       const abandoned = [];
       ['silence', 'embers'].forEach(id => {
-        const q = get(p, id);
-        if (q && q.step !== 'return') {
-          delete p.quests.active[id];
-          p.quests.done[id] = 'abandoned';
-          abandoned.push(id);
-        }
+        const q = id === 'silence' ? normalizeSilence(p) : get(p, id);
+        if (!q) return;
+        const keep = id === 'silence' ? silenceMet(q) : q.step === 'return';
+        if (keep) return;
+        delete p.quests.active[id];
+        p.quests.done[id] = 'abandoned';
+        abandoned.push(id);
       });
       return { descend: true, node: null, abandon: abandoned };
     }
@@ -302,11 +320,14 @@ const Quests = (() => {
     if (actionId.indexOf('accept-') === 0) {
       const id = actionId.slice('accept-'.length);
       if (!DEFS[id] || !accept(p, id, ctx)) return { node: open(p, npc, ctx) };
+      const hunt = get(p, 'silence');
+      const spawnHunt = id === 'silence' && !(hunt && hunt.need > 0);
       return {
-        node: reminder(p, npc, id, ctx),
+        node: spawnHunt ? null : reminder(p, npc, id, ctx),
         toast: 'Vow accepted: ' + DEFS[id].title + '.',
         toastKind: 'story',
         spawnEmbers: id === 'embers',
+        spawnHunt,
       };
     }
 
@@ -315,6 +336,7 @@ const Quests = (() => {
       if (readyIds(p, npc.id, ctx).indexOf(id) < 0) return { node: open(p, npc, ctx) };
       const q = get(p, id);
       if (!q) return { node: open(p, npc, ctx) };
+      if (id === 'silence' && !silenceMet(q)) return { node: open(p, npc, ctx) };
       delete p.quests.active[id];
       p.quests.done[id] = 'complete';
       const granted = rewardPayload(id);
@@ -330,10 +352,11 @@ const Quests = (() => {
   }
 
   function onKill(p, floor) {
-    const q = get(p, 'silence');
+    const q = normalizeSilence(p);
     if (!q || q.step !== 'hunt' || Number(floor) !== 1) return '';
+    if (!(q.need > 0)) return '';
     q.have = Math.min(q.need, (q.have || 0) + 1);
-    if (q.need <= 0 || q.have >= q.need) {
+    if (q.have >= q.need) {
       q.step = 'return';
       return 'ready';
     }
@@ -352,23 +375,39 @@ const Quests = (() => {
   }
 
   function onNewWave(p, floor, living) {
-    const q = get(p, 'silence');
+    const q = normalizeSilence(p);
     if (!q || q.step !== 'hunt' || Number(floor) !== 1) return;
+    const n = Math.max(0, living || 0);
+    // An empty reload must not complete the vow. Keep the old target until foes exist.
+    if (n <= 0) return;
     q.have = 0;
-    q.need = Math.max(0, living || 0);
-    if (q.need <= 0) q.step = 'return';
+    q.need = n;
+  }
+
+  function settleHunt(p, count) {
+    const q = get(p, 'silence');
+    if (!q || q.step === 'return') return false;
+    const n = Math.max(0, count | 0);
+    if (n <= 0) {
+      delete ensure(p).active.silence;
+      return false;
+    }
+    q.step = 'hunt';
+    q.need = n;
+    q.have = 0;
+    return true;
   }
 
   function portalGate(p, floor) {
     ensure(p);
     if (Number(floor) !== 1) return null;
     const pending = [];
-    const silence = get(p, 'silence');
+    const silence = normalizeSilence(p);
     if (silence) pending.push(silence);
     const embers = get(p, 'embers');
     if (embers) pending.push(embers);
     if (!pending.length) return null;
-    const unfinished = pending.some(q => q.step !== 'return');
+    const unfinished = pending.some(q => (q === silence ? !silenceMet(q) : q.step !== 'return'));
     const text = unfinished
       ? 'The portal stirs, but a vow on this floor is still unfinished. Leave now, and that vow stays unfinished.'
       : 'A vow is ready to turn in. The hermit is still on this floor — or the knight below can witness it.';
@@ -399,13 +438,15 @@ const Quests = (() => {
         priority,
       });
     };
-    const silence = get(p, 'silence');
+    const silence = normalizeSilence(p);
     if (silence) {
-      if (silence.step === 'return') {
+      if (silenceMet(silence)) {
         const where = floor >= 2
           ? 'Turn in to the Wounded Knight. He will witness the vow.'
           : 'Return to the Ashen Hermit and turn in.';
         push('silence', where, 'ready to turn in', 0);
+      } else if (!(silence.need > 0)) {
+        push('silence', 'Demons must walk this floor before the vow can be kept.', 'awaiting demons', 1);
       } else {
         push('silence', 'Slay the demons on this floor (' + silence.have + '/' + silence.need + ').', silence.have + '/' + silence.need + ' slain', 1);
       }
@@ -477,11 +518,11 @@ const Quests = (() => {
       if (!q || typeof q !== 'object') return;
       const step = q.step === 'return' || q.step === 'gather' || q.step === 'deliver' || q.step === 'hunt'
         ? q.step : 'hunt';
-      out.active[id] = {
-        step,
-        need: Math.max(0, q.need | 0),
-        have: Math.max(0, q.have | 0),
-      };
+      const need = Math.max(0, q.need | 0);
+      const have = Math.max(0, q.have | 0);
+      let kept = step;
+      if (id === 'silence' && !(need > 0 && have >= need)) kept = 'hunt';
+      out.active[id] = { step: kept, need, have };
     });
     const done = data.done || {};
     Object.keys(DEFS).forEach(id => {
@@ -492,7 +533,7 @@ const Quests = (() => {
 
   return {
     DEFS, empty, ensure, get, isDone, isComplete,
-    open, act, onKill, noteEmber, onNewWave, portalGate, hud, marker,
+    open, act, onKill, noteEmber, onNewWave, settleHunt, portalGate, hud, marker,
     save, load,
   };
 })();
