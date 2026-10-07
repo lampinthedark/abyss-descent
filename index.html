@@ -6,7 +6,7 @@
   <title>Abyss Descent — Isometric ARPG</title>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/style.css?v=10" />
+  <link rel="stylesheet" href="css/style.css?v=11" />
 </head>
 <body>
   <div id="game-wrap">
@@ -43,6 +43,25 @@
         <button type="button" id="btn-pause" title="Pause (Esc)">❚❚</button>
       </div>
       <div id="msg-log"></div>
+      <div id="touch-bar">
+        <div id="touch-skills"></div>
+        <button type="button" id="touch-attack" aria-label="Attack">Attack</button>
+      </div>
+    </div>
+
+    <div id="adtest-panel" class="hidden">
+      <div class="adtest-title">Ad test</div>
+      <button type="button" data-ad-offer="revive">Revive</button>
+      <button type="button" data-ad-offer="reroll">Reroll</button>
+      <button type="button" data-ad-offer="gold">Double gold</button>
+      <div id="adtest-held" class="hidden">held: in combat</div>
+    </div>
+    <div id="adtest-prompt" class="hidden">
+      <div data-ad-label>TEST AD</div>
+      <div class="adtest-actions">
+        <button type="button" data-ad-accept>Accept</button>
+        <button type="button" data-ad-dismiss>Dismiss</button>
+      </div>
     </div>
 
     <div id="dialogue-box" class="hidden">
@@ -59,6 +78,7 @@
         <p class="lore">You are one of the few who still choose to go <em>down</em>.</p>
         <ul class="controls-hint">
           <li><b>Click / Tap</b> — move, attack, or talk to NPCs</li>
+          <li><b>Attack</b> and skill buttons on a phone · <b>1</b> <b>2</b> <b>3</b> — the same skills</li>
           <li><b>I</b> — inventory · <b>K</b> — skill tree · <b>Esc</b> — pause</li>
           <li><b>M</b> or Sound — mute and unmute (remembered on this device)</li>
           <li>Speak to the Hermit, keep a vow, then turn it in</li>
@@ -123,17 +143,19 @@
     </div>
   </div>
 
-  <script src="js/utils.js?v=10"></script>
-  <script src="js/classes.js?v=10"></script>
-  <script src="js/loot.js?v=10"></script>
-  <script src="js/skills.js?v=10"></script>
-  <script src="js/map.js?v=10"></script>
-  <script src="js/npc.js?v=10"></script>
-  <script src="js/quests.js?v=10"></script>
-  <script src="js/entities.js?v=10"></script>
-  <script src="js/save.js?v=10"></script>
-  <script src="js/audio.js?v=10"></script>
-  <script src="js/ui.js?v=10"></script>
-  <script src="js/game.js?v=10"></script>
+  <script src="js/utils.js?v=11"></script>
+  <script src="js/classes.js?v=11"></script>
+  <script src="js/loot.js?v=11"></script>
+  <script src="js/skills.js?v=11"></script>
+  <script src="js/map.js?v=11"></script>
+  <script src="js/npc.js?v=11"></script>
+  <script src="js/quests.js?v=11"></script>
+  <script src="js/entities.js?v=11"></script>
+  <script src="js/save.js?v=11"></script>
+  <script src="js/audio.js?v=11"></script>
+  <script src="js/analytics.js?v=11"></script>
+  <script src="js/ads.js?v=11"></script>
+  <script src="js/ui.js?v=11"></script>
+  <script src="js/game.js?v=11"></script>
 </body>
 </html>

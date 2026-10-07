@@ -134,9 +134,10 @@ const Entities = (() => {
     return ENEMY_TYPES.find(t => t.id === id) || ENEMY_TYPES[0];
   }
 
-  function createEnemy(x, y, floor) {
+  function createEnemy(x, y, floor, typeId) {
     floor = Number(floor);
-    const t = pickType(floor);
+    const picked = typeId ? ENEMY_TYPES.find(e => e.id === typeId) : null;
+    const t = picked || pickType(floor);
     const scale = 1 + (floor - 1) * 0.22;
     // Floor 2 keeps the previous curve. Floor 1 brutes use 2.05; light trash uses FLOOR1_HP.
     const earlyHp = floor === 1 ? 1 : floor === 2 ? 1.55 : 1;
@@ -200,10 +201,91 @@ const Entities = (() => {
     };
   }
 
-  function spawnWave(map, floor) {
+  // Floor 1 is a fixed opening: an early pack, a mid skeleton, then a brute
+  // and another skeleton deeper in. Hit points stay on the existing curve.
+  function spawnFloor1(map) {
+    const plan = [
+      { id: 'skel', band: 'early' },
+      { id: 'skel', band: 'early' },
+      { id: 'imp', band: 'early' },
+      { id: 'skel', band: 'mid' },
+      { id: 'brute', band: 'deep' },
+      { id: 'skel', band: 'deep' },
+    ];
+    const tiles = [];
+    for (let y = 0; y < map.h; y++) {
+      for (let x = 0; x < map.w; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        if (!map.grounded(px, py) || map.isStairs(px, py)) continue;
+        tiles.push({
+          x: px,
+          y: py,
+          d: Math.hypot(px - map.startX, py - map.startY),
+        });
+      }
+    }
+    const used = [];
     const enemies = [];
-    let count = floor <= 1 ? 3
-      : floor === 2 ? 5 + Utils.randInt(0, 1)
+    const minStart = 5.5;
+    const free = (t, gap) => !used.some(u => Math.hypot(u.x - t.x, u.y - t.y) < gap);
+    const nearest = (pred, gap) => {
+      let best = null;
+      for (const t of tiles) {
+        if (!pred(t) || !free(t, gap)) continue;
+        if (!best || t.d < best.d) best = t;
+      }
+      return best;
+    };
+    // The opening pack has to share one patch of floor, not ring the entrance.
+    const pack = [];
+    let bestGroup = [];
+    let bestSeed = null;
+    for (const radius of [3.2, 4.6]) {
+      if (bestGroup.length >= 3) break;
+      for (const seed of tiles) {
+        if (seed.d < 5.6 || seed.d > 12) continue;
+        const group = tiles.filter(t => t.d >= minStart && Math.hypot(t.x - seed.x, t.y - seed.y) <= radius);
+        const closer = !bestSeed || seed.d < bestSeed.d;
+        if (group.length > bestGroup.length || (group.length === bestGroup.length && closer && group.length >= 3)) {
+          bestGroup = group;
+          bestSeed = seed;
+        }
+      }
+    }
+    bestGroup = bestGroup.slice().sort((a, b) =>
+      Math.hypot(a.x - bestSeed.x, a.y - bestSeed.y) - Math.hypot(b.x - bestSeed.x, b.y - bestSeed.y));
+    for (const t of bestGroup) {
+      if (pack.length >= 3) break;
+      if (!free(t, 1.45)) continue;
+      pack.push(t);
+      used.push(t);
+    }
+    const earlyIds = ['skel', 'skel', 'imp'];
+    for (let i = 0; i < pack.length; i++) {
+      enemies.push(createEnemy(pack[i].x, pack[i].y, 1, earlyIds[i]));
+    }
+    const rest = plan.filter(s => s.band !== 'early');
+    for (const slot of rest) {
+      let spot = null;
+      if (slot.band === 'mid') {
+        spot = nearest(t => t.d >= 12 && t.d <= 26, 2.2)
+          || nearest(t => t.d >= 10, 2);
+      } else {
+        spot = nearest(t => t.d > 16, 2.2)
+          || nearest(t => t.d >= 12, 2);
+      }
+      if (!spot) spot = nearest(t => t.d >= minStart, 1.4);
+      if (!spot) continue;
+      used.push(spot);
+      enemies.push(createEnemy(spot.x, spot.y, 1, slot.id));
+    }
+    return enemies;
+  }
+
+  function spawnWave(map, floor) {
+    if (Number(floor) <= 1) return spawnFloor1(map);
+    const enemies = [];
+    let count = floor === 2 ? 5 + Utils.randInt(0, 1)
         : 4 + floor * 2 + Utils.randInt(0, 3);
     const pts = (map.spawnPoints || []).filter(p => map.grounded(p.x, p.y));
     for (let i = pts.length - 1; i > 0; i--) {

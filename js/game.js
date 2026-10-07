@@ -51,6 +51,7 @@
     canvas.height = Math.max(200, Math.floor(h));
     canvas.style.width = canvas.width + 'px';
     canvas.style.height = canvas.height + 'px';
+    syncTouchUi();
   }
 
   function startRun(keepProgress = false) {
@@ -177,6 +178,10 @@
     ensureEmbers();
     for (const em of game.embers) plantOnFloor(em);
     refreshQuestHud();
+    try {
+      if (floor === 1) Analytics.event('floor-1-entered');
+      else if (floor === 2) Analytics.event('floor-2-entered');
+    } catch (e) {}
   }
 
   function centerCam() {
@@ -206,6 +211,12 @@
     game.floor = data.floor || 1;
     const restored = !!(data.floorState && applyFloorState(data.floorState));
     if (!restored) loadFloor(game.floor);
+    else {
+      try {
+        if (game.floor === 1) Analytics.event('floor-1-entered');
+        else if (game.floor === 2) Analytics.event('floor-2-entered');
+      } catch (e) {}
+    }
     const dead = game.player.life <= 0;
     game.deathStinger = dead;
     game.state = dead ? 'dead' : 'playing';
@@ -261,6 +272,7 @@
   }
 
   function handlePointer(e) {
+    if (e.target && e.target.closest && e.target.closest('#touch-bar, #adtest-panel, #adtest-prompt')) return;
     if (game.state !== 'playing') return;
     if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) return;
     if (UI.isDialogueOpen()) return;
@@ -447,7 +459,18 @@
       }
     }
 
-    if (!p.targetEnemy || p.targetEnemy.life <= 0) {
+    if (p._holdAttack) {
+      p.path = [];
+      p._pendingNpc = null;
+      p._pendingEmber = null;
+      let best = null, bd = attackRange + 0.001;
+      for (const en of game.enemies) {
+        if (en.life <= 0) continue;
+        const d = Utils.dist(p.x, p.y, en.x, en.y);
+        if (d <= attackRange && d < bd) { bd = d; best = en; }
+      }
+      p.targetEnemy = best;
+    } else if (!p.targetEnemy || p.targetEnemy.life <= 0) {
       p.targetEnemy = null;
       if (!p.path.length && !p.useProjectile) {
         let best = null, bd = attackRange + 0.4;
@@ -472,6 +495,7 @@
         p.x += (dx / dist) * speed;
         p.y += (dy / dist) * speed;
         p.facing = dx >= 0 ? 1 : -1;
+        p._aim = Math.atan2(dy, dx);
         p._dust = (p._dust || 0) + dt;
         if (p._dust > 0.22) {
           p._dust = 0;
@@ -481,7 +505,7 @@
           });
         }
       }
-    } else if (p.targetEnemy && p.targetEnemy.life > 0) {
+    } else if (!p._holdAttack && p.targetEnemy && p.targetEnemy.life > 0) {
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d > attackRange * 0.92) {
@@ -490,6 +514,7 @@
         const ny = p.y + Math.sin(ang) * st.move * dt;
         if (game.map.walkable(nx, ny)) { p.x = nx; p.y = ny; }
         p.facing = en.x >= p.x ? 1 : -1;
+        p._aim = ang;
       }
     }
     plantOnFloor(p);
@@ -504,12 +529,18 @@
           const reach = attackRange * (p.useProjectile ? 1.25 : 1.15);
           if (d <= reach) doPlayerAttack(p, en, st);
           p.attackCd = swingGap(st);
+          p._whiff = false;
+        } else if (p._whiff) {
+          p._whiff = false;
+          if (!p.useProjectile) spawnSlash(p);
+          p.attackCd = swingGap(st);
         }
       }
     } else if (p.targetEnemy && p.targetEnemy.life > 0 && p.attackCd <= 0) {
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d <= attackRange) {
+        p._whiff = false;
         p.windupMax = p.useProjectile ? 0.22 : 0.18;
         p.windup = p.windupMax;
         p.swingDur = p.useProjectile ? 0.34 : 0.28;
@@ -518,6 +549,16 @@
         p.facing = en.x >= p.x ? 1 : -1;
         GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
       }
+    } else if (p._holdAttack && p.attackCd <= 0) {
+      const ang = typeof p._aim === 'number' ? p._aim : (p.facing < 0 ? Math.PI : 0);
+      p._whiff = true;
+      p.windupMax = p.useProjectile ? 0.22 : 0.18;
+      p.windup = p.windupMax;
+      p.swingDur = p.useProjectile ? 0.34 : 0.28;
+      p.swingAnim = p.swingDur;
+      p.swingAng = ang;
+      p.facing = Math.cos(ang) >= 0 ? 1 : -1;
+      GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
     }
 
     // projectiles
@@ -2101,6 +2142,8 @@
   }
 
   function frame(t) {
+    try { Analytics.pump(); } catch (e) {}
+    try { Ads.tick(); } catch (e) {}
     const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
     lastT = t;
     game.shakePhase = (game.shakePhase || 0) + dt * 48;
@@ -2179,7 +2222,18 @@
     game.player._pendingNpc = null;
     game.player._pendingEmber = null;
     GameAudio.sfx('talk');
+    noteVowOffers(node);
     return true;
+  }
+
+  function noteVowOffers(node) {
+    try {
+      if (!node || !node.actions || !talkingNpc || talkingNpc.id !== 'hermit') return;
+      for (const a of node.actions) {
+        if (!a || !a.id || a.id.indexOf('accept-') !== 0) continue;
+        Analytics.event('vow-offered-' + a.id.slice('accept-'.length));
+      }
+    } catch (e) {}
   }
 
   function handleDialogueAction(actionId) {
@@ -2206,6 +2260,15 @@
       UI.log('You left a vow unfinished.', 'danger');
       game.embers = [];
     }
+    try {
+      if (actionId && actionId.indexOf('accept-') === 0
+          && result.toast && String(result.toast).indexOf('Vow accepted') === 0) {
+        Analytics.event('vow-accepted-' + actionId.slice('accept-'.length));
+      }
+      if (actionId && actionId.indexOf('turnin-') === 0 && result.granted) {
+        Analytics.event('vow-completed-' + actionId.slice('turnin-'.length));
+      }
+    } catch (e) {}
     if (result.toast) UI.log(result.toast, result.toastKind || 'story');
     if (result.granted) grantQuest(result.granted);
     if (result.spawnEmbers) {
@@ -2219,8 +2282,10 @@
       descendFloor();
       return;
     }
-    if (result.node) UI.showDialogue(result.node);
-    else closeDialogue();
+    if (result.node) {
+      UI.showDialogue(result.node);
+      noteVowOffers(result.node);
+    } else closeDialogue();
     persist('talk');
   }
 
@@ -2431,6 +2496,54 @@
     if (game.state !== 'playing') return;
     if (k === 'i') { e.preventDefault(); UI.togglePanel(game, 'inv-panel'); }
     if (k === 'k') { e.preventDefault(); UI.togglePanel(game, 'skill-panel'); }
+    if (k === '1' || k === '2' || k === '3') {
+      if (e.repeat) return;
+      e.preventDefault();
+      setAttackHold('key', true);
+    }
+  }
+
+  function setAttackHold(source, on) {
+    const p = game.player;
+    if (!p) return;
+    if (!p._holdSources) p._holdSources = {};
+    if (on) p._holdSources[source] = true;
+    else delete p._holdSources[source];
+    p._holdAttack = Object.keys(p._holdSources).length > 0;
+  }
+
+  function syncTouchUi() {
+    let on = false;
+    try {
+      if (navigator.maxTouchPoints > 0) on = true;
+      else if (window.matchMedia) {
+        on = window.matchMedia('(pointer: coarse)').matches
+          || window.matchMedia('(any-pointer: coarse)').matches;
+      }
+    } catch (e) { on = false; }
+    document.documentElement.classList.toggle('touch-ui', on);
+  }
+
+  function bindTouchAttack() {
+    const bar = document.getElementById('touch-bar');
+    if (!bar) return;
+    const press = (e) => {
+      if (e.button != null && e.button !== 0) return;
+      const btn = e.target.closest('button');
+      if (!btn || !bar.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { btn.setPointerCapture(e.pointerId); } catch (err) {}
+      setAttackHold('touch', true);
+    };
+    const release = (e) => {
+      if (e && e.cancelable) e.preventDefault();
+      setAttackHold('touch', false);
+    };
+    bar.addEventListener('pointerdown', press);
+    bar.addEventListener('pointerup', release);
+    bar.addEventListener('pointercancel', release);
+    bar.addEventListener('lostpointercapture', release, true);
   }
 
   function bind() {
@@ -2490,6 +2603,7 @@
       UI.hide('select-screen');
       UI.show('title-screen');
       game.state = 'title';
+      try { Analytics.event('title-shown'); } catch (e) {}
     });
     UI.els['btn-start'].addEventListener('click', () => {
       game.selectedClass = UI.getSelectedClass();
@@ -2574,6 +2688,25 @@
     canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
     canvas.addEventListener('gesturestart', (e) => e.preventDefault());
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', (e) => {
+      const k = (e.key || '').toLowerCase();
+      if (k === '1' || k === '2' || k === '3') setAttackHold('key', false);
+    });
+    syncTouchUi();
+    bindTouchAttack();
+    try {
+      Ads.setCombat(() => {
+        const p = game.player;
+        if (!p || game.state === 'title' || game.state === 'select') return false;
+        if (p.windup > 0 || p.swingAnim > 0) return true;
+        if (p.targetEnemy && p.targetEnemy.life > 0) return true;
+        for (const en of game.enemies || []) {
+          if (en.life > 0 && (en.aggro || en.windup > 0)) return true;
+        }
+        return false;
+      });
+    } catch (e) {}
+    try { Analytics.event('title-shown'); } catch (e) {}
     window.addEventListener('beforeunload', () => {
       if (game.player && (game.state === 'playing' || game.state === 'paused' || game.state === 'dialogue' || game.state === 'dead')) {
         Save.write(game);

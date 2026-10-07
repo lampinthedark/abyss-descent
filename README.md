@@ -1,6 +1,6 @@
 # Abyss Descent
 
-Isometric browser action RPG. Click or tap to move, fight, and talk; go deeper until the portal.
+Isometric browser action RPG. Click or tap to move, fight, and talk; go deeper until the portal. On a phone, an Attack button and the class skills you have learned sit above the Bag and Skills buttons. Hold Attack to keep swinging. Keys 1–3 do the same thing. Those buttons stay off a desktop.
 
 Sound is synthesized in the browser (no audio files). It starts after the first tap, click, or key. Mute with the **Sound** button on the title screen or HUD, or press **M**. The choice is saved on this device. After an update, hard-refresh the page so the browser drops cached scripts.
 
@@ -16,7 +16,7 @@ The shell keeps the WebView full-bleed: safe-area padding (Android pushes `--saf
 
 | Surface | What players get | What to bump |
 | --- | --- | --- |
-| GitHub Pages | Root HTML/CSS/JS, cache-busted with `?v=` (currently `9`) | Every `?v=` in root `index.html` when shared files change |
+| GitHub Pages | Root HTML/CSS/JS, cache-busted with `?v=` (currently `11`) | Every `?v=` in root `index.html` when shared files change |
 | Android / iOS | Whatever `cap sync` last copied, plus the shell | `versionCode` in `android/app/build.gradle` (and iOS `CURRENT_PROJECT_VERSION`) when you ship a new binary |
 
 A gameplay change ships to both by editing the root files, bumping `?v=` so browsers drop the old scripts, then running `npm run cap:sync` and building a new binary.
@@ -93,6 +93,37 @@ npx cap open ios
 
 Run the App target. `ios.scrollEnabled` is false and `ios.contentInset` is `never`, and the WebView turns bouncing off, so the page stays full screen.
 
-### Known follow-up
+Clearing a floor does not walk you through the portal. If you are already standing on the stairs when the last enemy dies, you stay on the floor until you step off and back on, or tap the lit portal.
 
-The exit portal is the center of the last carved room. If that tile is where the last enemy dies, the clear check treats the player as already standing in the portal, and the combat click can descend before the Hermit vow is turned in. Floor logic is unchanged in this wrap.
+## Anonymous counts
+
+Counts stay off until you set one constant. In `js/analytics.js`:
+
+```javascript
+const GOATCOUNTER_ENDPOINT = '';
+```
+
+Set it to your GoatCounter count URL, for example `https://yoursite.goatcounter.com/count`, then bump `?v=` in `index.html`. The game sends GoatCounter's event count (`p` is the event name, `e=true`) and nothing else: no screen size, no referrer, no cookies, and no player id. A failed request is ignored. If the browser sends Do Not Track or Global Privacy Control, nothing is sent even when the endpoint is set.
+
+`?debug=1` prints each event to the console as `[analytics] <name>` and still sends nothing while the endpoint is empty.
+
+The only thing stored for the return check is a local date (`abyss-descent-last-played`, `YYYY-MM-DD`). When that date is an earlier day, one `returned` event is sent. The date itself is not sent.
+
+Events:
+
+| Event | When |
+| --- | --- |
+| `title-shown` | Title screen is shown |
+| `class-selected-warrior`, `class-selected-rogue`, `class-selected-sorcerer` | That class card is chosen |
+| `floor-1-entered`, `floor-2-entered` | That floor starts |
+| `returned` | This device's saved date is an earlier day |
+| `session-under-1-min`, `session-1-3-min`, `session-3-5-min`, `session-5-10-min`, `session-10-20-min`, `session-20-plus-min` | Once, when the tab hides or the page closes. The bucket is active play time, not time in a background tab |
+| `vow-offered-silence`, `vow-offered-embers`, `vow-offered-oath` | The Hermit offers that vow |
+| `vow-accepted-silence`, `vow-accepted-embers`, `vow-accepted-oath` | That vow is accepted |
+| `vow-completed-silence`, `vow-completed-embers`, `vow-completed-oath` | That vow is turned in |
+
+## Ad test
+
+`offerRevive()`, `offerReroll()`, and `offerDoubleGold()` return `unavailable` and show nothing. They never play an ad.
+
+Add `?adtest=1` to check the no-fight guard. A small panel appears with a button for each hook. Each one opens a placeholder such as `TEST AD: Revive`, with Accept and Dismiss. Nothing is requested from the network. If a hook runs while any enemy is aggro'd or a swing is in progress, the prompt waits, the panel shows `held: in combat`, and the prompt appears once combat ends.
