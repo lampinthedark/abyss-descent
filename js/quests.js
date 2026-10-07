@@ -426,7 +426,26 @@ const Quests = (() => {
       if (floor >= 2) push('oath', 'Speak with the Wounded Knight and turn in.', 'turn in to the knight', 0);
       else push('oath', 'Descend the portal and find the Wounded Knight.', 'deliver on Floor 2', 2);
     }
-    if (!rows.length) return null;
+    if (!rows.length) {
+      const open = vowsOpen(p);
+      const oathReady = canOfferOath(p);
+      if (floor <= 1 && (open.length || oathReady)) {
+        const parts = [];
+        if (open.indexOf('silence') >= 0) parts.push('Hunt: ' + DEFS.silence.reward);
+        if (open.indexOf('embers') >= 0) parts.push('Embers: ' + DEFS.embers.reward);
+        if (oathReady) parts.push('Oath: ' + DEFS.oath.reward);
+        const started = isComplete(p, 'silence') || isComplete(p, 'embers');
+        return {
+          title: 'The Ashen Hermit',
+          objective: started
+            ? 'Speak with the hermit and choose your next vow.'
+            : 'Speak with the hermit by the entrance.',
+          reward: parts.join(' · '),
+          also: '',
+        };
+      }
+      return null;
+    }
     rows.sort((a, b) => a.priority - b.priority || 0);
     const top = rows[0];
     const also = rows[1];
