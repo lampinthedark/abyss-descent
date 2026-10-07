@@ -268,13 +268,15 @@
     const pos = canvasPos(e);
     const world = Utils.screenToWorld(pos.x, pos.y, game.camX, game.camY, TILE_W, TILE_H);
 
-    // NPC talk (generous tap radius for mobile)
-    let nearestNpc = null, ndNpc = 1.6;
+    // NPC talk. Screen-space covers the sprite above the feet, including when it overlaps the player.
+    let nearestNpc = null, bestNpc = Infinity;
     for (const n of game.npcs) {
-      const d = Utils.dist(world.x, world.y, n.x, n.y);
-      if (d < ndNpc) { ndNpc = d; nearestNpc = n; }
+      const screenD = spriteClickDist(pos, n.x, n.y, 22);
+      const worldD = Utils.dist(world.x, world.y, n.x, n.y);
+      if (screenD > 54 && worldD >= 1.6) continue;
+      const score = Math.min(screenD, worldD * 32);
+      if (score < bestNpc) { bestNpc = score; nearestNpc = n; }
     }
-    // also allow tap if player is near NPC and tapped near self
     if (!nearestNpc) {
       for (const n of game.npcs) {
         if (Utils.dist(game.player.x, game.player.y, n.x, n.y) < 1.4 &&
@@ -755,7 +757,7 @@
       ? ` — ${prog.pointsGained} skill point${prog.pointsGained === 1 ? '' : 's'} gained.`
       : '.';
     UI.log(`Level up! Now Lv ${p.level}${pts}`, 'level');
-    spawnFloat(p.x, p.y - 0.55, 'LEVEL UP', '#7dffa8', { scale: 1.45, crit: true, life: 1.15 });
+    spawnFloat(p.x, p.y - 0.55, 'LEVEL UP', '#7dffa8', { scale: 1.45, crit: true, life: 1.15, spread: true });
     spawnLevelBurst(p.x, p.y);
     GameAudio.sfx('level');
   }
@@ -2096,6 +2098,7 @@
 
   function refreshQuestHud() {
     if (!game.player) return;
+    ensureHuntPack();
     const view = Quests.hud(game.player, questCtx());
     if (view) {
       UI.renderQuest(view, game.player);
@@ -2129,6 +2132,7 @@
 
   function beginTalk(npc) {
     talkingNpc = npc;
+    ensureHuntPack();
     const node = Quests.open(game.player, npc, questCtx());
     if (!node) {
       talkingNpc = null;
@@ -2148,6 +2152,18 @@
   function handleDialogueAction(actionId) {
     if (!UI.isDialogueOpen() && game.state !== 'dialogue') return;
     const result = Quests.act(game.player, actionId, questCtx()) || { node: null };
+    if (result.spawnHunt) {
+      const living = (game.enemies || []).filter(e => e.life > 0).length;
+      const spawned = living > 0 ? 0 : spawnHuntPack();
+      const n = living > 0 ? living : spawned;
+      if (!Quests.settleHunt(game.player, n)) {
+        result.toast = 'No demons remain to hunt. The vow was not taken.';
+        result.toastKind = 'danger';
+        result.node = talkingNpc ? Quests.open(game.player, talkingNpc, questCtx()) : null;
+      } else if (talkingNpc) {
+        result.node = Quests.open(game.player, talkingNpc, questCtx());
+      }
+    }
     if (result.stay) {
       game.player._portalHold = true;
       closeDialogue();
@@ -2178,12 +2194,17 @@
   function grantQuest(granted) {
     const p = game.player;
     const st = Entities.playerStats(p);
+    let leveled = false;
     if (granted.gold) {
       const amt = Math.round(granted.gold * (st.goldMult || 1));
       p.gold += amt;
-      spawnFloat(p.x, p.y - 0.35, '+' + amt, '#ffe08a', { scale: 1.1, life: 0.9 });
+      spawnFloat(p.x, p.y - 0.35, '+' + amt, '#ffe08a', { scale: 1.1, life: 0.9, spread: true });
     }
-    if (granted.xp) announceLevel(p, Entities.gainXp(p, granted.xp));
+    if (granted.xp) {
+      const prog = Entities.gainXp(p, granted.xp);
+      leveled = !!(prog && prog.leveled);
+      announceLevel(p, prog);
+    }
     if (granted.skillPoint) {
       p.skills.bonus = (p.skills.bonus || 0) + granted.skillPoint;
       Skills.syncUnspent(p.skills, p.level);
@@ -2193,7 +2214,7 @@
       p.inventory.push(granted.item);
       UI.log(granted.item.name + ' added to your bag.', granted.item.rarity || 'loot');
     }
-    spawnFloat(p.x, p.y - 1.05, 'QUEST', '#e7c27a', { scale: 1.25, life: 1.15 });
+    spawnFloat(p.x, p.y - (leveled ? 1.9 : 1.05), 'QUEST', '#e7c27a', { scale: 1.25, life: 1.15, spread: true });
     GameAudio.sfx(granted.item && granted.item.rarity === 'rare' ? 'lootRare' : 'loot');
   }
 
@@ -2223,6 +2244,68 @@
     else UI.log('Warden ember gathered.', 'story');
     refreshQuestHud();
     persist('quest');
+  }
+
+  function spawnHuntPack() {
+    if (Number(game.floor) !== 1 || !game.map) return 0;
+    const placed = [];
+    let guard = 0;
+    while (placed.length < 3 && guard < 12) {
+      guard++;
+      const spot = findHuntSpot(placed);
+      if (!spot) break;
+      const en = Entities.createEnemy(spot.x, spot.y, 1);
+      plantOnFloor(en);
+      retuneLightHp(en);
+      game.enemies.push(en);
+      placed.push(en);
+    }
+    if (placed.length) game.cleared = false;
+    return placed.length;
+  }
+
+  function ensureHuntPack() {
+    if (!game.player || Number(game.floor) !== 1) return;
+    if (game.state !== 'playing' && game.state !== 'dialogue') return;
+    const q = Quests.get(game.player, 'silence');
+    if (!q || q.step !== 'hunt' || q.need > 0) return;
+    const living = (game.enemies || []).filter(e => e.life > 0).length;
+    if (living > 0) {
+      Quests.settleHunt(game.player, living);
+      return;
+    }
+    Quests.settleHunt(game.player, spawnHuntPack());
+  }
+
+  function findHuntSpot(placed) {
+    const map = game.map;
+    if (!map || !map.grounded) return null;
+    const avoid = placed.slice();
+    if (game.player) avoid.push(game.player);
+    for (const n of game.npcs) avoid.push(n);
+    for (const en of game.enemies) avoid.push(en);
+    avoid.push({ x: map.stairsX, y: map.stairsY });
+    const pick = (minStart, minGap) => {
+      let best = null;
+      let bestScore = -Infinity;
+      for (let y = 0; y < map.h; y++) {
+        for (let x = 0; x < map.w; x++) {
+          const px = x + 0.5, py = y + 0.5;
+          if (!map.grounded(px, py) || map.isStairs(px, py)) continue;
+          const fromStart = Math.hypot(px - map.startX, py - map.startY);
+          if (fromStart < minStart) continue;
+          let blocked = false;
+          for (const a of avoid) {
+            if (Math.hypot(px - a.x, py - a.y) < minGap) { blocked = true; break; }
+          }
+          if (blocked) continue;
+          const score = Math.min(fromStart, 16) + ((x * 17 + y * 5) % 9) * 0.15;
+          if (score > bestScore) { bestScore = score; best = { x: px, y: py }; }
+        }
+      }
+      return best;
+    };
+    return pick(6, 3.2) || pick(3.5, 1.8);
   }
 
   function ensureEmbers() {
