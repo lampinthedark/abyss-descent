@@ -117,9 +117,12 @@
   }
 
   function plantOnFloor(obj) {
-    if (!obj || !game.map) return;
+    if (!obj || !game.map || !game.map.grounded) return;
+    if (game.map.grounded(obj.x, obj.y)) return;
+    // Already on a real floor tile (narrow halls in older saves). Leave them.
     if (game.map.walkable(obj.x, obj.y)) return;
-    const s = MapGen.nearestWalkable(game.map, obj.x, obj.y);
+    const s = MapGen.nearestGrounded(game.map, obj.x, obj.y, 8)
+      || MapGen.nearestWalkable(game.map, obj.x, obj.y);
     obj.x = s.x;
     obj.y = s.y;
   }
@@ -315,10 +318,16 @@
 
   function setPath(tx, ty) {
     const p = game.player;
-    p.path = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.walkable(x + 0.5, y + 0.5))
-      .map(n => ({ x: n.x + 0.5, y: n.y + 0.5 }));
+    const toCenters = (nodes) => nodes.map(n => ({ x: n.x + 0.5, y: n.y + 0.5 }));
+    // Prefer tiles with floor behind the sprite. Fall back so older saves
+    // with narrower halls still have a route.
+    let nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.grounded(x + 0.5, y + 0.5));
+    if (!nodes.length) {
+      nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.walkable(x + 0.5, y + 0.5));
+    }
+    p.path = toCenters(nodes);
     if (!p.path.length && game.map.walkable(tx, ty)) {
-      p.path = [{ x: tx, y: ty }];
+      p.path = [{ x: Math.floor(tx) + 0.5, y: Math.floor(ty) + 0.5 }];
     }
   }
 
@@ -404,6 +413,7 @@
         p.facing = en.x >= p.x ? 1 : -1;
       }
     }
+    plantOnFloor(p);
 
     if (p.windup > 0) {
       p.windup -= dt;
@@ -414,19 +424,19 @@
           const d = Utils.dist(p.x, p.y, en.x, en.y);
           const reach = attackRange * (p.useProjectile ? 1.25 : 1.15);
           if (d <= reach) doPlayerAttack(p, en, st);
+          p.attackCd = swingGap(st);
         }
       }
     } else if (p.targetEnemy && p.targetEnemy.life > 0 && p.attackCd <= 0) {
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d <= attackRange) {
-        p.windupMax = p.useProjectile ? 0.1 : 0.06;
+        p.windupMax = p.useProjectile ? 0.22 : 0.18;
         p.windup = p.windupMax;
-        p.swingDur = p.useProjectile ? 0.2 : 0.16;
+        p.swingDur = p.useProjectile ? 0.34 : 0.28;
         p.swingAnim = p.swingDur;
         p.swingAng = Math.atan2(en.y - p.y, en.x - p.x);
         p.facing = en.x >= p.x ? 1 : -1;
-        p.attackCd = Math.max(p.windupMax + 0.1, (1 / st.aspd) * 0.8);
         GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
       }
     }
@@ -598,7 +608,8 @@
     }
     spawnSlash(p);
     const targets = [primary];
-    if (st.cleave > 0) {
+    // Floors 1–2 are one-target exchanges. Cleave was deleting a pack in two clicks.
+    if (game.floor > 2 && st.cleave > 0) {
       for (const en of game.enemies) {
         if (en === primary || en.life <= 0) continue;
         if (Utils.dist(primary.x, primary.y, en.x, en.y) <= st.cleave + 0.3) targets.push(en);
@@ -622,15 +633,15 @@
     en.life -= dmg;
     en.hitFlash = crit ? 0.42 : 0.3;
     const col = crit ? '#ffe566' : (weak ? '#f0e2d0' : (floatColor || '#fff6e8'));
-    spawnFloat(en.x, en.y - 0.35, crit ? (dmg + '!') : String(dmg), col, {
-      scale: crit ? 2.15 : (weak ? 1.25 : 1.6),
+    spawnFloat(en.x, en.y - 0.85, crit ? (dmg + '!') : String(dmg), col, {
+      scale: crit ? 1.85 : 1.55,
       crit,
-      life: crit ? 1.15 : 0.95,
-      jitter: true,
+      life: crit ? 1.45 : 1.3,
+      spread: true,
     });
     if (p.useProjectile) spawnSparks(en.x, en.y, floatColor || '#9bb6ff', crit);
     else spawnBlood(en.x, en.y, crit);
-    addShake(crit ? 16 : 9);
+    addShake(crit ? 22 : 16);
     game.impactFlash = Math.max(game.impactFlash || 0, crit ? 0.5 : 0.32);
     if (crit || dmg >= 18) hitStop(crit ? 0.06 : 0.04);
     const ang = Math.atan2(en.y - p.y, en.x - p.x);
@@ -638,6 +649,7 @@
     const nx = en.x + Math.cos(ang) * kb;
     const ny = en.y + Math.sin(ang) * kb;
     if (game.map.walkable(nx, ny)) { en.x = nx; en.y = ny; }
+    plantOnFloor(en);
     if (st.lifesteal > 0) {
       const heal = Math.max(1, Math.round(dmg * st.lifesteal));
       p.life = Math.min(p.maxLife, p.life + heal);
@@ -650,12 +662,12 @@
     if (en.dead) return;
     en.dead = true;
     en.life = 0;
-    en.dissolve = en.eid === 'brute' ? 0.95 : 0.78;
+    en.dissolve = en.eid === 'brute' ? 1.35 : 1.2;
     en.dissolveMax = en.dissolve;
     const p = game.player;
     const prog = Entities.gainXp(p, en.xp);
     spawnDeathBurst(en);
-    addShake(en.eid === 'brute' ? 24 : 16);
+    addShake(en.eid === 'brute' ? 24 : 20);
     hitStop(en.eid === 'brute' ? 0.09 : 0.07);
     game.impactFlash = Math.max(game.impactFlash || 0, 0.62);
     GameAudio.sfx('death');
@@ -683,7 +695,7 @@
     }
     if (en.hitFlash > 0) en.hitFlash -= dt;
     if (en.attackCd > 0) en.attackCd -= dt;
-    if (!game.map.walkable(en.x, en.y)) plantOnFloor(en);
+    plantOnFloor(en);
     const d = Utils.dist(en.x, en.y, p.x, p.y);
     const aggroR = game.floor <= 1 ? 5.4 : game.floor === 2 ? 6.6 : 9;
     if (d < aggroR) en.aggro = true;
@@ -712,8 +724,12 @@
         ny = en.y + Math.sin(ang + 0.6) * en.speed * dt;
         if (game.map.walkable(en.x, ny)) en.y = ny;
       }
+      plantOnFloor(en);
     } else if (en.attackCd <= 0) {
-      en.windupMax = en.eid === 'brute' ? 0.5 : en.eid === 'wraith' ? 0.42 : en.eid === 'imp' ? 0.34 : 0.38;
+      let wind = en.eid === 'brute' ? 0.62 : en.eid === 'wraith' ? 0.55 : en.eid === 'imp' ? 0.5 : 0.55;
+      if (game.floor === 1) wind += 0.16;
+      else if (game.floor === 2) wind += 0.08;
+      en.windupMax = wind;
       en.windup = en.windupMax;
     }
   }
@@ -730,21 +746,22 @@
     p.hitFlash = 0.4;
     p.invuln = 0.38;
     const heavy = dmg >= 10 || en.eid === 'brute';
-    addShake(Math.min(26, 12 + dmg * 0.7));
+    addShake(Math.min(24, 16 + dmg * 0.45));
     hitStop(heavy ? 0.08 : 0.055);
     game.hurtFlash = Math.min(0.7, 0.38 + dmg * 0.02);
     game.impactFlash = Math.max(game.impactFlash || 0, heavy ? 0.48 : 0.3);
     spawnBlood(p.x, p.y, heavy);
-    spawnFloat(p.x, p.y - 0.4, '-' + dmg, '#ff4a3a', {
-      scale: heavy ? 1.9 : 1.5,
+    spawnFloat(p.x, p.y - 0.85, '-' + dmg, '#ff4a3a', {
+      scale: heavy ? 1.85 : 1.55,
       crit: heavy,
-      life: 1.0,
-      jitter: true,
+      life: 1.25,
+      spread: true,
     });
     const ang = Math.atan2(p.y - en.y, p.x - en.x);
     const nx = p.x + Math.cos(ang) * (heavy ? 0.2 : 0.1);
     const ny = p.y + Math.sin(ang) * (heavy ? 0.2 : 0.1);
     if (game.map.walkable(nx, ny)) { p.x = nx; p.y = ny; }
+    plantOnFloor(p);
     GameAudio.sfx('hurt');
   }
 
@@ -754,11 +771,20 @@
     game.particles.push(pt);
   }
   function addShake(n) {
-    game.shake = Math.min(30, (game.shake || 0) + n);
+    game.shake = Math.min(26, Math.max(game.shake || 0, n));
+  }
+  function swingGap(st) {
+    const wind = game.player && game.player.useProjectile ? 0.22 : 0.18;
+    const aspd = Math.max(0.25, st.aspd || 1);
+    const want = game.floor === 1 ? Math.max(1.22, 1 / aspd)
+      : game.floor === 2 ? Math.max(0.98, 0.92 / aspd)
+        : Math.max(0.36, 0.8 / aspd);
+    return Math.max(0.28, want - wind);
   }
   function paceDamage(dmg) {
-    if (game.floor === 1) return Math.max(1, Math.round(dmg * 0.58));
-    if (game.floor === 2) return Math.max(1, Math.round(dmg * 0.7));
+    // Floor 1 warrior connects for 8–10. A 57 HP skeleton needs 6 hits, never 1–2.
+    if (game.floor === 1) return Utils.clamp(Math.round(dmg * 0.5), 7, 10);
+    if (game.floor === 2) return Utils.clamp(Math.round(dmg * 0.6), 8, 12);
     return dmg;
   }
   function hitStop(n) {
@@ -766,16 +792,27 @@
   }
   function spawnFloat(x, y, text, color, opt) {
     opt = opt || {};
-    const life = opt.life || 0.85;
+    const life = opt.life || 1.2;
+    let lane = 0;
+    if (opt.spread) {
+      for (const f of game.floatTexts) {
+        if (f.life > 0.2 && Math.hypot((f.ox ?? f.x) - x, (f.oy ?? f.y) - y) < 1.8) lane++;
+      }
+    }
+    const col = lane % 3;
+    const row = Math.floor(lane / 3);
     game.floatTexts.push({
-      x: x + (opt.jitter ? Utils.rand(-0.14, 0.14) : 0),
-      y, text, color,
+      x: x + (col - 1) * 1.05,
+      y: y - row * 0.62,
+      ox: x,
+      oy: y,
+      text, color,
       life, max: life,
-      scale: opt.scale || 1,
+      scale: opt.scale || 1.4,
       crit: !!opt.crit,
-      vy: opt.crit ? 0.95 : 0.58,
+      vy: opt.crit ? 0.55 : 0.34,
     });
-    if (game.floatTexts.length > 28) game.floatTexts.splice(0, game.floatTexts.length - 28);
+    if (game.floatTexts.length > 18) game.floatTexts.splice(0, game.floatTexts.length - 18);
   }
   function spawnBlood(x, y, crit) {
     const n = crit ? 14 : 8;
@@ -913,6 +950,12 @@
     }
 
     drawMap();
+    if (game.player) drawFootLight(worldToScreen(game.player.x, game.player.y));
+    for (const n of game.npcs) drawFootLight(worldToScreen(n.x, n.y));
+    for (const en of game.enemies) {
+      if (en.life > 0) drawFootLight(worldToScreen(en.x, en.y));
+    }
+    for (const d of game.drops) drawFootLight(worldToScreen(d.x, d.y));
     const sprites = [];
     for (const n of game.npcs) sprites.push({ kind: 'npc', ref: n, depth: n.x + n.y });
     for (const d of game.drops) sprites.push({ kind: 'drop', ref: d, depth: d.x + d.y });
@@ -954,11 +997,11 @@
       const s = worldToScreen(f.x, f.y);
       const age = 1 - f.life / (f.max || 0.85);
       const pop = (f.scale || 1) * (f.crit ? (1 + Math.exp(-age * 6) * 0.55) : 1);
-      const fs = Math.round((canvas.width < 520 ? 26 : 22) * pop);
-      ctx.globalAlpha = Utils.clamp(f.life * 1.8, 0, 1);
+      const fs = Math.round((canvas.width < 520 ? 44 : 52) * pop);
+      ctx.globalAlpha = Utils.clamp(f.life * 1.6, 0, 1);
       ctx.font = `bold ${fs}px Segoe UI, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 8;
       ctx.strokeStyle = 'rgba(0,0,0,0.82)';
       ctx.strokeText(f.text, s.x, s.y);
       ctx.fillStyle = f.color;
@@ -1035,13 +1078,21 @@
   function drawMap() {
     const map = game.map;
     const px = game.player.x, py = game.player.y;
-    const margin = 2;
-    const topLeft = Utils.screenToWorld(0, 0, game.camX, game.camY, TILE_W, TILE_H);
-    const botRight = Utils.screenToWorld(canvas.width, canvas.height, game.camX, game.camY, TILE_W, TILE_H);
-    const minX = Utils.clamp(Math.floor(Math.min(topLeft.x, botRight.x)) - margin, 0, map.w - 1);
-    const maxX = Utils.clamp(Math.ceil(Math.max(topLeft.x, botRight.x)) + margin, 0, map.w - 1);
-    const minY = Utils.clamp(Math.floor(Math.min(topLeft.y, botRight.y)) - margin, 0, map.h - 1);
-    const maxY = Utils.clamp(Math.ceil(Math.max(topLeft.y, botRight.y)) + margin, 0, map.h - 1);
+    const margin = 3;
+    // All four corners. Two opposite corners miss the left/right wedges, and
+    // sprites in those wedges were drawing in the black with no floor under them.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const [sx, sy] of [[0, 0], [canvas.width, 0], [0, canvas.height], [canvas.width, canvas.height]]) {
+      const wpt = Utils.screenToWorld(sx, sy, game.camX, game.camY, TILE_W, TILE_H);
+      minX = Math.min(minX, wpt.x);
+      maxX = Math.max(maxX, wpt.x);
+      minY = Math.min(minY, wpt.y);
+      maxY = Math.max(maxY, wpt.y);
+    }
+    minX = Utils.clamp(Math.floor(minX) - margin, 0, map.w - 1);
+    maxX = Utils.clamp(Math.ceil(maxX) + margin, 0, map.w - 1);
+    minY = Utils.clamp(Math.floor(minY) - margin, 0, map.h - 1);
+    maxY = Utils.clamp(Math.ceil(maxY) + margin, 0, map.h - 1);
 
     for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
       for (let x = minX; x <= maxX; x++) {
@@ -1155,14 +1206,30 @@
   }
 
   function footLight(tx, ty) {
-    const near = (x, y) => Utils.dist(tx, ty, x, y) < 1.35;
-    if (game.player && near(game.player.x, game.player.y)) return 0.98;
-    for (const n of game.npcs) if (near(n.x, n.y)) return 0.94;
+    let best = 0;
+    const consider = (x, y) => {
+      const d = Utils.dist(tx, ty, x, y);
+      if (d < 2.6) best = Math.max(best, 1.28 - d * 0.1);
+    };
+    if (game.player) consider(game.player.x, game.player.y);
+    for (const n of game.npcs) consider(n.x, n.y);
     for (const en of game.enemies) {
-      if (en.life <= 0) continue;
-      if (near(en.x, en.y)) return 0.94;
+      if (en.life <= 0 && !(en.dissolve > 0)) continue;
+      consider(en.x, en.y);
     }
-    return 0;
+    for (const d of game.drops) consider(d.x, d.y);
+    return best;
+  }
+
+  function drawFootLight(s) {
+    const g = ctx.createRadialGradient(s.x, s.y + 2, 2, s.x, s.y + 2, 30);
+    g.addColorStop(0, 'rgba(255, 220, 150, 0.7)');
+    g.addColorStop(0.45, 'rgba(255, 186, 90, 0.28)');
+    g.addColorStop(1, 'rgba(255, 170, 70, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y + 3, 30, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function shade(hex, light) {
@@ -1241,32 +1308,45 @@
   function drawTelegraph(en) {
     if (!(en.windup > 0) || en.life <= 0) return;
     const s = worldToScreen(en.x, en.y);
-    const max = en.windupMax || 0.4;
+    const max = en.windupMax || 0.5;
     const u = Utils.clamp(1 - en.windup / max, 0, 1);
-    const reach = en.eid === 'brute' ? 40 : 30;
+    const rad = 34 + u * 58;
+    const hot = u > 0.62;
     ctx.save();
-    ctx.translate(s.x, s.y + 6);
-    ctx.globalAlpha = 0.75 + u * 0.25;
-    ctx.strokeStyle = u > 0.66 ? '#ff2a22' : '#ffb020';
-    ctx.lineWidth = 5 + u * 5;
+    ctx.globalAlpha = 0.45 + u * 0.4;
+    ctx.fillStyle = hot ? 'rgba(255, 40, 24, 0.55)' : 'rgba(255, 190, 40, 0.45)';
     ctx.beginPath();
-    ctx.ellipse(0, 0, 16 + u * reach, 8 + u * 10, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 0.22 + u * 0.38;
-    ctx.fillStyle = u > 0.66 ? '#ff2018' : '#ff8a00';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 14 + u * reach * 0.85, 7 + u * 8, 0, 0, Math.PI * 2);
+    ctx.arc(s.x, s.y - 8, rad * 0.72, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y - 8, rad, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = hot ? '#ff2418' : '#ffd040';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y - 8, rad + 8, 0, Math.PI * 2);
+    ctx.stroke();
+    if (hot) {
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(255, 244, 220, 0.55)';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - 16, 28, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
+    const bang = Math.round(52 + u * 26 + Math.sin(animT * 18) * 4);
     ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = u > 0.66 ? '#ffe14a' : '#ffd080';
-    ctx.strokeStyle = '#1a0c08';
-    ctx.lineWidth = 4;
-    ctx.font = 'bold 22px Segoe UI, sans-serif';
+    ctx.globalAlpha = 1;
+    ctx.font = `bold ${bang}px Segoe UI, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.strokeText('!', s.x, s.y - 36);
-    ctx.fillText('!', s.x, s.y - 36);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#140804';
+    ctx.strokeText('!', s.x, s.y - 62);
+    ctx.fillStyle = hot ? '#ff2a18' : '#ffe14a';
+    ctx.fillText('!', s.x, s.y - 62);
     ctx.restore();
   }
 
@@ -1596,17 +1676,30 @@
     let alpha = 1;
     let sc = en.eid === 'brute' ? 1.28 : en.eid === 'imp' ? 1.05 : 1.12;
     if (dead) {
-      const max = en.dissolveMax || 0.78;
+      const max = en.dissolveMax || 1.2;
       const u = Utils.clamp((en.dissolve || 0) / max, 0, 1);
-      alpha = Math.max(0.15, u);
-      sc *= 1 + (1 - u) * 1.15;
+      alpha = 0.2 + u * 0.8;
+      sc *= 0.2 + u * 0.85;
+      const rad = 20 + (1 - u) * 92;
       ctx.save();
-      ctx.globalAlpha = u;
-      ctx.strokeStyle = u > 0.45 ? '#fff1c8' : '#ff8040';
-      ctx.lineWidth = 4;
+      ctx.globalAlpha = Math.min(1, 0.4 + (1 - u) * 0.7);
+      ctx.strokeStyle = '#fff6c8';
+      ctx.lineWidth = 12;
       ctx.beginPath();
-      ctx.ellipse(s.x, s.y + 4, 12 + (1 - u) * 36, 6 + (1 - u) * 16, 0, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y - 10, rad, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.strokeStyle = '#ff3a18';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - 10, Math.max(8, rad * 0.62), 0, Math.PI * 2);
+      ctx.stroke();
+      if (u > 0.7) {
+        ctx.globalAlpha = (u - 0.7) / 0.3;
+        ctx.fillStyle = '#fff4d0';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y - 12, 40, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     } else if (en.hitFlash > 0) {
       sc *= 1 + en.hitFlash * 0.7;
@@ -1876,7 +1969,7 @@
     } else {
       // A menu or pause should not bank a freeze-frame for later.
       if (panelsOpen() || game.state !== 'playing') game.hitStop = 0;
-      if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 18);
+      if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 10);
       if (game.hurtFlash > 0) game.hurtFlash = Math.max(0, game.hurtFlash - dt * 1.35);
       if (game.impactFlash > 0) game.impactFlash = Math.max(0, game.impactFlash - dt * 1.6);
       animT += dt;

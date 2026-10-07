@@ -38,16 +38,15 @@ const Npc = (() => {
 
   function createForFloor(map, floor) {
     const list = [];
-    const start = map.rooms && map.rooms[0];
-    const end = map.rooms && map.rooms[map.rooms.length - 1];
-    const nearStart = MapGen.roomSpot(map, start, map.startX, map.startY, 0.7);
+    // Down-screen of the player (or the portal) so the sprite overlaps lit floor tiles.
     if (floor === 1 || floor % 3 === 1) {
-      list.push(make('hermit', nearStart.x, nearStart.y));
+      const spot = MapGen.placeBeside(map, map.startX, map.startY);
+      list.push(make('hermit', spot.x, spot.y));
     } else if (floor % 3 === 2) {
-      const spot = MapGen.roomSpot(map, start, map.startX + 1.1, map.startY, 0.85);
+      const spot = MapGen.placeBeside(map, map.startX, map.startY);
       list.push(make('knight', spot.x, spot.y));
     } else {
-      const spot = MapGen.roomSpot(map, end, map.stairsX - 1.1, map.stairsY, 0.9);
+      const spot = MapGen.placeBeside(map, map.stairsX, map.stairsY);
       list.push(make('whisper', spot.x, spot.y));
     }
     return list;

@@ -196,11 +196,26 @@ const Entities = (() => {
     let count = floor <= 1 ? 4 + Utils.randInt(0, 1)
       : floor === 2 ? 5 + Utils.randInt(0, 1)
         : 4 + floor * 2 + Utils.randInt(0, 3);
-    const pts = [...map.spawnPoints].sort(() => Math.random() - 0.5);
-    count = Math.min(count, pts.length);
-    for (let i = 0; i < count; i++) {
-      const p = MapGen.nearestWalkable(map, pts[i].x, pts[i].y);
-      enemies.push(createEnemy(p.x, p.y, floor));
+    const pts = (map.spawnPoints || []).filter(p => map.grounded(p.x, p.y));
+    for (let i = pts.length - 1; i > 0; i--) {
+      const j = Utils.randInt(0, i);
+      const tmp = pts[i]; pts[i] = pts[j]; pts[j] = tmp;
+    }
+    const minD = floor <= 2 ? 3.2 : 2.2;
+    const chosen = [];
+    const take = (gap) => {
+      for (const p of pts) {
+        if (chosen.length >= count) return;
+        if (Math.hypot(p.x - map.startX, p.y - map.startY) < 4.5) continue;
+        if (chosen.some(c => Math.hypot(c.x - p.x, c.y - p.y) < gap)) continue;
+        chosen.push(p);
+      }
+    };
+    take(minD);
+    if (chosen.length < Math.min(3, count)) take(1.8);
+    for (const p of chosen) {
+      const g = MapGen.nearestGrounded(map, p.x, p.y, 4) || p;
+      enemies.push(createEnemy(g.x, g.y, floor));
     }
     return enemies;
   }

@@ -9,11 +9,14 @@ const MapGen = (() => {
     const rooms = [];
     const roomCount = 6 + Math.min(floor, 6);
 
-    for (let attempt = 0; attempt < 80 && rooms.length < roomCount; attempt++) {
-      const rw = Utils.randInt(5, 9);
-      const rh = Utils.randInt(4, 8);
-      const rx = Utils.randInt(1, w - rw - 2);
-      const ry = Utils.randInt(1, h - rh - 2);
+    for (let attempt = 0; attempt < 120 && rooms.length < roomCount; attempt++) {
+      const first = rooms.length === 0;
+      // Entrance room is large so the Hermit can stand down-screen of the player
+      // with two lit floor tiles behind the sprite, not against the void.
+      const rw = first ? Utils.randInt(8, 10) : Utils.randInt(6, 9);
+      const rh = first ? Utils.randInt(7, 9) : Utils.randInt(6, 8);
+      const rx = Utils.randInt(3, Math.max(3, w - rw - 4));
+      const ry = Utils.randInt(3, Math.max(3, h - rh - 4));
       const room = { x: rx, y: ry, w: rw, h: rh, cx: rx + (rw >> 1), cy: ry + (rh >> 1) };
       let ok = true;
       for (const o of rooms) {
@@ -38,13 +41,18 @@ const MapGen = (() => {
     const end = rooms[rooms.length - 1];
     grid[end.cy][end.cx] = TILE.STAIRS;
 
-    // Spawn on open floor inside rooms, inset from walls so bodies aren't in the void.
+    // Only tiles whose up-screen neighbors are also floor. Sprites draw upward,
+    // so a body on the back edge stands in the black beside the lit diamonds.
     const spawnPoints = [];
     for (let i = 1; i < rooms.length; i++) {
-      const pool = roomFloors(grid, rooms[i], w, h, true);
-      const fallback = pool.length ? pool : roomFloors(grid, rooms[i], w, h, false);
-      const step = Math.max(1, Math.floor(fallback.length / 4));
-      for (let k = 0; k < fallback.length; k += step) spawnPoints.push(fallback[k]);
+      const r = rooms[i];
+      for (let y = r.y; y < r.y + r.h; y++) {
+        for (let x = r.x; x < r.x + r.w; x++) {
+          if (grid[y][x] === TILE.WALL || grid[y][x] === TILE.STAIRS) continue;
+          if (!tileGrounded(grid, x, y, w, h)) continue;
+          spawnPoints.push({ x: x + 0.5, y: y + 0.5 });
+        }
+      }
     }
 
     return attach({
@@ -57,24 +65,17 @@ const MapGen = (() => {
     });
   }
 
-  function roomFloors(grid, room, w, h, openOnly) {
-    const spots = [];
-    for (let y = room.y; y < room.y + room.h; y++) {
-      for (let x = room.x; x < room.x + room.w; x++) {
-        if (grid[y][x] !== TILE.FLOOR) continue;
-        if (openOnly && !openFloor(grid, x, y, w, h)) continue;
-        spots.push({ x: x + 0.5, y: y + 0.5 });
+  // Feet sit on (x,y). The sprite reaches about two tiles up-screen (negative x/y).
+  function tileGrounded(grid, x, y, w, h) {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    if (grid[y][x] === TILE.WALL) return false;
+    for (let dy = -2; dy <= 0; dy++) {
+      for (let dx = -2; dx <= 0; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
+        if (grid[ny][nx] === TILE.WALL) return false;
       }
-    }
-    return spots;
-  }
-
-  function openFloor(grid, x, y, w, h) {
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
-      if (grid[ny][nx] === TILE.WALL) return false;
     }
     return true;
   }
@@ -97,6 +98,42 @@ const MapGen = (() => {
       if (best) return best;
     }
     return { x: map.startX, y: map.startY };
+  }
+
+  /** Nearest tile center a sprite can stand on without drawing into the void. */
+  function nearestGrounded(map, x, y, maxR = 8) {
+    if (map.grounded && map.grounded(x, y)) {
+      return { x: Math.floor(x) + 0.5, y: Math.floor(y) + 0.5 };
+    }
+    const cx = Math.floor(x), cy = Math.floor(y);
+    let best = null, bd = Infinity;
+    for (let r = 1; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = cx + dx, ny = cy + dy;
+          if (!map.grounded(nx + 0.5, ny + 0.5)) continue;
+          const px = nx + 0.5, py = ny + 0.5;
+          const d = (px - x) * (px - x) + (py - y) * (py - y);
+          if (d < bd) { bd = d; best = { x: px, y: py }; }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /** A grounded tile near the anchor, preferring down-screen so the body overlaps floor. */
+  function placeBeside(map, ax, ay) {
+    const tx = Math.floor(ax), ty = Math.floor(ay);
+    const offsets = [[1, 1], [2, 1], [1, 2], [2, 2], [1, 0], [0, 1], [3, 1], [1, 3], [2, 0], [0, 2], [3, 2], [2, 3]];
+    for (const [dx, dy] of offsets) {
+      const x = tx + dx + 0.5, y = ty + dy + 0.5;
+      if (!map.grounded(x, y)) continue;
+      if (map.isStairs(x, y)) continue;
+      return { x, y };
+    }
+    return nearestGrounded(map, ax + 1, ay + 1, 10) || nearestWalkable(map, ax, ay);
   }
 
   /** A floor tile inside the room, preferring open tiles near the anchor. */
@@ -139,6 +176,9 @@ const MapGen = (() => {
     map.isStairs = function (x, y) {
       const tx = Math.floor(x), ty = Math.floor(y);
       return tx >= 0 && ty >= 0 && tx < w && ty < h && grid[ty][tx] === TILE.STAIRS;
+    };
+    map.grounded = function (x, y) {
+      return tileGrounded(grid, Math.floor(x), Math.floor(y), w, h);
     };
     return map;
   }
@@ -184,20 +224,32 @@ const MapGen = (() => {
     });
   }
 
-  function carveCorridor(grid, x1, y1, x2, y2) {
-    let x = x1, y = y1;
-    while (x !== x2) {
-      grid[y][x] = TILE.FLOOR;
-      if (y > 0) grid[y - 1][x] = Math.random() < 0.3 ? grid[y - 1][x] : TILE.FLOOR;
-      x += x < x2 ? 1 : -1;
-    }
-    while (y !== y2) {
-      grid[y][x] = TILE.FLOOR;
-      if (x > 0) grid[y][x - 1] = Math.random() < 0.3 ? grid[y][x - 1] : TILE.FLOOR;
-      y += y < y2 ? 1 : -1;
-    }
-    grid[y2][x2] = TILE.FLOOR;
+  function paintFloor(grid, x, y) {
+    const h = grid.length, w = grid[0].length;
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    if (grid[y][x] === TILE.STAIRS) return;
+    grid[y][x] = TILE.FLOOR;
   }
 
-  return { create, snapshot, restore, TILE, nearestWalkable, roomSpot };
+  function carveCorridor(grid, x1, y1, x2, y2) {
+    let x = x1, y = y1;
+    // Stamp a 3×3 block toward up-screen so the center tile stays visually grounded.
+    const stamp = (px, py) => {
+      for (let dy = -2; dy <= 0; dy++) {
+        for (let dx = -2; dx <= 0; dx++) paintFloor(grid, px + dx, py + dy);
+      }
+    };
+    stamp(x, y);
+    while (x !== x2) {
+      x += x < x2 ? 1 : -1;
+      stamp(x, y);
+    }
+    while (y !== y2) {
+      y += y < y2 ? 1 : -1;
+      stamp(x, y);
+    }
+    stamp(x2, y2);
+  }
+
+  return { create, snapshot, restore, TILE, nearestWalkable, nearestGrounded, placeBeside, roomSpot };
 })();
