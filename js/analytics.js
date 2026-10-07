@@ -113,5 +113,17 @@ const Analytics = (() => {
   } catch (e) {}
   checkReturn();
 
-  return { event, pump };
+  function floorEventName(floor) {
+    const n = Math.floor(Number(floor));
+    if (!(n >= 1)) return '';
+    if (n > 10) return 'floor-10-plus-entered';
+    return 'floor-' + n + '-entered';
+  }
+
+  function floorEntered(floor) {
+    const name = floorEventName(floor);
+    if (name) event(name);
+  }
+
+  return { event, pump, floorEntered, floorEventName };
 })();

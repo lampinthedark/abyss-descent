@@ -251,5 +251,42 @@ const MapGen = (() => {
     stamp(x2, y2);
   }
 
-  return { create, snapshot, restore, TILE, nearestWalkable, nearestGrounded, placeBeside, roomSpot };
+  /** Waypoint centers from a tile-index path. Grounded first, then any floor. */
+  function routeTo(map, x, y, tx, ty) {
+    const centers = (nodes) => nodes.map(n => ({ x: n.x + 0.5, y: n.y + 0.5 }));
+    let nodes = Utils.pathfind(x, y, tx, ty, (gx, gy) => map.grounded(gx + 0.5, gy + 0.5));
+    if (!nodes.length) {
+      nodes = Utils.pathfind(x, y, tx, ty, (gx, gy) => map.walkable(gx + 0.5, gy + 0.5));
+    }
+    let path = centers(nodes);
+    if (!path.length && map.walkable(tx, ty)) {
+      path = [{ x: Math.floor(tx) + 0.5, y: Math.floor(ty) + 0.5 }];
+    }
+    return path;
+  }
+
+  /**
+   * One click on the lit portal. Adjacent feet step onto the stair tile.
+   * A longer route ends on that tile, not the cell past it.
+   */
+  function approachPortal(map, x, y) {
+    const sx = map.stairsX, sy = map.stairsY;
+    const near = Math.max(
+      Math.abs(Math.floor(x) - Math.floor(sx)),
+      Math.abs(Math.floor(y) - Math.floor(sy))
+    ) <= 1;
+    if (map.isStairs(x, y) || near) return { x: sx, y: sy, path: [], snap: true };
+    let path = routeTo(map, x, y, sx, sy);
+    const last = path[path.length - 1];
+    if ((!last || !map.isStairs(last.x, last.y)) && path.length && map.walkable(sx, sy)) {
+      path = path.concat([{ x: sx, y: sy }]);
+    }
+    return { x, y, path, snap: false };
+  }
+
+  return {
+    create, snapshot, restore, TILE,
+    nearestWalkable, nearestGrounded, placeBeside, roomSpot,
+    routeTo, approachPortal,
+  };
 })();

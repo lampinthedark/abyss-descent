@@ -498,7 +498,7 @@ html.touch-ui #touch-bar { display: flex; }
   position: absolute;
   top: 78px;
   right: calc(10px + env(safe-area-inset-right, 0px));
-  z-index: 16;
+  z-index: 30;
   pointer-events: auto;
   display: flex;
   flex-direction: column;

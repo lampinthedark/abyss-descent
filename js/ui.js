@@ -12,7 +12,7 @@ const UI = (() => {
       'inv-panel', 'inv-stats', 'inv-equipped', 'inv-grid',
       'skill-panel', 'skill-tree', 'sp-text',
       'btn-choose', 'btn-continue', 'continue-summary', 'btn-start', 'btn-back-title',
-      'btn-resume', 'btn-save', 'btn-restart',
+      'btn-resume', 'btn-save', 'btn-restart', 'btn-quit',
       'btn-retry-floor', 'btn-full-restart',
       'btn-inv', 'btn-skills', 'btn-pause',
       'class-cards', 'dialogue-box', 'dlg-name', 'dlg-text', 'dlg-reward', 'dlg-actions',

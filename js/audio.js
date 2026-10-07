@@ -10,6 +10,7 @@ const GameAudio = (() => {
   let musicGain = null;
   let sfxGain = null;
   let muted = false;
+  let heldMute = false;
   let failed = false;
   let musicOn = false;
   let noiseBuf = null;
@@ -41,7 +42,7 @@ const GameAudio = (() => {
       if (!AC) { failed = true; return false; }
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = muted ? 0 : MASTER;
+      master.gain.value = (muted || heldMute) ? 0 : MASTER;
       musicGain = ctx.createGain();
       musicGain.gain.value = MUSIC_BUS;
       sfxGain = ctx.createGain();
@@ -147,20 +148,32 @@ const GameAudio = (() => {
       const pending = ctx.resume();
       if (pending && pending.catch) pending.catch(() => {});
     } catch (e) { /* ignore */ }
-    if (!muted) startMusic();
+    if (!muted && !heldMute) startMusic();
+  }
+
+  function applyMaster() {
+    if (!ctx || !master) return;
+    const level = (muted || heldMute) ? 0 : MASTER;
+    try {
+      master.gain.setTargetAtTime(level, ctx.currentTime, 0.03);
+    } catch (e) {
+      master.gain.value = level;
+    }
   }
 
   function setMuted(next) {
     muted = !!next;
     storeMute();
     syncButtons();
-    if (!ctx || !master) return;
-    try {
-      master.gain.setTargetAtTime(muted ? 0 : MASTER, ctx.currentTime, 0.03);
-    } catch (e) {
-      master.gain.value = muted ? 0 : MASTER;
-    }
-    if (!muted) resume();
+    applyMaster();
+    if (!muted && !heldMute) resume();
+  }
+
+  /** Silence output without writing the saved mute preference. */
+  function holdMute(on) {
+    heldMute = !!on;
+    applyMaster();
+    if (!heldMute && !muted) resume();
   }
 
   function toggle() {
@@ -202,7 +215,7 @@ const GameAudio = (() => {
 
   function sfx(name) {
     try {
-      if (muted || failed) return;
+      if (muted || heldMute || failed) return;
       if (!ensure()) return;
       if (ctx.state === 'suspended') {
         const pending = ctx.resume();
@@ -328,6 +341,8 @@ const GameAudio = (() => {
     toggle,
     setMuted,
     isMuted: () => muted,
+    holdMute,
+    isHeld: () => heldMute,
     syncButtons,
   };
 })();

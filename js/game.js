@@ -178,10 +178,7 @@
     ensureEmbers();
     for (const em of game.embers) plantOnFloor(em);
     refreshQuestHud();
-    try {
-      if (floor === 1) Analytics.event('floor-1-entered');
-      else if (floor === 2) Analytics.event('floor-2-entered');
-    } catch (e) {}
+    try { Analytics.floorEntered(floor); } catch (e) {}
   }
 
   function centerCam() {
@@ -212,10 +209,7 @@
     const restored = !!(data.floorState && applyFloorState(data.floorState));
     if (!restored) loadFloor(game.floor);
     else {
-      try {
-        if (game.floor === 1) Analytics.event('floor-1-entered');
-        else if (game.floor === 2) Analytics.event('floor-2-entered');
-      } catch (e) {}
+      try { Analytics.floorEntered(game.floor); } catch (e) {}
     }
     const dead = game.player.life <= 0;
     game.deathStinger = dead;
@@ -280,6 +274,16 @@
     const pos = canvasPos(e);
     const world = Utils.screenToWorld(pos.x, pos.y, game.camX, game.camY, TILE_W, TILE_H);
 
+    // The lit portal wins over a nearby NPC so the label and the stair tile both descend.
+    if (game.cleared && game.map) {
+      const stairScreen = spriteClickDist(pos, game.map.stairsX, game.map.stairsY, 28);
+      const stairWorld = Utils.dist(world.x, world.y, game.map.stairsX, game.map.stairsY);
+      if (stairScreen <= 64 || stairWorld < 0.9) {
+        choosePortal();
+        return;
+      }
+    }
+
     // NPC talk. Screen-space covers the sprite above the feet, including when it overlaps the player.
     let nearestNpc = null, bestNpc = Infinity;
     for (const n of game.npcs) {
@@ -307,12 +311,6 @@
       setPath(nearestNpc.x, nearestNpc.y);
       game.player._pendingNpc = nearestNpc;
       game.player._pendingEmber = null;
-      return;
-    }
-
-    // A lit portal accepts a fresh tap. The swing that cleared the floor does not.
-    if (game.cleared && game.map && spriteClickDist(pos, game.map.stairsX, game.map.stairsY, 18) <= 50) {
-      choosePortal();
       return;
     }
 
@@ -393,27 +391,18 @@
     p.targetEnemy = null;
     p._pendingNpc = null;
     p._pendingEmber = null;
-    if (game.map.isStairs(p.x, p.y)) {
-      p._portalHold = false;
-      p.path = [];
-      return;
+    const step = MapGen.approachPortal(game.map, p.x, p.y);
+    p.x = step.x;
+    p.y = step.y;
+    p.path = step.path;
+    if (step.snap || game.map.isStairs(p.x, p.y)) p._portalHold = false;
+    if (!step.snap && !p.path.length && !game.map.isStairs(p.x, p.y)) {
+      UI.log('The way to the portal is blocked.', 'danger');
     }
-    setPath(game.map.stairsX, game.map.stairsY);
   }
 
   function setPath(tx, ty) {
-    const p = game.player;
-    const toCenters = (nodes) => nodes.map(n => ({ x: n.x + 0.5, y: n.y + 0.5 }));
-    // Prefer tiles with floor behind the sprite. Fall back so older saves
-    // with narrower halls still have a route.
-    let nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.grounded(x + 0.5, y + 0.5));
-    if (!nodes.length) {
-      nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.walkable(x + 0.5, y + 0.5));
-    }
-    p.path = toCenters(nodes);
-    if (!p.path.length && game.map.walkable(tx, ty)) {
-      p.path = [{ x: Math.floor(tx) + 0.5, y: Math.floor(ty) + 0.5 }];
-    }
+    game.player.path = MapGen.routeTo(game.map, game.player.x, game.player.y, tx, ty);
   }
 
   function panelsOpen() {
@@ -2478,12 +2467,10 @@
         if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) {
           UI.hide('inv-panel'); UI.hide('skill-panel');
         } else {
-          game.state = 'paused';
-          UI.show('pause-screen');
+          openPause();
         }
       } else if (game.state === 'paused') {
-        game.state = 'playing';
-        UI.hide('pause-screen');
+        resumePlay();
       }
       return;
     }
@@ -2544,6 +2531,102 @@
     bar.addEventListener('pointerup', release);
     bar.addEventListener('pointercancel', release);
     bar.addEventListener('lostpointercapture', release, true);
+  }
+
+  function resumePlay() {
+    game._resumeState = null;
+    game.state = 'playing';
+    UI.hide('pause-screen');
+    persist('pause');
+  }
+
+  function openPause() {
+    if (game.state === 'dialogue') closeDialogue();
+    if (game.state !== 'playing') return;
+    game._resumeState = null;
+    game.state = 'paused';
+    UI.show('pause-screen');
+    persist('pause');
+  }
+
+  function capacitorApp() {
+    try {
+      const cap = window.Capacitor;
+      if (!cap) return null;
+      if (cap.Plugins && cap.Plugins.App) return cap.Plugins.App;
+      if (typeof cap.registerPlugin === 'function') return cap.registerPlugin('App');
+    } catch (e) {}
+    return null;
+  }
+
+  function onHardwareBack() {
+    if (game.state === 'dialogue') { closeDialogue(); return; }
+    if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) {
+      UI.hide('inv-panel');
+      UI.hide('skill-panel');
+      return;
+    }
+    if (game.state === 'paused') { resumePlay(); return; }
+    if (game.state === 'playing') openPause();
+  }
+
+  function onBackground() {
+    if (game._backgrounded) return;
+    game._backgrounded = true;
+    try { GameAudio.holdMute(true); } catch (e) {}
+    if (game.state === 'playing' || game.state === 'dialogue') {
+      game._resumeState = game.state;
+      game.state = 'paused';
+      if (game._resumeState === 'playing') UI.show('pause-screen');
+    }
+  }
+
+  function onForeground() {
+    if (!game._backgrounded) return;
+    game._backgrounded = false;
+    try { GameAudio.holdMute(false); } catch (e) {}
+    if (!game._resumeState) return;
+    const next = game._resumeState;
+    game._resumeState = null;
+    game.state = next;
+    if (next === 'playing') UI.hide('pause-screen');
+  }
+
+  function bindAppLifecycle() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onBackground();
+      else onForeground();
+    });
+    const app = capacitorApp();
+    if (!app || typeof app.addListener !== 'function') return;
+    try {
+      const back = app.addListener('backButton', () => { try { onHardwareBack(); } catch (e) {} });
+      const change = app.addListener('appStateChange', (ev) => {
+        try {
+          if (ev && ev.isActive === false) onBackground();
+          else onForeground();
+        } catch (e) {}
+      });
+      if (back && typeof back.catch === 'function') back.catch(() => {});
+      if (change && typeof change.catch === 'function') change.catch(() => {});
+    } catch (e) {}
+  }
+
+  function quitGame() {
+    let ok = false;
+    try { ok = window.confirm('Quit Abyss Descent?'); } catch (e) { ok = false; }
+    if (!ok) return;
+    const app = capacitorApp();
+    if (app && typeof app.exitApp === 'function') {
+      try { app.exitApp(); return; } catch (e) {}
+    }
+    UI.hide('pause-screen');
+    UI.hide('hud');
+    UI.hide('death-screen');
+    abandonRun();
+    UI.show('title-screen');
+    game.state = 'title';
+    try { Analytics.event('title-shown'); } catch (e) {}
   }
 
   function bind() {
@@ -2611,9 +2694,7 @@
       startRun(false);
     });
     UI.els['btn-resume'].addEventListener('click', () => {
-      game.state = 'playing';
-      UI.hide('pause-screen');
-      persist('pause');
+      resumePlay();
     });
     UI.els['btn-save']?.addEventListener('click', () => {
       persist('manual');
@@ -2625,6 +2706,9 @@
       abandonRun();
       UI.show('select-screen');
       game.state = 'select';
+    });
+    UI.els['btn-quit']?.addEventListener('click', () => {
+      quitGame();
     });
     UI.els['btn-retry-floor'].addEventListener('click', () => {
       const p = game.player;
@@ -2656,12 +2740,7 @@
       }
     });
     UI.els['btn-pause'].addEventListener('click', () => {
-      if (game.state === 'dialogue') closeDialogue();
-      if (game.state === 'playing') {
-        game.state = 'paused';
-        UI.show('pause-screen');
-        persist('pause');
-      }
+      openPause();
     });
     UI.els['dlg-actions'].addEventListener('click', (e) => {
       const btn = e.target.closest('[data-dlg-action]');
@@ -2706,6 +2785,7 @@
         return false;
       });
     } catch (e) {}
+    bindAppLifecycle();
     try { Analytics.event('title-shown'); } catch (e) {}
     window.addEventListener('beforeunload', () => {
       if (game.player && (game.state === 'playing' || game.state === 'paused' || game.state === 'dialogue' || game.state === 'dead')) {

@@ -28,8 +28,9 @@ const Utils = {
   /** Simple A* on grid (walkable = fn(x,y) true) */
   pathfind(sx, sy, gx, gy, walkable, maxNodes = 800) {
     const key = (x, y) => x + ',' + y;
-    const start = { x: Math.round(sx), y: Math.round(sy) };
-    const goal = { x: Math.round(gx), y: Math.round(gy) };
+    // Tile centers are n+0.5. Math.round(n+0.5) lands on n+1, one tile past the goal.
+    const start = { x: Math.floor(sx), y: Math.floor(sy) };
+    const goal = { x: Math.floor(gx), y: Math.floor(gy) };
     if (!walkable(goal.x, goal.y)) {
       // snap to nearest walkable near goal
       let best = null, bd = Infinity;

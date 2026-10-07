@@ -12,6 +12,8 @@ Capacitor 7 wraps this same site in a WebView. The GitHub Pages build is still t
 
 The shell keeps the WebView full-bleed: safe-area padding (Android pushes `--safe-*` from the status bar, cutout, and gesture insets; iOS uses `env(safe-area-inset-*)`), no rubber-band scroll, and the existing Web Audio graph resumes on the first tap. App name is **Abyss Descent**. The icon is the favicon triangle.
 
+On Android, the system Back button opens the pause menu. Pressing it again resumes. Quit asks for confirmation before leaving. Hiding the app, or the browser tab, pauses play and silences audio until you come back. The saved mute choice is left as it was. A browser tab has no system Back button, so that control does nothing there.
+
 ### What a release is
 
 | Surface | What players get | What to bump |
@@ -115,7 +117,8 @@ Events:
 | --- | --- |
 | `title-shown` | Title screen is shown |
 | `class-selected-warrior`, `class-selected-rogue`, `class-selected-sorcerer` | That class card is chosen |
-| `floor-1-entered`, `floor-2-entered` | That floor starts |
+| `floor-1-entered` … `floor-10-entered` | That floor starts |
+| `floor-10-plus-entered` | Floor 11 or deeper starts |
 | `returned` | This device's saved date is an earlier day |
 | `session-under-1-min`, `session-1-3-min`, `session-3-5-min`, `session-5-10-min`, `session-10-20-min`, `session-20-plus-min` | Once, when the tab hides or the page closes. The bucket is active play time, not time in a background tab |
 | `vow-offered-silence`, `vow-offered-embers`, `vow-offered-oath` | The Hermit offers that vow |
