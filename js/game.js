@@ -298,6 +298,12 @@
       return;
     }
 
+    // A lit portal accepts a fresh tap. The swing that cleared the floor does not.
+    if (game.cleared && game.map && spriteClickDist(pos, game.map.stairsX, game.map.stairsY, 18) <= 50) {
+      choosePortal();
+      return;
+    }
+
     // Screen-space pick so clicks land on the sprite, with a small bias toward the focused foe.
     let nearest = null, best = Infinity;
     const focus = game.player.targetEnemy;
@@ -356,6 +362,31 @@
   function spriteClickDist(pos, wx, wy, lift) {
     const s = worldToScreen(wx, wy);
     return Math.hypot(pos.x - s.x, pos.y - (s.y - lift));
+  }
+
+  function latchFreshPortal(p) {
+    if (!game.map || !p) return;
+    if (game.map.isStairs(p.x, p.y)) p._portalHold = true;
+    if (!p.path || !p.path.length) return;
+    const kept = [];
+    for (const n of p.path) {
+      if (game.map.isStairs(n.x, n.y)) break;
+      kept.push(n);
+    }
+    p.path = kept;
+  }
+
+  function choosePortal() {
+    const p = game.player;
+    p.targetEnemy = null;
+    p._pendingNpc = null;
+    p._pendingEmber = null;
+    if (game.map.isStairs(p.x, p.y)) {
+      p._portalHold = false;
+      p.path = [];
+      return;
+    }
+    setPath(game.map.stairsX, game.map.stairsY);
   }
 
   function setPath(tx, ty) {
@@ -562,6 +593,8 @@
     const living = game.enemies.some(e => e.life > 0);
     if (!game.cleared && !living) {
       game.cleared = true;
+      // The killing blow often leaves the player on the exit. That step is not a choice to descend.
+      latchFreshPortal(p);
       const vow = Quests.hud(p, questCtx());
       UI.log(vow && game.floor === 1 ? ('Floor cleared. ' + vow.objective) : 'Floor cleared! Find the portal.', 'level');
       GameAudio.sfx('clear');
