@@ -1121,10 +1121,42 @@
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
-    // prevent page scroll/zoom while playing on touch devices
-    document.body.addEventListener('touchmove', (e) => {
-      if (e.target === canvas || e.target.closest('#game-wrap')) e.preventDefault();
-    }, { passive: false });
+    // Lock page scroll on mobile. iOS Safari rubber-bands the document unless
+    // touchmove is cancelled on a non-passive document listener. Overflow
+    // inside inventory, the skill tree, and class select may still scroll,
+    // including from a nested scroller into its parent panel, but not into the page.
+    const INNER_SCROLL = '.side-panel, .select-panel, #inv-grid';
+    let touchStartY = 0;
+    document.addEventListener('touchstart', (e) => {
+      if (e.touches.length) touchStartY = e.touches[0].clientY;
+    }, { passive: true, capture: true });
+
+    function scrollableInDirection(el, dy) {
+      let node = el && el.nodeType === 1 ? el : el && el.parentElement;
+      while (node && node !== document.body && node !== document.documentElement) {
+        if (node.matches && node.matches(INNER_SCROLL)) {
+          const oy = getComputedStyle(node).overflowY;
+          const canScroll = (oy === 'auto' || oy === 'scroll' || oy === 'overlay')
+            && node.scrollHeight > node.clientHeight + 2;
+          if (canScroll) {
+            const atTop = node.scrollTop <= 0;
+            const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+            if (dy > 0 && !atTop) return true;
+            if (dy < 0 && !atBottom) return true;
+            if (dy === 0 && (!atTop || !atBottom)) return true;
+          }
+        }
+        node = node.parentElement;
+      }
+      return false;
+    }
+
+    document.addEventListener('touchmove', (e) => {
+      const y = e.touches && e.touches.length ? e.touches[0].clientY : touchStartY;
+      if (!scrollableInDirection(e.target, y - touchStartY)) e.preventDefault();
+    }, { passive: false, capture: true });
+    document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+    document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
 
     UI.refreshContinue();
 
