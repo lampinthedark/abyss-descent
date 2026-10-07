@@ -47,6 +47,7 @@ const Save = (() => {
       skills: {
         ranks: { ...p.skills.ranks },
         points: p.skills.points,
+        gifted: { ...(p.skills.gifted || {}) },
       },
       storyFlags: { ...(p.storyFlags || {}) },
       questTip: p.questTip || '',
@@ -81,9 +82,67 @@ const Save = (() => {
     // ensure ranks object has all nodes
     const fresh = Skills.createState();
     p.skills.ranks = { ...fresh.ranks, ...(p.skills.ranks || {}) };
-    p.skills.points = p.skills.points || 0;
+    p.skills.gifted = { ...(p.skills.gifted || {}) };
+    const hint = Classes.get(p.classId).skillHint;
+    if (hint && !p.skills.gifted[hint]) {
+      if ((p.skills.ranks[hint] || 0) < 1) p.skills.ranks[hint] = 1;
+      p.skills.gifted[hint] = 1;
+    }
+    Skills.syncUnspent(p.skills, p.level);
     Entities.syncLife(p);
     return p;
+  }
+
+  function serializeEnemy(en) {
+    return {
+      eid: en.eid,
+      name: en.name,
+      color: en.color,
+      x: en.x,
+      y: en.y,
+      radius: en.radius,
+      life: en.life,
+      maxLife: en.maxLife,
+      dmg: en.dmg,
+      speed: en.speed,
+      xp: en.xp,
+      attackCd: en.attackCd || 0,
+      aggro: !!en.aggro,
+    };
+  }
+
+  function serializeNpc(n) {
+    return {
+      id: n.id,
+      x: n.x,
+      y: n.y,
+      lineIndex: n.lineIndex || 0,
+      talked: !!n.talked,
+      talkedThrough: !!n.talkedThrough,
+      bob: n.bob || 0,
+    };
+  }
+
+  function serializeDrop(d) {
+    if (!d) return null;
+    if (d.type === 'gold') return { type: 'gold', amount: d.amount, x: d.x, y: d.y };
+    if (d.type === 'item' && d.item) return { type: 'item', item: serializeItem(d.item), x: d.x, y: d.y };
+    return null;
+  }
+
+  function captureFloor(game) {
+    if (!game.map) return null;
+    const living = (game.enemies || []).filter(e => e.life > 0);
+    const anyDead = (game.enemies || []).some(e => e.life <= 0);
+    return {
+      map: MapGen.snapshot(game.map),
+      enemies: living.map(serializeEnemy),
+      npcs: (game.npcs || []).map(serializeNpc),
+      drops: (game.drops || []).map(serializeDrop).filter(Boolean),
+      cleared: !!game.cleared || (living.length === 0 && anyDead),
+      playerX: game.player.x,
+      playerY: game.player.y,
+    };
   }
 
   function capture(game) {
@@ -93,11 +152,12 @@ const Save = (() => {
       game.player.questTip = tipEl.textContent.replace(/^Quest:\s*/, '');
     }
     return {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       floor: game.floor,
       selectedClass: game.selectedClass || game.player.classId,
       player: serializePlayer(game.player),
+      floorState: captureFloor(game),
     };
   }
 

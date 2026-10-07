@@ -78,6 +78,34 @@
     UI.refreshContinue();
   }
 
+  function applyFloorState(state) {
+    const map = state && MapGen.restore(state.map);
+    if (!map) return false;
+    game.map = map;
+    game.enemies = (state.enemies || []).map(Entities.restoreEnemy).filter(Boolean);
+    game.npcs = (state.npcs || []).map(Npc.restore).filter(Boolean);
+    game.drops = (state.drops || []).map(d => {
+      if (!d) return null;
+      if (d.type === 'gold') return { type: 'gold', amount: d.amount, x: d.x, y: d.y };
+      if (d.type === 'item' && d.item) return { type: 'item', item: { ...d.item }, x: d.x, y: d.y };
+      return null;
+    }).filter(Boolean);
+    game.particles = [];
+    game.projectiles = [];
+    game.floatTexts = [];
+    game.cleared = !!state.cleared;
+    const p = game.player;
+    if (typeof state.playerX === 'number') p.x = state.playerX;
+    if (typeof state.playerY === 'number') p.y = state.playerY;
+    p.path = [];
+    p.targetEnemy = null;
+    p._pendingNpc = null;
+    p.attackCd = 0;
+    p.invuln = 0.35;
+    centerCam();
+    return true;
+  }
+
   function loadFloor(floor) {
     game.floor = floor;
     game.map = MapGen.create(floor);
@@ -123,8 +151,10 @@
     game.selectedClass = data.selectedClass || data.player.classId;
     game.player = Save.hydratePlayer(data.player);
     game.floor = data.floor || 1;
-    loadFloor(game.floor);
-    game.state = 'playing';
+    const restored = !!(data.floorState && applyFloorState(data.floorState));
+    if (!restored) loadFloor(game.floor);
+    const dead = game.player.life <= 0;
+    game.state = dead ? 'dead' : 'playing';
     UI.hide('title-screen');
     UI.hide('select-screen');
     UI.hide('pause-screen');
@@ -136,7 +166,13 @@
     const tip = game.player.questTip || 'Continue the descent.';
     UI.setQuestTip(tip, game.player);
     UI.updateHud(game);
-    UI.log(`Continued — Floor ${game.floor}, Lv ${game.player.level}.`, 'story');
+    if (dead) {
+      UI.els['death-msg'].textContent =
+        `Slain on Floor ${game.floor} as ${Classes.get(game.player.classId).name} Lv ${game.player.level}. Gold: ${game.player.gold}.`;
+      UI.show('death-screen');
+    } else {
+      UI.log(`Continued — Floor ${game.floor}, Lv ${game.player.level}.`, 'story');
+    }
   }
 
   function abandonRun() {
@@ -253,9 +289,14 @@
     }
   }
 
+  function panelsOpen() {
+    return UI.isVisible('inv-panel') || UI.isVisible('skill-panel');
+  }
+
   function update(dt) {
     if (game.state === 'dialogue') return;
     if (game.state !== 'playing') return;
+    if (panelsOpen()) return;
     animT += dt;
     const p = game.player;
     const st = Entities.playerStats(p);
@@ -473,14 +514,18 @@
 
   function onEnemyKilled(en) {
     const p = game.player;
-    const leveled = Entities.gainXp(p, en.xp);
+    const prog = Entities.gainXp(p, en.xp);
     spawnHitParticles(en.x, en.y, '#e06040');
     const drops = Loot.dropFromEnemy(en, game.floor);
     for (const d of drops) game.drops.push(d);
-    if (leveled) {
-      UI.log(`Level up! Now Lv ${p.level} — skill point gained.`, 'level');
+    if (prog.leveled) {
+      const pts = prog.pointsGained > 0
+        ? ` — ${prog.pointsGained} skill point${prog.pointsGained === 1 ? '' : 's'} gained.`
+        : '.';
+      UI.log(`Level up! Now Lv ${p.level}${pts}`, 'level');
       spawnFloat(p.x, p.y - 0.5, 'LEVEL UP!', '#60e080');
     }
+    persist('kill');
   }
 
   function updateEnemy(en, dt, p, st) {
@@ -933,12 +978,13 @@
     }
     ctx.restore();
 
-    // talk indicator
-    const pulse = 0.5 + Math.sin(animT * 3) * 0.3;
-    ctx.fillStyle = `rgba(220,180,100,${pulse})`;
-    ctx.font = 'bold 14px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText('!', s.x, s.y - 36);
+    if (!n.talkedThrough) {
+      const pulse = 0.5 + Math.sin(animT * 3) * 0.3;
+      ctx.fillStyle = `rgba(220,180,100,${pulse})`;
+      ctx.font = 'bold 14px Segoe UI';
+      ctx.fillText('!', s.x, s.y - 36);
+    }
     ctx.fillStyle = '#c0a080';
     ctx.font = '10px Segoe UI';
     ctx.fillText(n.name, s.x, s.y + 16);
@@ -1107,7 +1153,10 @@
     if (game.state === 'dialogue' && (k === 'enter' || k === ' ')) {
       e.preventDefault();
       UI.advanceDialogue();
-      if (!UI.isDialogueOpen()) closeDialogue();
+      if (!UI.isDialogueOpen()) {
+        closeDialogue();
+        persist('talk');
+      }
       return;
     }
     if (game.state !== 'playing') return;
@@ -1232,7 +1281,10 @@
     });
     UI.els['dlg-next'].addEventListener('click', () => {
       UI.advanceDialogue();
-      if (!UI.isDialogueOpen()) closeDialogue();
+      if (!UI.isDialogueOpen()) {
+        closeDialogue();
+        persist('talk');
+      }
     });
 
     // Prefer Pointer Events; fall back to touch/mouse. Guard against double-fire.

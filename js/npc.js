@@ -67,16 +67,28 @@ const Npc = (() => {
       questTip: d.questTip,
       lineIndex: 0,
       talked: false,
+      talkedThrough: false,
       bob: Math.random() * Math.PI * 2,
     };
+  }
+
+  function restore(data) {
+    if (!data) return null;
+    const npc = make(DEFS[data.id] ? data.id : 'hermit', data.x, data.y);
+    npc.lineIndex = data.lineIndex || 0;
+    npc.talked = !!data.talked || npc.lineIndex > 0;
+    npc.talkedThrough = !!data.talkedThrough || npc.lineIndex >= npc.lines.length;
+    if (typeof data.bob === 'number') npc.bob = data.bob;
+    return npc;
   }
 
   function nextLine(npc) {
     if (npc.lineIndex >= npc.lines.length) return null;
     const line = npc.lines[npc.lineIndex++];
     npc.talked = true;
+    if (npc.lineIndex >= npc.lines.length) npc.talkedThrough = true;
     return line;
   }
 
-  return { DEFS, createForFloor, nextLine };
+  return { DEFS, createForFloor, restore, nextLine };
 })();

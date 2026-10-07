@@ -51,23 +51,14 @@ const MapGen = (() => {
       }
     }
 
-    return {
+    return attach({
       w, h, grid, rooms, TILE,
       startX: start.cx + 0.5,
       startY: start.cy + 0.5,
       stairsX: end.cx + 0.5,
       stairsY: end.cy + 0.5,
       spawnPoints,
-      walkable(x, y) {
-        const tx = Math.floor(x), ty = Math.floor(y);
-        if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
-        return grid[ty][tx] !== TILE.WALL;
-      },
-      isStairs(x, y) {
-        const tx = Math.floor(x), ty = Math.floor(y);
-        return tx >= 0 && ty >= 0 && tx < w && ty < h && grid[ty][tx] === TILE.STAIRS;
-      },
-    };
+    });
   }
 
   function carveRoom(grid, r) {
@@ -76,6 +67,61 @@ const MapGen = (() => {
         grid[y][x] = TILE.FLOOR;
       }
     }
+  }
+
+  function attach(map) {
+    const { w, h, grid, TILE } = map;
+    map.walkable = function (x, y) {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
+      return grid[ty][tx] !== TILE.WALL;
+    };
+    map.isStairs = function (x, y) {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      return tx >= 0 && ty >= 0 && tx < w && ty < h && grid[ty][tx] === TILE.STAIRS;
+    };
+    return map;
+  }
+
+  function snapshot(map) {
+    return {
+      w: map.w,
+      h: map.h,
+      grid: map.grid.map(row => row.join('')).join('|'),
+      startX: map.startX,
+      startY: map.startY,
+      stairsX: map.stairsX,
+      stairsY: map.stairsY,
+    };
+  }
+
+  function restore(data) {
+    if (!data || !data.w || !data.h || typeof data.grid !== 'string') return null;
+    const rows = data.grid.split('|');
+    if (rows.length !== data.h) return null;
+    const grid = [];
+    for (const row of rows) {
+      if (row.length !== data.w) return null;
+      const cells = [];
+      for (let i = 0; i < row.length; i++) {
+        const n = row.charCodeAt(i) - 48;
+        if (n !== 0 && n !== 1 && n !== 2) return null;
+        cells.push(n);
+      }
+      grid.push(cells);
+    }
+    return attach({
+      w: data.w,
+      h: data.h,
+      grid,
+      rooms: [],
+      TILE,
+      startX: data.startX,
+      startY: data.startY,
+      stairsX: data.stairsX,
+      stairsY: data.stairsY,
+      spawnPoints: [],
+    });
   }
 
   function carveCorridor(grid, x1, y1, x2, y2) {
@@ -93,5 +139,5 @@ const MapGen = (() => {
     grid[y2][x2] = TILE.FLOOR;
   }
 
-  return { create, TILE };
+  return { create, snapshot, restore, TILE };
 })();

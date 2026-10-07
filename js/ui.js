@@ -164,6 +164,7 @@ const UI = (() => {
     if (!activeNpc) { hide('dialogue-box'); return false; }
     const line = Npc.nextLine(activeNpc);
     if (!line) {
+      activeNpc.talkedThrough = true;
       hide('dialogue-box');
       activeNpc = null;
       return false;
@@ -263,19 +264,22 @@ const UI = (() => {
 
   function renderSkills(game) {
     const p = game.player;
+    Skills.syncUnspent(p.skills, p.level);
     els['sp-text'].textContent = `Skill Points: ${p.skills.points}`;
     els['skill-tree'].innerHTML = Skills.NODES.map(node => {
-      const rank = p.skills.ranks[node.id];
+      const rank = p.skills.ranks[node.id] || 0;
+      const gift = (p.skills.gifted && p.skills.gifted[node.id]) || 0;
       const can = Skills.canUnlock(p.skills, node.id);
       let cls = 'skill-node';
       if (rank >= node.max) cls += ' maxed';
       else if (rank > 0) cls += ' unlocked';
       else if (!can) cls += ' locked';
+      const giftNote = gift ? ' · class gift, not a skill point' : '';
       return `<div class="${cls}" data-skill="${node.id}">
         <div class="skill-icon">${node.icon}</div>
         <div class="skill-info">
           <div class="name">${node.name}</div>
-          <div class="desc">${node.desc}${node.prereq ? ' · req: ' + node.prereq : ''}</div>
+          <div class="desc">${node.desc}${giftNote}${node.prereq ? ' · req: ' + node.prereq : ''}</div>
         </div>
         <div class="skill-rank">${rank}/${node.max}</div>
       </div>`;
@@ -284,7 +288,7 @@ const UI = (() => {
     els['skill-tree'].querySelectorAll('[data-skill]').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.skill;
-        if (Skills.spend(p.skills, id)) {
+        if (Skills.spend(p.skills, id, p.level)) {
           Entities.syncLife(p);
           const st = Entities.playerStats(p);
           p.maxLife = st.maxLife;

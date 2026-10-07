@@ -36,10 +36,12 @@ const Entities = (() => {
       questTip: '',
       storyFlags: {},
     };
-    // starter class skill free rank hint
+    // Class technique: a free rank, recorded separately so it is not an unspent point.
     if (cls.skillHint && p.skills.ranks[cls.skillHint] !== undefined) {
       p.skills.ranks[cls.skillHint] = 1;
+      p.skills.gifted[cls.skillHint] = 1;
     }
+    Skills.syncUnspent(p.skills, p.level);
     return p;
   }
 
@@ -91,11 +93,11 @@ const Entities = (() => {
   function gainXp(p, amount) {
     const st = playerStats(p);
     p.xp += Math.round(amount * st.xpMult);
+    const beforePoints = p.skills.points || 0;
     let leveled = false;
     while (p.xp >= p.xpToLevel) {
       p.xp -= p.xpToLevel;
       p.level++;
-      p.skills.points++;
       p.baseLife += p.classId === 'warrior' ? 10 : p.classId === 'rogue' ? 6 : 7;
       p.baseDmg += p.classId === 'sorcerer' ? 1.8 : 1.5;
       p.xpToLevel = xpForLevel(p.level);
@@ -104,7 +106,8 @@ const Entities = (() => {
       p.life = p.maxLife;
       leveled = true;
     }
-    return leveled;
+    if (leveled) Skills.syncUnspent(p.skills, p.level);
+    return { leveled, pointsGained: (p.skills.points || 0) - beforePoints };
   }
 
   const ENEMY_TYPES = [
@@ -138,6 +141,29 @@ const Entities = (() => {
     };
   }
 
+  function restoreEnemy(data) {
+    if (!data || data.life <= 0) return null;
+    return {
+      type: 'enemy',
+      eid: data.eid,
+      name: data.name,
+      color: data.color,
+      x: data.x,
+      y: data.y,
+      radius: data.radius || 0.32,
+      life: data.life,
+      maxLife: data.maxLife || data.life,
+      dmg: data.dmg ?? 1,
+      speed: data.speed ?? 1,
+      xp: data.xp ?? 0,
+      attackCd: data.attackCd || 0,
+      hitFlash: 0,
+      aggro: !!data.aggro,
+      pathTimer: 0,
+      vx: 0, vy: 0,
+    };
+  }
+
   function spawnWave(map, floor) {
     const enemies = [];
     const count = Math.min(4 + floor * 2 + Utils.randInt(0, 3), map.spawnPoints.length);
@@ -157,6 +183,6 @@ const Entities = (() => {
 
   return {
     createPlayer, playerStats, syncLife, gainXp, xpForLevel,
-    createEnemy, spawnWave, ENEMY_TYPES,
+    createEnemy, restoreEnemy, spawnWave, ENEMY_TYPES,
   };
 })();

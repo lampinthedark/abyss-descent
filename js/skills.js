@@ -24,7 +24,31 @@ const Skills = (() => {
   function createState() {
     const ranks = {};
     NODES.forEach(n => { ranks[n.id] = 0; });
-    return { ranks, points: 0 };
+    return { ranks, points: 0, gifted: {} };
+  }
+
+  function giftedTotal(state) {
+    if (!state.gifted) return 0;
+    return Object.values(state.gifted).reduce((sum, n) => sum + (n || 0), 0);
+  }
+
+  function purchasedTotal(state) {
+    let sum = 0;
+    for (const id in state.ranks) sum += state.ranks[id] || 0;
+    return Math.max(0, sum - giftedTotal(state));
+  }
+
+  // Points you can still spend. Class gifts occupy a rank but are not an
+  // unspent point: the first earned point (level 2) pays for that gift.
+  function expectedUnspent(state, level) {
+    const earned = Math.max(0, (level || 1) - 1);
+    return Math.max(0, earned - giftedTotal(state) - purchasedTotal(state));
+  }
+
+  function syncUnspent(state, level) {
+    if (!state.gifted) state.gifted = {};
+    state.points = expectedUnspent(state, level);
+    return state.points;
   }
 
   function canUnlock(state, id) {
@@ -36,10 +60,11 @@ const Skills = (() => {
     return true;
   }
 
-  function spend(state, id) {
+  function spend(state, id, level) {
     if (!canUnlock(state, id)) return false;
     state.ranks[id]++;
-    state.points--;
+    if (typeof level === 'number') syncUnspent(state, level);
+    else state.points = Math.max(0, (state.points || 0) - 1);
     return true;
   }
 
@@ -66,5 +91,8 @@ const Skills = (() => {
     return b;
   }
 
-  return { NODES, createState, canUnlock, spend, computeBonuses };
+  return {
+    NODES, createState, canUnlock, spend, computeBonuses,
+    giftedTotal, purchasedTotal, expectedUnspent, syncUnspent,
+  };
 })();
