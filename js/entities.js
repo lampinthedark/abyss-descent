@@ -121,10 +121,23 @@ const Entities = (() => {
     { id: 'wraith', name: 'Wraith', color: '#6080a0', hp: 35, dmg: 9, speed: 1.9, xp: 18, radius: 0.3 },
   ];
 
+  function pickType(floor) {
+    if (floor > 2) return Utils.pick(ENEMY_TYPES);
+    const bag = floor === 1
+      ? ['skel', 'skel', 'skel', 'imp', 'imp', 'brute']
+      : ['skel', 'skel', 'imp', 'imp', 'wraith', 'brute'];
+    const id = Utils.pick(bag);
+    return ENEMY_TYPES.find(t => t.id === id) || ENEMY_TYPES[0];
+  }
+
   function createEnemy(x, y, floor) {
-    const t = Utils.pick(ENEMY_TYPES);
+    const t = pickType(floor);
     const scale = 1 + (floor - 1) * 0.22;
-    const hp = Math.round(t.hp * scale);
+    // Floors 1–2 last long enough to read a telegraph and a hit, then the curve resumes.
+    const earlyHp = floor === 1 ? 2.05 : floor === 2 ? 1.55 : 1;
+    const earlyDmg = floor === 1 ? 0.55 : floor === 2 ? 0.72 : 1;
+    const earlySpd = floor === 1 ? 0.72 : floor === 2 ? 0.84 : 1;
+    const hp = Math.round(t.hp * scale * earlyHp);
     return {
       type: 'enemy',
       eid: t.id,
@@ -134,8 +147,8 @@ const Entities = (() => {
       radius: t.radius,
       life: hp,
       maxLife: hp,
-      dmg: Math.round(t.dmg * scale * 10) / 10,
-      speed: t.speed * (1 + floor * 0.02),
+      dmg: Math.round(t.dmg * scale * earlyDmg * 10) / 10,
+      speed: t.speed * (1 + floor * 0.02) * earlySpd,
       xp: Math.round(t.xp * (1 + floor * 0.15)),
       attackCd: 0,
       hitFlash: 0,
@@ -180,17 +193,14 @@ const Entities = (() => {
 
   function spawnWave(map, floor) {
     const enemies = [];
-    const count = Math.min(4 + floor * 2 + Utils.randInt(0, 3), map.spawnPoints.length);
+    let count = floor <= 1 ? 4 + Utils.randInt(0, 1)
+      : floor === 2 ? 5 + Utils.randInt(0, 1)
+        : 4 + floor * 2 + Utils.randInt(0, 3);
     const pts = [...map.spawnPoints].sort(() => Math.random() - 0.5);
+    count = Math.min(count, pts.length);
     for (let i = 0; i < count; i++) {
-      const p = pts[i];
-      if (!p) break;
+      const p = MapGen.nearestWalkable(map, pts[i].x, pts[i].y);
       enemies.push(createEnemy(p.x, p.y, floor));
-    }
-    while (enemies.length < 3 + floor && pts.length) {
-      const p = pts[enemies.length % pts.length];
-      enemies.push(createEnemy(p.x + Utils.rand(-0.5, 0.5), p.y + Utils.rand(-0.5, 0.5), floor));
-      if (enemies.length > 40) break;
     }
     return enemies;
   }

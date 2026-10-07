@@ -38,17 +38,13 @@ const MapGen = (() => {
     const end = rooms[rooms.length - 1];
     grid[end.cy][end.cx] = TILE.STAIRS;
 
-    // spawn points: floor tiles in rooms (not start room center)
+    // Spawn on open floor inside rooms, inset from walls so bodies aren't in the void.
     const spawnPoints = [];
     for (let i = 1; i < rooms.length; i++) {
-      const r = rooms[i];
-      for (let y = r.y; y < r.y + r.h; y++) {
-        for (let x = r.x; x < r.x + r.w; x++) {
-          if (grid[y][x] === TILE.FLOOR && Utils.chance(0.18)) {
-            spawnPoints.push({ x: x + 0.5, y: y + 0.5 });
-          }
-        }
-      }
+      const pool = roomFloors(grid, rooms[i], w, h, true);
+      const fallback = pool.length ? pool : roomFloors(grid, rooms[i], w, h, false);
+      const step = Math.max(1, Math.floor(fallback.length / 4));
+      for (let k = 0; k < fallback.length; k += step) spawnPoints.push(fallback[k]);
     }
 
     return attach({
@@ -59,6 +55,70 @@ const MapGen = (() => {
       stairsY: end.cy + 0.5,
       spawnPoints,
     });
+  }
+
+  function roomFloors(grid, room, w, h, openOnly) {
+    const spots = [];
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        if (grid[y][x] !== TILE.FLOOR) continue;
+        if (openOnly && !openFloor(grid, x, y, w, h)) continue;
+        spots.push({ x: x + 0.5, y: y + 0.5 });
+      }
+    }
+    return spots;
+  }
+
+  function openFloor(grid, x, y, w, h) {
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
+      if (grid[ny][nx] === TILE.WALL) return false;
+    }
+    return true;
+  }
+
+  function nearestWalkable(map, x, y) {
+    if (map.walkable(x, y)) return { x, y };
+    const cx = Math.floor(x), cy = Math.floor(y);
+    let best = null, bd = Infinity;
+    for (let r = 1; r <= 8; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = cx + dx, ny = cy + dy;
+          if (!map.walkable(nx + 0.5, ny + 0.5)) continue;
+          const px = nx + 0.5, py = ny + 0.5;
+          const d = (px - x) * (px - x) + (py - y) * (py - y);
+          if (d < bd) { bd = d; best = { x: px, y: py }; }
+        }
+      }
+      if (best) return best;
+    }
+    return { x: map.startX, y: map.startY };
+  }
+
+  /** A floor tile inside the room, preferring open tiles near the anchor. */
+  function roomSpot(map, room, ax, ay, minDist) {
+    if (!room) return nearestWalkable(map, ax, ay);
+    const spots = [];
+    for (let pass = 0; pass < 2; pass++) {
+      const pad = pass === 0 && room.w >= 5 && room.h >= 5 ? 1 : 0;
+      for (let y = room.y + pad; y < room.y + room.h - pad; y++) {
+        for (let x = room.x + pad; x < room.x + room.w - pad; x++) {
+          if (!map.grid[y] || map.grid[y][x] !== map.TILE.FLOOR) continue;
+          const px = x + 0.5, py = y + 0.5;
+          const d = Math.hypot(px - ax, py - ay);
+          if (minDist && d < minDist - 0.01) continue;
+          spots.push({ x: px, y: py, d });
+        }
+      }
+      if (spots.length) break;
+    }
+    if (!spots.length) return nearestWalkable(map, ax, ay);
+    spots.sort((a, b) => a.d - b.d);
+    return spots[0];
   }
 
   function carveRoom(grid, r) {
@@ -139,5 +199,5 @@ const MapGen = (() => {
     grid[y2][x2] = TILE.FLOOR;
   }
 
-  return { create, snapshot, restore, TILE };
+  return { create, snapshot, restore, TILE, nearestWalkable, roomSpot };
 })();

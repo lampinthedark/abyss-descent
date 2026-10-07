@@ -38,19 +38,17 @@ const Npc = (() => {
 
   function createForFloor(map, floor) {
     const list = [];
-    const start = map.rooms[0];
-    // Always place hermit on floor 1 near start
-    if (floor === 1) {
-      list.push(make('hermit', start.cx + 1.5, start.cy + 0.5));
+    const start = map.rooms && map.rooms[0];
+    const end = map.rooms && map.rooms[map.rooms.length - 1];
+    const nearStart = MapGen.roomSpot(map, start, map.startX, map.startY, 0.7);
+    if (floor === 1 || floor % 3 === 1) {
+      list.push(make('hermit', nearStart.x, nearStart.y));
     } else if (floor % 3 === 2) {
-      // wounded knight in start room
-      list.push(make('knight', start.cx + 1.2, start.cy - 0.2));
-    } else if (floor % 3 === 0) {
-      // whispering demon near stairs room, not on stairs
-      const end = map.rooms[map.rooms.length - 1];
-      list.push(make('whisper', end.cx - 1.5, end.cy + 0.5));
+      const spot = MapGen.roomSpot(map, start, map.startX + 1.1, map.startY, 0.85);
+      list.push(make('knight', spot.x, spot.y));
     } else {
-      list.push(make('hermit', start.cx + 1.3, start.cy + 0.3));
+      const spot = MapGen.roomSpot(map, end, map.stairsX - 1.1, map.stairsY, 0.9);
+      list.push(make('whisper', spot.x, spot.y));
     }
     return list;
   }

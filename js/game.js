@@ -24,6 +24,7 @@
     shakePhase: 0,
     hitStop: 0,
     hurtFlash: 0,
+    impactFlash: 0,
     deathStinger: false,
   };
 
@@ -99,6 +100,9 @@
     game.projectiles = [];
     game.floatTexts = [];
     game.cleared = !!state.cleared;
+    for (const en of game.enemies) plantOnFloor(en);
+    for (const n of game.npcs) plantOnFloor(n);
+    for (const d of game.drops) plantOnFloor(d);
     const p = game.player;
     if (typeof state.playerX === 'number') p.x = state.playerX;
     if (typeof state.playerY === 'number') p.y = state.playerY;
@@ -107,8 +111,17 @@
     p._pendingNpc = null;
     p.attackCd = 0;
     p.invuln = 0.35;
+    plantOnFloor(p);
     centerCam();
     return true;
+  }
+
+  function plantOnFloor(obj) {
+    if (!obj || !game.map) return;
+    if (game.map.walkable(obj.x, obj.y)) return;
+    const s = MapGen.nearestWalkable(game.map, obj.x, obj.y);
+    obj.x = s.x;
+    obj.y = s.y;
   }
 
   function loadFloor(floor) {
@@ -116,6 +129,8 @@
     game.map = MapGen.create(floor);
     game.enemies = Entities.spawnWave(game.map, floor);
     game.npcs = Npc.createForFloor(game.map, floor);
+    for (const en of game.enemies) plantOnFloor(en);
+    for (const n of game.npcs) plantOnFloor(n);
     game.drops = [];
     game.particles = [];
     game.projectiles = [];
@@ -257,11 +272,16 @@
       return;
     }
 
-    let nearest = null, nd = 1.35;
+    // Screen-space pick so clicks land on the sprite, with a small bias toward the focused foe.
+    let nearest = null, best = Infinity;
+    const focus = game.player.targetEnemy;
     for (const en of game.enemies) {
       if (en.life <= 0) continue;
-      const d = Utils.dist(world.x, world.y, en.x, en.y);
-      if (d < nd) { nd = d; nearest = en; }
+      const d = spriteClickDist(pos, en.x, en.y, en.eid === 'brute' ? 22 : 16);
+      const limit = (en.eid === 'brute' ? 48 : 38) + (en === focus ? 16 : 0);
+      if (d > limit) continue;
+      const score = d - (en === focus ? 12 : 0);
+      if (score < best) { best = score; nearest = en; }
     }
     if (nearest) {
       game.player.targetEnemy = nearest;
@@ -288,6 +308,11 @@
     setPath(world.x, world.y);
   }
 
+  function spriteClickDist(pos, wx, wy, lift) {
+    const s = worldToScreen(wx, wy);
+    return Math.hypot(pos.x - s.x, pos.y - (s.y - lift));
+  }
+
   function setPath(tx, ty) {
     const p = game.player;
     p.path = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.walkable(x + 0.5, y + 0.5))
@@ -309,6 +334,7 @@
     const st = Entities.playerStats(p);
     p.maxLife = st.maxLife;
     if (p.life > p.maxLife) p.life = p.maxLife;
+    plantOnFloor(p);
 
     if (p.hitFlash > 0) p.hitFlash -= dt;
     if (p.invuln > 0) p.invuln -= dt;
@@ -394,13 +420,13 @@
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d <= attackRange) {
-        p.windupMax = p.useProjectile ? 0.18 : 0.13;
+        p.windupMax = p.useProjectile ? 0.1 : 0.06;
         p.windup = p.windupMax;
-        p.swingDur = p.useProjectile ? 0.36 : 0.32;
+        p.swingDur = p.useProjectile ? 0.2 : 0.16;
         p.swingAnim = p.swingDur;
         p.swingAng = Math.atan2(en.y - p.y, en.x - p.x);
         p.facing = en.x >= p.x ? 1 : -1;
-        p.attackCd = 1 / st.aspd;
+        p.attackCd = Math.max(p.windupMax + 0.1, (1 / st.aspd) * 0.8);
         GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
       }
     }
@@ -556,7 +582,7 @@
       const ang = Math.atan2(primary.y - p.y, primary.x - p.x);
       const speed = 8.2;
       let dmg = st.dmg * Utils.rand(p.dmgVar[0], p.dmgVar[1]);
-      dmg = Math.round(dmg);
+      dmg = paceDamage(Math.round(dmg));
       const col = Classes.get(p.classId).colors.accent;
       game.projectiles.push({
         x: p.x, y: p.y - 0.15,
@@ -582,7 +608,7 @@
       let dmg = st.dmg * Utils.rand(p.dmgVar[0], p.dmgVar[1]);
       const mult = en === primary ? 1 : 0.6;
       if (en !== primary) dmg *= 0.6;
-      dmg = Math.round(dmg);
+      dmg = paceDamage(Math.round(dmg));
       applyDamageToEnemy(p, en, dmg, st, '#f4efe4', mult);
     }
   }
@@ -594,17 +620,18 @@
     const crit = ratio >= 1.18;
     const weak = ratio < 0.92;
     en.life -= dmg;
-    en.hitFlash = crit ? 0.22 : 0.14;
-    const col = crit ? '#ffd86a' : (weak ? '#c8b8a8' : (floatColor || '#f7f1e6'));
-    spawnFloat(en.x, en.y - 0.28, crit ? (dmg + '!') : String(dmg), col, {
-      scale: crit ? 1.65 : (weak ? 0.88 : 1.12),
+    en.hitFlash = crit ? 0.42 : 0.3;
+    const col = crit ? '#ffe566' : (weak ? '#f0e2d0' : (floatColor || '#fff6e8'));
+    spawnFloat(en.x, en.y - 0.35, crit ? (dmg + '!') : String(dmg), col, {
+      scale: crit ? 2.15 : (weak ? 1.25 : 1.6),
       crit,
-      life: crit ? 1.05 : 0.82,
+      life: crit ? 1.15 : 0.95,
       jitter: true,
     });
     if (p.useProjectile) spawnSparks(en.x, en.y, floatColor || '#9bb6ff', crit);
     else spawnBlood(en.x, en.y, crit);
-    addShake(crit ? 6.5 : 2.6);
+    addShake(crit ? 16 : 9);
+    game.impactFlash = Math.max(game.impactFlash || 0, crit ? 0.5 : 0.32);
     if (crit || dmg >= 18) hitStop(crit ? 0.06 : 0.04);
     const ang = Math.atan2(en.y - p.y, en.x - p.x);
     const kb = (crit ? 0.16 : 0.07) * (en.eid === 'brute' ? 0.4 : 1);
@@ -623,15 +650,20 @@
     if (en.dead) return;
     en.dead = true;
     en.life = 0;
-    en.dissolve = en.eid === 'brute' ? 0.55 : 0.42;
+    en.dissolve = en.eid === 'brute' ? 0.95 : 0.78;
+    en.dissolveMax = en.dissolve;
     const p = game.player;
     const prog = Entities.gainXp(p, en.xp);
     spawnDeathBurst(en);
-    addShake(en.eid === 'brute' ? 11 : 7);
-    hitStop(en.eid === 'brute' ? 0.085 : 0.06);
+    addShake(en.eid === 'brute' ? 24 : 16);
+    hitStop(en.eid === 'brute' ? 0.09 : 0.07);
+    game.impactFlash = Math.max(game.impactFlash || 0, 0.62);
     GameAudio.sfx('death');
     const drops = Loot.dropFromEnemy(en, game.floor);
-    for (const d of drops) game.drops.push(d);
+    for (const d of drops) {
+      plantOnFloor(d);
+      game.drops.push(d);
+    }
     if (prog.leveled) {
       const pts = prog.pointsGained > 0
         ? ` — ${prog.pointsGained} skill point${prog.pointsGained === 1 ? '' : 's'} gained.`
@@ -651,20 +683,15 @@
     }
     if (en.hitFlash > 0) en.hitFlash -= dt;
     if (en.attackCd > 0) en.attackCd -= dt;
+    if (!game.map.walkable(en.x, en.y)) plantOnFloor(en);
     const d = Utils.dist(en.x, en.y, p.x, p.y);
-    if (d < 9) en.aggro = true;
+    const aggroR = game.floor <= 1 ? 5.4 : game.floor === 2 ? 6.6 : 9;
+    if (d < aggroR) en.aggro = true;
     if (!en.aggro) return;
     en.facing = p.x >= en.x ? 1 : -1;
     const reach = 0.7 + (en.radius || 0.3);
     if (en.windup > 0) {
       en.windup -= dt;
-      if (d > reach * 0.75) {
-        const ang = Math.atan2(p.y - en.y, p.x - en.x);
-        const nx = en.x + Math.cos(ang) * en.speed * 0.38 * dt;
-        const ny = en.y + Math.sin(ang) * en.speed * 0.38 * dt;
-        if (game.map.walkable(nx, en.y)) en.x = nx;
-        if (game.map.walkable(en.x, ny)) en.y = ny;
-      }
       if (en.windup <= 0) {
         en.windup = 0;
         enemyStrike(en, p, st);
@@ -686,30 +713,32 @@
         if (game.map.walkable(en.x, ny)) en.y = ny;
       }
     } else if (en.attackCd <= 0) {
-      en.windupMax = en.eid === 'brute' ? 0.48 : en.eid === 'wraith' ? 0.4 : en.eid === 'imp' ? 0.26 : 0.32;
+      en.windupMax = en.eid === 'brute' ? 0.5 : en.eid === 'wraith' ? 0.42 : en.eid === 'imp' ? 0.34 : 0.38;
       en.windup = en.windupMax;
     }
   }
 
   function enemyStrike(en, p, st) {
     en.attackCd = en.eid === 'brute' ? 1.15 : en.eid === 'imp' ? 0.7 : en.eid === 'wraith' ? 0.95 : 0.88;
+    if (game.floor <= 2) en.attackCd *= game.floor === 1 ? 1.35 : 1.18;
     const reach = 0.7 + (en.radius || 0.3);
     if (Utils.dist(en.x, en.y, p.x, p.y) > reach + 0.4) return;
     if (p.invuln > 0) return;
     let dmg = Math.max(1, en.dmg - st.armor * 0.4);
     dmg = Math.round(dmg * Utils.rand(0.9, 1.1));
     p.life -= dmg;
-    p.hitFlash = 0.26;
+    p.hitFlash = 0.4;
     p.invuln = 0.38;
     const heavy = dmg >= 10 || en.eid === 'brute';
-    addShake(Math.min(14, 5 + dmg * 0.42));
-    hitStop(heavy ? 0.075 : 0.05);
-    game.hurtFlash = Math.min(0.55, 0.22 + dmg * 0.012);
+    addShake(Math.min(26, 12 + dmg * 0.7));
+    hitStop(heavy ? 0.08 : 0.055);
+    game.hurtFlash = Math.min(0.7, 0.38 + dmg * 0.02);
+    game.impactFlash = Math.max(game.impactFlash || 0, heavy ? 0.48 : 0.3);
     spawnBlood(p.x, p.y, heavy);
-    spawnFloat(p.x, p.y - 0.35, '-' + dmg, '#ff5a4a', {
-      scale: heavy ? 1.4 : 1.12,
+    spawnFloat(p.x, p.y - 0.4, '-' + dmg, '#ff4a3a', {
+      scale: heavy ? 1.9 : 1.5,
       crit: heavy,
-      life: 0.9,
+      life: 1.0,
       jitter: true,
     });
     const ang = Math.atan2(p.y - en.y, p.x - en.x);
@@ -725,7 +754,12 @@
     game.particles.push(pt);
   }
   function addShake(n) {
-    game.shake = Math.min(16, (game.shake || 0) + n);
+    game.shake = Math.min(30, (game.shake || 0) + n);
+  }
+  function paceDamage(dmg) {
+    if (game.floor === 1) return Math.max(1, Math.round(dmg * 0.58));
+    if (game.floor === 2) return Math.max(1, Math.round(dmg * 0.7));
+    return dmg;
   }
   function hitStop(n) {
     game.hitStop = Math.max(game.hitStop || 0, n);
@@ -807,7 +841,7 @@
     }
   }
   function spawnDeathBurst(en) {
-    const n = en.eid === 'brute' ? 26 : 16;
+    const n = en.eid === 'brute' ? 34 : 22;
     const colors = en.eid === 'wraith'
       ? ['#b7d8f0', '#f4fbff', '#406888']
       : en.eid === 'skel'
@@ -821,9 +855,9 @@
         vx: Math.cos(a) * sp * 0.55,
         vy: Math.sin(a) * sp * 0.55 - Utils.rand(0.6, 2.4),
         g: 3.4,
-        life: Utils.rand(0.28, 0.62),
+        life: Utils.rand(0.4, 0.85),
         color: colors[i % colors.length],
-        size: Utils.rand(2, en.eid === 'brute' ? 6.5 : 4.2),
+        size: Utils.rand(3, en.eid === 'brute' ? 8 : 5.5),
         glow: en.eid === 'wraith' || i % 4 === 0,
       });
     }
@@ -919,12 +953,12 @@
     for (const f of game.floatTexts) {
       const s = worldToScreen(f.x, f.y);
       const age = 1 - f.life / (f.max || 0.85);
-      const pop = (f.scale || 1) * (f.crit ? (1 + Math.exp(-age * 7) * 0.45) : 1);
-      const fs = Math.round((canvas.width < 520 ? 16 : 14) * pop);
+      const pop = (f.scale || 1) * (f.crit ? (1 + Math.exp(-age * 6) * 0.55) : 1);
+      const fs = Math.round((canvas.width < 520 ? 26 : 22) * pop);
       ctx.globalAlpha = Utils.clamp(f.life * 1.8, 0, 1);
       ctx.font = `bold ${fs}px Segoe UI, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 5;
       ctx.strokeStyle = 'rgba(0,0,0,0.82)';
       ctx.strokeText(f.text, s.x, s.y);
       ctx.fillStyle = f.color;
@@ -936,18 +970,22 @@
     ctx.restore();
 
     if (game.hurtFlash > 0) {
-      ctx.fillStyle = `rgba(110, 0, 0, ${Math.min(0.42, game.hurtFlash)})`;
+      ctx.fillStyle = `rgba(160, 8, 8, ${Math.min(0.62, game.hurtFlash)})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    if (game.impactFlash > 0) {
+      ctx.fillStyle = `rgba(255, 244, 214, ${Math.min(0.55, game.impactFlash)})`;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
     drawMinimap();
-    drawVignette(0.4);
+    drawVignette(0.14);
   }
 
   function drawVignette(strength) {
     const g = ctx.createRadialGradient(
-      canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.25,
-      canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.72
+      canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.48,
+      canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.78
     );
     g.addColorStop(0, 'transparent');
     g.addColorStop(1, `rgba(0,0,0,${strength})`);
@@ -1011,16 +1049,18 @@
         if (y < minY || y > maxY) continue;
         const tile = map.grid[y][x];
         const top = Utils.iso(x, y, TILE_W, TILE_H);
-        const sx = top.x + game.camX;
+        // Diamond center matches world (x+0.5, y+0.5), so feet sit on the lit tile.
+        const sx = top.x + game.camX - TILE_W / 2;
         const sy = top.y + game.camY;
         const dist = Math.hypot(x + 0.5 - px, y + 0.5 - py);
-        const light = Utils.clamp(1.2 - dist / 10, 0.12, 1);
+        let light = tileLight(dist);
+        if (tile !== map.TILE.WALL) light = Math.max(light, footLight(x + 0.5, y + 0.5));
         const torch = 0.04 * Math.sin(animT * 3 + x * 0.7 + y);
 
         if (tile === map.TILE.WALL) {
-          const base = shade('#1a1412', light * 0.7 + torch);
-          drawDiamond(sx + TILE_W / 2, sy + TILE_H / 2, TILE_W, TILE_H, base, shade('#0a0808', light));
-          ctx.fillStyle = shade('#2c2420', light + torch);
+          const base = shade('#3a3028', light * 0.85 + torch);
+          drawDiamond(sx + TILE_W / 2, sy + TILE_H / 2, TILE_W, TILE_H, base, shade('#241c18', light));
+          ctx.fillStyle = shade('#5a4a40', light * 0.9 + torch);
           ctx.beginPath();
           ctx.moveTo(sx + TILE_W / 2, sy - 20);
           ctx.lineTo(sx + TILE_W, sy + TILE_H / 2 - 20);
@@ -1033,7 +1073,7 @@
           ctx.strokeStyle = shade('#0c0a0a', light);
           ctx.lineWidth = 1; ctx.stroke();
           // darker left face so the block reads
-          ctx.fillStyle = shade('#14110f', light * 0.85);
+          ctx.fillStyle = shade('#2e261f', light * 0.95);
           ctx.beginPath();
           ctx.moveTo(sx, sy + TILE_H / 2 - 20);
           ctx.lineTo(sx, sy + TILE_H / 2);
@@ -1042,7 +1082,7 @@
           ctx.closePath();
           ctx.fill();
           const wseed = (x * 13 + y * 7) % 5;
-          const topCol = wseed === 0 ? '#53443c' : '#3e342c';
+          const topCol = wseed === 0 ? '#8d7564' : '#6e5c4e';
           drawDiamond(sx + TILE_W / 2, sy - 20 + TILE_H / 2, TILE_W, TILE_H, shade(topCol, light + torch), shade('#1a1410', light));
           ctx.strokeStyle = shade('#6a5a4c', light * 0.9);
           ctx.beginPath();
@@ -1060,11 +1100,11 @@
         } else {
           const isStairs = tile === map.TILE.STAIRS;
           const seed = (x * 17 + y * 31) % 17;
-          let col = (x + y) % 2 === 0 ? '#3c342c' : '#322a24';
-          if (seed === 1) col = '#2e2822';
-          if (seed === 0 || seed === 8) col = '#3e241c';
-          if (isStairs) col = game.cleared ? '#5a4018' : '#3a3228';
-          drawDiamond(sx + TILE_W / 2, sy + TILE_H / 2, TILE_W, TILE_H, shade(col, light + torch), shade('#100e0c', light));
+          let col = (x + y) % 2 === 0 ? '#b09078' : '#9a7c68';
+          if (seed === 1) col = '#a88870';
+          if (seed === 0 || seed === 8) col = '#8a5848';
+          if (isStairs) col = game.cleared ? '#c4a050' : '#8a7860';
+          drawDiamond(sx + TILE_W / 2, sy + TILE_H / 2, TILE_W, TILE_H, shade(col, light + torch * 0.5), shade('#6a5344', light));
           ctx.strokeStyle = shade((x + y) % 2 === 0 ? '#6a584c' : '#57483e', light * 0.85);
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -1107,6 +1147,22 @@
         }
       }
     }
+  }
+
+  function tileLight(dist) {
+    if (dist < 6.2) return 1.02;
+    return Utils.clamp(1.02 - (dist - 6.2) / 16, 0.58, 1.02);
+  }
+
+  function footLight(tx, ty) {
+    const near = (x, y) => Utils.dist(tx, ty, x, y) < 1.35;
+    if (game.player && near(game.player.x, game.player.y)) return 0.98;
+    for (const n of game.npcs) if (near(n.x, n.y)) return 0.94;
+    for (const en of game.enemies) {
+      if (en.life <= 0) continue;
+      if (near(en.x, en.y)) return 0.94;
+    }
+    return 0;
   }
 
   function shade(hex, light) {
@@ -1187,20 +1243,30 @@
     const s = worldToScreen(en.x, en.y);
     const max = en.windupMax || 0.4;
     const u = Utils.clamp(1 - en.windup / max, 0, 1);
-    const reach = en.eid === 'brute' ? 22 : 14;
+    const reach = en.eid === 'brute' ? 40 : 30;
     ctx.save();
-    ctx.translate(s.x, s.y + 4);
-    ctx.globalAlpha = 0.4 + u * 0.55;
-    ctx.strokeStyle = u > 0.72 ? '#ff3030' : '#ffb040';
-    ctx.lineWidth = 2 + u * 2.5;
+    ctx.translate(s.x, s.y + 6);
+    ctx.globalAlpha = 0.75 + u * 0.25;
+    ctx.strokeStyle = u > 0.66 ? '#ff2a22' : '#ffb020';
+    ctx.lineWidth = 5 + u * 5;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 12 + u * reach, 6 + u * 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 16 + u * reach, 8 + u * 10, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.globalAlpha = 0.1 + u * 0.22;
-    ctx.fillStyle = u > 0.72 ? '#ff2020' : '#ff8800';
+    ctx.globalAlpha = 0.22 + u * 0.38;
+    ctx.fillStyle = u > 0.66 ? '#ff2018' : '#ff8a00';
     ctx.beginPath();
-    ctx.ellipse(0, 0, 10 + u * reach * 0.7, 5 + u * 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 14 + u * reach * 0.85, 7 + u * 8, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = u > 0.66 ? '#ffe14a' : '#ffd080';
+    ctx.strokeStyle = '#1a0c08';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 22px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.strokeText('!', s.x, s.y - 36);
+    ctx.fillText('!', s.x, s.y - 36);
     ctx.restore();
   }
 
@@ -1258,32 +1324,33 @@
     const step = Math.sin(animT * (moving ? 11 : 2.2));
     const bob = moving ? Math.abs(step) * -1.6 : Math.sin(animT * 2.1) * 0.7;
     const pose = swingPose(p);
-    const ink = (hex) => (flash ? '#fff' : hex);
 
-    const glow = ctx.createRadialGradient(s.x, s.y, 2, s.x, s.y, 36);
-    glow.addColorStop(0, 'rgba(255,170,70,0.16)');
+    const glow = ctx.createRadialGradient(s.x, s.y, 2, s.x, s.y, 22);
+    glow.addColorStop(0, 'rgba(0,0,0,0.28)');
     glow.addColorStop(1, 'transparent');
     ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, 34, 14, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 2, 18, 7, 0, 0, Math.PI * 2); ctx.fill();
 
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 4, 16, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 4, 14, 5, 0, 0, Math.PI * 2); ctx.fill();
 
     ctx.save();
-    ctx.translate(s.x + pose * 3 * p.facing, s.y - 16 + bob);
-    ctx.scale(p.facing * 1.18, 1.18);
-
-    if (p.classId === 'warrior') drawWarriorBody(c, ink, step, pose);
-    else if (p.classId === 'rogue') drawRogueBody(c, ink, step, pose);
-    else drawSorcererBody(c, ink, step, pose, p);
-
+    ctx.translate(s.x + pose * 2 * p.facing, s.y - 14 + bob);
+    ctx.scale(p.facing * 1.2, 1.2);
+    paintOutlined((outline) => {
+      const ink = (hex) => (outline ? '#120c0a' : (flash ? '#fff' : hex));
+      ink.outline = outline;
+      if (p.classId === 'warrior') drawWarriorBody(c, ink, step, pose);
+      else if (p.classId === 'rogue') drawRogueBody(c, ink, step, pose);
+      else drawSorcererBody(c, ink, step, pose, p);
+    });
     ctx.restore();
 
     if (p.hitFlash > 0) {
-      ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, p.hitFlash * 4)})`;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, p.hitFlash * 3.2)})`;
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.ellipse(s.x, s.y - 14, 18, 22, 0, 0, Math.PI * 2);
+      ctx.ellipse(s.x, s.y - 16, 20, 26, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -1408,8 +1475,10 @@
     ctx.moveTo(-7, -16); ctx.lineTo(0, -32); ctx.lineTo(7, -16);
     ctx.fill();
     ctx.fillStyle = ink(c.accent);
-    ctx.beginPath(); ctx.arc(0, -20, 2.2, 0, Math.PI * 2); ctx.fill();
-    const charge = p.windup > 0 ? (1 - p.windup / (p.windupMax || 0.18)) : (0.45 + Math.sin(animT * 5) * 0.2);
+    if (!ink.outline) {
+      ctx.beginPath(); ctx.arc(0, -20, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+    const charge = p.windup > 0 ? (1 - p.windup / (p.windupMax || 0.1)) : (0.45 + Math.sin(animT * 5) * 0.2);
     ctx.save();
     ctx.translate(8, 2);
     ctx.rotate(-0.35 + pose * 0.7);
@@ -1417,9 +1486,22 @@
     ctx.fillRect(-1.4, -20, 2.8, 30);
     ctx.fillStyle = ink(c.weapon);
     ctx.beginPath(); ctx.arc(0, -22, 4.5 + charge * 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(190,210,255,${0.35 + charge * 0.45})`;
-    ctx.beginPath(); ctx.arc(0, -22, 8 + charge * 4, 0, Math.PI * 2); ctx.fill();
+    if (!ink.outline) {
+      ctx.fillStyle = `rgba(190,210,255,${0.35 + charge * 0.45})`;
+      ctx.beginPath(); ctx.arc(0, -22, 8 + charge * 4, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
+  }
+
+  function paintOutlined(drawFn) {
+    const o = 2.6;
+    for (const [dx, dy] of [[-o, 0], [o, 0], [0, -o], [0, o]]) {
+      ctx.save();
+      ctx.translate(dx, dy);
+      drawFn(true);
+      ctx.restore();
+    }
+    drawFn(false);
   }
 
   function shadeHex(hex, f) {
@@ -1432,52 +1514,18 @@
   function drawNpc(n) {
     const s = worldToScreen(n.x, n.y);
     const bob = Math.sin(animT * 2 + n.bob) * 1.2;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.ellipse(s.x, s.y + 4, 12, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(s.x, s.y + 4, 14, 5, 0, 0, Math.PI * 2); ctx.fill();
 
     ctx.save();
-    ctx.translate(s.x, s.y - 8 + bob);
-
-    if (n.kind === 'hermit') {
-      ctx.fillStyle = '#3a3028';
-      ctx.beginPath(); ctx.moveTo(-10, 14); ctx.lineTo(10, 14); ctx.lineTo(6, -2); ctx.lineTo(-6, -2); ctx.fill();
-      ctx.fillStyle = '#c0a880';
-      ctx.beginPath(); ctx.arc(0, -8, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#2a2018';
-      ctx.beginPath(); ctx.moveTo(-8, -6); ctx.lineTo(0, -18); ctx.lineTo(8, -6); ctx.fill();
-      ctx.fillStyle = '#806040';
-      ctx.fillRect(6, -4, 2, 16);
-    } else if (n.kind === 'knight') {
-      ctx.fillStyle = '#505868';
-      ctx.fillRect(-8, -2, 16, 14);
-      ctx.fillStyle = '#c0a880';
-      ctx.beginPath(); ctx.arc(0, -10, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#708090';
-      ctx.fillRect(-7, -16, 14, 6);
-      ctx.fillStyle = '#801818';
-      ctx.fillRect(-10, 4, 8, 4); // wound
-      ctx.fillStyle = '#a0a8b0';
-      ctx.fillRect(8, -6, 3, 18);
-    } else {
-      // whispering demon
-      ctx.globalAlpha = 0.8;
-      ctx.fillStyle = '#401828';
-      ctx.beginPath();
-      ctx.moveTo(0, -18); ctx.quadraticCurveTo(16, 0, 4, 14);
-      ctx.quadraticCurveTo(0, 8, -4, 14); ctx.quadraticCurveTo(-16, 0, 0, -18);
-      ctx.fill();
-      // horns
-      ctx.fillStyle = '#201010';
-      ctx.beginPath(); ctx.moveTo(-6, -12); ctx.lineTo(-12, -22); ctx.lineTo(-2, -14); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(6, -12); ctx.lineTo(12, -22); ctx.lineTo(2, -14); ctx.fill();
-      // wings
-      ctx.fillStyle = 'rgba(60,20,40,0.6)';
-      ctx.beginPath(); ctx.ellipse(-14, 0, 10, 6, -0.4, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(14, 0, 10, 6, 0.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#e04040';
-      ctx.beginPath(); ctx.arc(-3, -6, 2, 0, Math.PI * 2); ctx.arc(3, -6, 2, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 1;
-    }
+    ctx.translate(s.x, s.y - 10 + bob);
+    ctx.scale(1.15, 1.15);
+    paintOutlined((outline) => {
+      const ink = (hex) => (outline ? '#120c0a' : hex);
+      if (n.kind === 'hermit') drawHermitBody(ink);
+      else if (n.kind === 'knight') drawKnightBody(ink);
+      else drawWhisperBody(ink);
+    });
     ctx.restore();
 
     ctx.textAlign = 'center';
@@ -1489,7 +1537,50 @@
     }
     ctx.fillStyle = '#c0a080';
     ctx.font = '10px Segoe UI';
-    ctx.fillText(n.name, s.x, s.y + 16);
+    ctx.fillText(n.name, s.x, s.y + 18);
+  }
+
+  function drawHermitBody(ink) {
+    ctx.fillStyle = ink('#6a5344');
+    ctx.beginPath();
+    ctx.moveTo(-12, 16); ctx.lineTo(12, 16); ctx.lineTo(8, -4); ctx.lineTo(-8, -4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = ink('#f0d2a8');
+    ctx.beginPath(); ctx.arc(0, -10, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = ink('#3a2c22');
+    ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(0, -22); ctx.lineTo(9, -8); ctx.fill();
+    ctx.fillStyle = ink('#c4a06a');
+    ctx.fillRect(8, -6, 3, 18);
+    ctx.fillStyle = ink('#1a100c');
+    ctx.fillRect(-3, -11, 2, 2);
+    ctx.fillRect(2, -11, 2, 2);
+  }
+
+  function drawKnightBody(ink) {
+    ctx.fillStyle = ink('#8a94a4');
+    ctx.fillRect(-9, -2, 18, 16);
+    ctx.fillStyle = ink('#f0d2a8');
+    ctx.beginPath(); ctx.arc(0, -12, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = ink('#b0bac6');
+    ctx.fillRect(-8, -18, 16, 7);
+    ctx.fillStyle = ink('#c02020');
+    ctx.fillRect(-11, 4, 9, 5);
+    ctx.fillStyle = ink('#d0d6de');
+    ctx.fillRect(9, -8, 4, 20);
+  }
+
+  function drawWhisperBody(ink) {
+    ctx.fillStyle = ink('#6a2848');
+    ctx.beginPath();
+    ctx.moveTo(0, -20); ctx.lineTo(12, 16); ctx.lineTo(0, 8); ctx.lineTo(-12, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = ink('#2a1018');
+    ctx.beginPath(); ctx.moveTo(-6, -14); ctx.lineTo(-12, -24); ctx.lineTo(-2, -14); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(6, -14); ctx.lineTo(12, -24); ctx.lineTo(2, -14); ctx.fill();
+    ctx.fillStyle = ink('#ff5050');
+    ctx.beginPath(); ctx.arc(-3, -6, 2.2, 0, Math.PI * 2); ctx.arc(3, -6, 2.2, 0, Math.PI * 2); ctx.fill();
   }
 
   function drawEnemy(en) {
@@ -1505,10 +1596,20 @@
     let alpha = 1;
     let sc = en.eid === 'brute' ? 1.28 : en.eid === 'imp' ? 1.05 : 1.12;
     if (dead) {
-      alpha = Utils.clamp((en.dissolve || 0) / 0.42, 0, 1);
-      sc *= 1 + (1 - alpha) * 0.55;
+      const max = en.dissolveMax || 0.78;
+      const u = Utils.clamp((en.dissolve || 0) / max, 0, 1);
+      alpha = Math.max(0.15, u);
+      sc *= 1 + (1 - u) * 1.15;
+      ctx.save();
+      ctx.globalAlpha = u;
+      ctx.strokeStyle = u > 0.45 ? '#fff1c8' : '#ff8040';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y + 4, 12 + (1 - u) * 36, 6 + (1 - u) * 16, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     } else if (en.hitFlash > 0) {
-      sc *= 1 + en.hitFlash * 0.45;
+      sc *= 1 + en.hitFlash * 0.7;
     }
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -1519,11 +1620,13 @@
     ctx.translate(s.x, s.y + bob);
     ctx.scale((en.facing || 1) * sc, sc);
     ctx.translate(wind ? -2 : 0, en.eid === 'wraith' ? -18 : -12);
-    const ink = (hex) => (flash ? '#fff' : hex);
-    if (en.eid === 'skel') drawSkeleton(ink, step, wind);
-    else if (en.eid === 'imp') drawImp(ink, step, wind);
-    else if (en.eid === 'brute') drawBrute(ink, step, wind);
-    else drawWraith(ink, step, wind);
+    paintOutlined((outline) => {
+      const ink = (hex) => (outline ? '#120c0a' : (flash ? '#fff' : hex));
+      if (en.eid === 'skel') drawSkeleton(ink, step, wind);
+      else if (en.eid === 'imp') drawImp(ink, step, wind);
+      else if (en.eid === 'brute') drawBrute(ink, step, wind);
+      else drawWraith(ink, step, wind);
+    });
     ctx.restore();
 
     if (!dead) {
@@ -1773,8 +1876,9 @@
     } else {
       // A menu or pause should not bank a freeze-frame for later.
       if (panelsOpen() || game.state !== 'playing') game.hitStop = 0;
-      if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 36);
-      if (game.hurtFlash > 0) game.hurtFlash = Math.max(0, game.hurtFlash - dt * 1.5);
+      if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 18);
+      if (game.hurtFlash > 0) game.hurtFlash = Math.max(0, game.hurtFlash - dt * 1.35);
+      if (game.impactFlash > 0) game.impactFlash = Math.max(0, game.impactFlash - dt * 1.6);
       animT += dt;
       update(dt);
     }
