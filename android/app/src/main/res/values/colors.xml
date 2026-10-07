@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="abyssBackground">#0A0708</color>
+    <color name="colorPrimary">#8A2018</color>
+    <color name="colorPrimaryDark">#140C0C</color>
+    <color name="colorAccent">#E8C080</color>
+</resources>
