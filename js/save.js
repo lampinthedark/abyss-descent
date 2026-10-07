@@ -48,9 +48,11 @@ const Save = (() => {
         ranks: { ...p.skills.ranks },
         points: p.skills.points,
         gifted: { ...(p.skills.gifted || {}) },
+        bonus: p.skills.bonus || 0,
       },
       storyFlags: { ...(p.storyFlags || {}) },
       questTip: p.questTip || '',
+      quests: Quests.save(p),
     };
   }
 
@@ -78,7 +80,9 @@ const Save = (() => {
       skills: data.skills || Skills.createState(),
       storyFlags: data.storyFlags || {},
       questTip: data.questTip || '',
+      quests: Quests.load(data.quests),
     });
+    if (data.skills && data.skills.bonus) p.skills.bonus = data.skills.bonus;
     // ensure ranks object has all nodes
     const fresh = Skills.createState();
     p.skills.ranks = { ...fresh.ranks, ...(p.skills.ranks || {}) };
@@ -142,17 +146,14 @@ const Save = (() => {
       cleared: !!game.cleared || (living.length === 0 && anyDead),
       playerX: game.player.x,
       playerY: game.player.y,
+      embers: (game.embers || []).map(e => ({ x: e.x, y: e.y })),
     };
   }
 
   function capture(game) {
     if (!game.player) return null;
-    const tipEl = document.getElementById('quest-tip');
-    if (tipEl && !tipEl.classList.contains('hidden') && tipEl.textContent) {
-      game.player.questTip = tipEl.textContent.replace(/^Quest:\s*/, '');
-    }
     return {
-      version: 2,
+      version: 3,
       savedAt: Date.now(),
       floor: game.floor,
       selectedClass: game.selectedClass || game.player.classId,
