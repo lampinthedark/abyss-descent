@@ -448,6 +448,123 @@ button, .class-card, .item-row, .skill-node, .equip-slot, .dlg-btn {
   -webkit-tap-highlight-color: rgba(200, 80, 40, 0.25);
 }
 
+/* On-screen attack. Hidden unless the device has a touch or coarse pointer. */
+#touch-bar {
+  display: none;
+  position: absolute;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  z-index: 12;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+  touch-action: none;
+}
+html.touch-ui #touch-bar { display: flex; }
+#touch-skills { display: flex; gap: 8px; }
+#touch-attack {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: linear-gradient(180deg, #8a3020, #501810);
+  border: 2px solid #c06040; color: #f0e0d0;
+  font-family: inherit; font-size: 13px; font-weight: 700;
+  letter-spacing: 0.04em; cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+  touch-action: none;
+}
+#touch-attack:active { background: linear-gradient(180deg, #a03828, #602018); }
+.touch-skill {
+  min-width: 52px; min-height: 48px; padding: 4px 6px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #2a1818, #1a1010);
+  border: 1px solid #8a5040; color: #e8dcc8;
+  border-radius: 6px; cursor: pointer; font-family: inherit;
+  font-size: 10px; font-weight: 600; line-height: 1.15;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  touch-action: none;
+}
+.touch-skill .touch-skill-icon { font-size: 16px; line-height: 1; }
+.touch-skill:active { background: #3a2220; border-color: #c07050; }
+@media (max-height: 500px) {
+  html.touch-ui #touch-bar {
+    flex-direction: row;
+    align-items: center;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  }
+  #touch-attack { width: 64px; height: 64px; }
+}
+
+#adtest-panel {
+  position: absolute;
+  top: 78px;
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  z-index: 30;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 132px;
+  padding: 8px;
+  background: rgba(20, 12, 10, 0.92);
+  border: 1px solid #8a6040;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+}
+#adtest-panel.hidden { display: none; }
+#adtest-panel .adtest-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #e0c080;
+}
+#adtest-panel button {
+  min-height: 36px; padding: 6px 8px;
+  background: linear-gradient(180deg, #2a1818, #1a1010);
+  border: 1px solid #8a5040; color: #e8dcc8;
+  border-radius: 3px; font-family: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer;
+}
+#adtest-held {
+  font-size: 11px; font-weight: 700; color: #ffd080;
+  background: rgba(80, 40, 10, 0.95);
+  border: 1px solid #c08040;
+  border-radius: 3px;
+  padding: 4px 6px;
+  text-align: center;
+}
+#adtest-held.hidden { display: none; }
+#adtest-prompt {
+  position: absolute;
+  left: 50%; top: 42%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  width: min(280px, 86vw);
+  padding: 16px 14px 12px;
+  background: linear-gradient(160deg, #1c1412, #100c0c);
+  border: 2px solid #c08040;
+  border-radius: 6px;
+  box-shadow: 0 10px 32px rgba(0,0,0,0.7);
+  text-align: center;
+  pointer-events: auto;
+}
+#adtest-prompt.hidden { display: none; }
+#adtest-prompt [data-ad-label] {
+  font-size: 16px; font-weight: 700; color: #f0e0c0;
+  letter-spacing: 0.04em; margin-bottom: 12px;
+}
+.adtest-actions { display: flex; gap: 8px; }
+.adtest-actions button {
+  flex: 1; min-height: 44px;
+  font-family: inherit; font-weight: 700; font-size: 14px;
+  border-radius: 4px; cursor: pointer;
+}
+.adtest-actions [data-ad-accept] {
+  background: linear-gradient(180deg, #8a3020, #501810);
+  border: 1px solid #c06040; color: #f0e0d0;
+}
+.adtest-actions [data-ad-dismiss] {
+  background: linear-gradient(180deg, #2a1818, #1a1010);
+  border: 1px solid #8a5040; color: #e8dcc8;
+}
+
 .continue-summary {
   margin: 0 0 10px;
   font-size: 13px;

@@ -51,6 +51,7 @@
     canvas.height = Math.max(200, Math.floor(h));
     canvas.style.width = canvas.width + 'px';
     canvas.style.height = canvas.height + 'px';
+    syncTouchUi();
   }
 
   function startRun(keepProgress = false) {
@@ -177,6 +178,7 @@
     ensureEmbers();
     for (const em of game.embers) plantOnFloor(em);
     refreshQuestHud();
+    try { Analytics.floorEntered(floor); } catch (e) {}
   }
 
   function centerCam() {
@@ -206,6 +208,9 @@
     game.floor = data.floor || 1;
     const restored = !!(data.floorState && applyFloorState(data.floorState));
     if (!restored) loadFloor(game.floor);
+    else {
+      try { Analytics.floorEntered(game.floor); } catch (e) {}
+    }
     const dead = game.player.life <= 0;
     game.deathStinger = dead;
     game.state = dead ? 'dead' : 'playing';
@@ -261,12 +266,23 @@
   }
 
   function handlePointer(e) {
+    if (e.target && e.target.closest && e.target.closest('#touch-bar, #adtest-panel, #adtest-prompt')) return;
     if (game.state !== 'playing') return;
     if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) return;
     if (UI.isDialogueOpen()) return;
     e.preventDefault();
     const pos = canvasPos(e);
     const world = Utils.screenToWorld(pos.x, pos.y, game.camX, game.camY, TILE_W, TILE_H);
+
+    // The lit portal wins over a nearby NPC so the label and the stair tile both descend.
+    if (game.cleared && game.map) {
+      const stairScreen = spriteClickDist(pos, game.map.stairsX, game.map.stairsY, 28);
+      const stairWorld = Utils.dist(world.x, world.y, game.map.stairsX, game.map.stairsY);
+      if (stairScreen <= 64 || stairWorld < 0.9) {
+        choosePortal();
+        return;
+      }
+    }
 
     // NPC talk. Screen-space covers the sprite above the feet, including when it overlaps the player.
     let nearestNpc = null, bestNpc = Infinity;
@@ -295,12 +311,6 @@
       setPath(nearestNpc.x, nearestNpc.y);
       game.player._pendingNpc = nearestNpc;
       game.player._pendingEmber = null;
-      return;
-    }
-
-    // A lit portal accepts a fresh tap. The swing that cleared the floor does not.
-    if (game.cleared && game.map && spriteClickDist(pos, game.map.stairsX, game.map.stairsY, 18) <= 50) {
-      choosePortal();
       return;
     }
 
@@ -381,27 +391,18 @@
     p.targetEnemy = null;
     p._pendingNpc = null;
     p._pendingEmber = null;
-    if (game.map.isStairs(p.x, p.y)) {
-      p._portalHold = false;
-      p.path = [];
-      return;
+    const step = MapGen.approachPortal(game.map, p.x, p.y);
+    p.x = step.x;
+    p.y = step.y;
+    p.path = step.path;
+    if (step.snap || game.map.isStairs(p.x, p.y)) p._portalHold = false;
+    if (!step.snap && !p.path.length && !game.map.isStairs(p.x, p.y)) {
+      UI.log('The way to the portal is blocked.', 'danger');
     }
-    setPath(game.map.stairsX, game.map.stairsY);
   }
 
   function setPath(tx, ty) {
-    const p = game.player;
-    const toCenters = (nodes) => nodes.map(n => ({ x: n.x + 0.5, y: n.y + 0.5 }));
-    // Prefer tiles with floor behind the sprite. Fall back so older saves
-    // with narrower halls still have a route.
-    let nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.grounded(x + 0.5, y + 0.5));
-    if (!nodes.length) {
-      nodes = Utils.pathfind(p.x, p.y, tx, ty, (x, y) => game.map.walkable(x + 0.5, y + 0.5));
-    }
-    p.path = toCenters(nodes);
-    if (!p.path.length && game.map.walkable(tx, ty)) {
-      p.path = [{ x: Math.floor(tx) + 0.5, y: Math.floor(ty) + 0.5 }];
-    }
+    game.player.path = MapGen.routeTo(game.map, game.player.x, game.player.y, tx, ty);
   }
 
   function panelsOpen() {
@@ -447,7 +448,18 @@
       }
     }
 
-    if (!p.targetEnemy || p.targetEnemy.life <= 0) {
+    if (p._holdAttack) {
+      p.path = [];
+      p._pendingNpc = null;
+      p._pendingEmber = null;
+      let best = null, bd = attackRange + 0.001;
+      for (const en of game.enemies) {
+        if (en.life <= 0) continue;
+        const d = Utils.dist(p.x, p.y, en.x, en.y);
+        if (d <= attackRange && d < bd) { bd = d; best = en; }
+      }
+      p.targetEnemy = best;
+    } else if (!p.targetEnemy || p.targetEnemy.life <= 0) {
       p.targetEnemy = null;
       if (!p.path.length && !p.useProjectile) {
         let best = null, bd = attackRange + 0.4;
@@ -472,6 +484,7 @@
         p.x += (dx / dist) * speed;
         p.y += (dy / dist) * speed;
         p.facing = dx >= 0 ? 1 : -1;
+        p._aim = Math.atan2(dy, dx);
         p._dust = (p._dust || 0) + dt;
         if (p._dust > 0.22) {
           p._dust = 0;
@@ -481,7 +494,7 @@
           });
         }
       }
-    } else if (p.targetEnemy && p.targetEnemy.life > 0) {
+    } else if (!p._holdAttack && p.targetEnemy && p.targetEnemy.life > 0) {
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d > attackRange * 0.92) {
@@ -490,6 +503,7 @@
         const ny = p.y + Math.sin(ang) * st.move * dt;
         if (game.map.walkable(nx, ny)) { p.x = nx; p.y = ny; }
         p.facing = en.x >= p.x ? 1 : -1;
+        p._aim = ang;
       }
     }
     plantOnFloor(p);
@@ -504,12 +518,18 @@
           const reach = attackRange * (p.useProjectile ? 1.25 : 1.15);
           if (d <= reach) doPlayerAttack(p, en, st);
           p.attackCd = swingGap(st);
+          p._whiff = false;
+        } else if (p._whiff) {
+          p._whiff = false;
+          if (!p.useProjectile) spawnSlash(p);
+          p.attackCd = swingGap(st);
         }
       }
     } else if (p.targetEnemy && p.targetEnemy.life > 0 && p.attackCd <= 0) {
       const en = p.targetEnemy;
       const d = Utils.dist(p.x, p.y, en.x, en.y);
       if (d <= attackRange) {
+        p._whiff = false;
         p.windupMax = p.useProjectile ? 0.22 : 0.18;
         p.windup = p.windupMax;
         p.swingDur = p.useProjectile ? 0.34 : 0.28;
@@ -518,6 +538,16 @@
         p.facing = en.x >= p.x ? 1 : -1;
         GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
       }
+    } else if (p._holdAttack && p.attackCd <= 0) {
+      const ang = typeof p._aim === 'number' ? p._aim : (p.facing < 0 ? Math.PI : 0);
+      p._whiff = true;
+      p.windupMax = p.useProjectile ? 0.22 : 0.18;
+      p.windup = p.windupMax;
+      p.swingDur = p.useProjectile ? 0.34 : 0.28;
+      p.swingAnim = p.swingDur;
+      p.swingAng = ang;
+      p.facing = Math.cos(ang) >= 0 ? 1 : -1;
+      GameAudio.sfx(p.useProjectile ? 'cast' : 'swing');
     }
 
     // projectiles
@@ -2101,6 +2131,8 @@
   }
 
   function frame(t) {
+    try { Analytics.pump(); } catch (e) {}
+    try { Ads.tick(); } catch (e) {}
     const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
     lastT = t;
     game.shakePhase = (game.shakePhase || 0) + dt * 48;
@@ -2179,7 +2211,18 @@
     game.player._pendingNpc = null;
     game.player._pendingEmber = null;
     GameAudio.sfx('talk');
+    noteVowOffers(node);
     return true;
+  }
+
+  function noteVowOffers(node) {
+    try {
+      if (!node || !node.actions || !talkingNpc || talkingNpc.id !== 'hermit') return;
+      for (const a of node.actions) {
+        if (!a || !a.id || a.id.indexOf('accept-') !== 0) continue;
+        Analytics.event('vow-offered-' + a.id.slice('accept-'.length));
+      }
+    } catch (e) {}
   }
 
   function handleDialogueAction(actionId) {
@@ -2206,6 +2249,15 @@
       UI.log('You left a vow unfinished.', 'danger');
       game.embers = [];
     }
+    try {
+      if (actionId && actionId.indexOf('accept-') === 0
+          && result.toast && String(result.toast).indexOf('Vow accepted') === 0) {
+        Analytics.event('vow-accepted-' + actionId.slice('accept-'.length));
+      }
+      if (actionId && actionId.indexOf('turnin-') === 0 && result.granted) {
+        Analytics.event('vow-completed-' + actionId.slice('turnin-'.length));
+      }
+    } catch (e) {}
     if (result.toast) UI.log(result.toast, result.toastKind || 'story');
     if (result.granted) grantQuest(result.granted);
     if (result.spawnEmbers) {
@@ -2219,8 +2271,10 @@
       descendFloor();
       return;
     }
-    if (result.node) UI.showDialogue(result.node);
-    else closeDialogue();
+    if (result.node) {
+      UI.showDialogue(result.node);
+      noteVowOffers(result.node);
+    } else closeDialogue();
     persist('talk');
   }
 
@@ -2413,12 +2467,10 @@
         if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) {
           UI.hide('inv-panel'); UI.hide('skill-panel');
         } else {
-          game.state = 'paused';
-          UI.show('pause-screen');
+          openPause();
         }
       } else if (game.state === 'paused') {
-        game.state = 'playing';
-        UI.hide('pause-screen');
+        resumePlay();
       }
       return;
     }
@@ -2431,6 +2483,150 @@
     if (game.state !== 'playing') return;
     if (k === 'i') { e.preventDefault(); UI.togglePanel(game, 'inv-panel'); }
     if (k === 'k') { e.preventDefault(); UI.togglePanel(game, 'skill-panel'); }
+    if (k === '1' || k === '2' || k === '3') {
+      if (e.repeat) return;
+      e.preventDefault();
+      setAttackHold('key', true);
+    }
+  }
+
+  function setAttackHold(source, on) {
+    const p = game.player;
+    if (!p) return;
+    if (!p._holdSources) p._holdSources = {};
+    if (on) p._holdSources[source] = true;
+    else delete p._holdSources[source];
+    p._holdAttack = Object.keys(p._holdSources).length > 0;
+  }
+
+  function syncTouchUi() {
+    let on = false;
+    try {
+      if (navigator.maxTouchPoints > 0) on = true;
+      else if (window.matchMedia) {
+        on = window.matchMedia('(pointer: coarse)').matches
+          || window.matchMedia('(any-pointer: coarse)').matches;
+      }
+    } catch (e) { on = false; }
+    document.documentElement.classList.toggle('touch-ui', on);
+  }
+
+  function bindTouchAttack() {
+    const bar = document.getElementById('touch-bar');
+    if (!bar) return;
+    const press = (e) => {
+      if (e.button != null && e.button !== 0) return;
+      const btn = e.target.closest('button');
+      if (!btn || !bar.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { btn.setPointerCapture(e.pointerId); } catch (err) {}
+      setAttackHold('touch', true);
+    };
+    const release = (e) => {
+      if (e && e.cancelable) e.preventDefault();
+      setAttackHold('touch', false);
+    };
+    bar.addEventListener('pointerdown', press);
+    bar.addEventListener('pointerup', release);
+    bar.addEventListener('pointercancel', release);
+    bar.addEventListener('lostpointercapture', release, true);
+  }
+
+  function resumePlay() {
+    game._resumeState = null;
+    game.state = 'playing';
+    UI.hide('pause-screen');
+    persist('pause');
+  }
+
+  function openPause() {
+    if (game.state === 'dialogue') closeDialogue();
+    if (game.state !== 'playing') return;
+    game._resumeState = null;
+    game.state = 'paused';
+    UI.show('pause-screen');
+    persist('pause');
+  }
+
+  function capacitorApp() {
+    try {
+      const cap = window.Capacitor;
+      if (!cap) return null;
+      if (cap.Plugins && cap.Plugins.App) return cap.Plugins.App;
+      if (typeof cap.registerPlugin === 'function') return cap.registerPlugin('App');
+    } catch (e) {}
+    return null;
+  }
+
+  function onHardwareBack() {
+    if (game.state === 'dialogue') { closeDialogue(); return; }
+    if (UI.isVisible('inv-panel') || UI.isVisible('skill-panel')) {
+      UI.hide('inv-panel');
+      UI.hide('skill-panel');
+      return;
+    }
+    if (game.state === 'paused') { resumePlay(); return; }
+    if (game.state === 'playing') openPause();
+  }
+
+  function onBackground() {
+    if (game._backgrounded) return;
+    game._backgrounded = true;
+    try { GameAudio.holdMute(true); } catch (e) {}
+    if (game.state === 'playing' || game.state === 'dialogue') {
+      game._resumeState = game.state;
+      game.state = 'paused';
+      if (game._resumeState === 'playing') UI.show('pause-screen');
+    }
+  }
+
+  function onForeground() {
+    if (!game._backgrounded) return;
+    game._backgrounded = false;
+    try { GameAudio.holdMute(false); } catch (e) {}
+    if (!game._resumeState) return;
+    const next = game._resumeState;
+    game._resumeState = null;
+    game.state = next;
+    if (next === 'playing') UI.hide('pause-screen');
+  }
+
+  function bindAppLifecycle() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onBackground();
+      else onForeground();
+    });
+    const app = capacitorApp();
+    if (!app || typeof app.addListener !== 'function') return;
+    try {
+      const back = app.addListener('backButton', () => { try { onHardwareBack(); } catch (e) {} });
+      const change = app.addListener('appStateChange', (ev) => {
+        try {
+          if (ev && ev.isActive === false) onBackground();
+          else onForeground();
+        } catch (e) {}
+      });
+      if (back && typeof back.catch === 'function') back.catch(() => {});
+      if (change && typeof change.catch === 'function') change.catch(() => {});
+    } catch (e) {}
+  }
+
+  function quitGame() {
+    let ok = false;
+    try { ok = window.confirm('Quit Abyss Descent?'); } catch (e) { ok = false; }
+    if (!ok) return;
+    const app = capacitorApp();
+    if (app && typeof app.exitApp === 'function') {
+      try { app.exitApp(); return; } catch (e) {}
+    }
+    UI.hide('pause-screen');
+    UI.hide('hud');
+    UI.hide('death-screen');
+    abandonRun();
+    UI.show('title-screen');
+    game.state = 'title';
+    try { Analytics.event('title-shown'); } catch (e) {}
   }
 
   function bind() {
@@ -2490,6 +2686,7 @@
       UI.hide('select-screen');
       UI.show('title-screen');
       game.state = 'title';
+      try { Analytics.event('title-shown'); } catch (e) {}
     });
     UI.els['btn-start'].addEventListener('click', () => {
       game.selectedClass = UI.getSelectedClass();
@@ -2497,9 +2694,7 @@
       startRun(false);
     });
     UI.els['btn-resume'].addEventListener('click', () => {
-      game.state = 'playing';
-      UI.hide('pause-screen');
-      persist('pause');
+      resumePlay();
     });
     UI.els['btn-save']?.addEventListener('click', () => {
       persist('manual');
@@ -2511,6 +2706,9 @@
       abandonRun();
       UI.show('select-screen');
       game.state = 'select';
+    });
+    UI.els['btn-quit']?.addEventListener('click', () => {
+      quitGame();
     });
     UI.els['btn-retry-floor'].addEventListener('click', () => {
       const p = game.player;
@@ -2542,12 +2740,7 @@
       }
     });
     UI.els['btn-pause'].addEventListener('click', () => {
-      if (game.state === 'dialogue') closeDialogue();
-      if (game.state === 'playing') {
-        game.state = 'paused';
-        UI.show('pause-screen');
-        persist('pause');
-      }
+      openPause();
     });
     UI.els['dlg-actions'].addEventListener('click', (e) => {
       const btn = e.target.closest('[data-dlg-action]');
@@ -2574,6 +2767,26 @@
     canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
     canvas.addEventListener('gesturestart', (e) => e.preventDefault());
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', (e) => {
+      const k = (e.key || '').toLowerCase();
+      if (k === '1' || k === '2' || k === '3') setAttackHold('key', false);
+    });
+    syncTouchUi();
+    bindTouchAttack();
+    try {
+      Ads.setCombat(() => {
+        const p = game.player;
+        if (!p || game.state === 'title' || game.state === 'select') return false;
+        if (p.windup > 0 || p.swingAnim > 0) return true;
+        if (p.targetEnemy && p.targetEnemy.life > 0) return true;
+        for (const en of game.enemies || []) {
+          if (en.life > 0 && (en.aggro || en.windup > 0)) return true;
+        }
+        return false;
+      });
+    } catch (e) {}
+    bindAppLifecycle();
+    try { Analytics.event('title-shown'); } catch (e) {}
     window.addEventListener('beforeunload', () => {
       if (game.player && (game.state === 'playing' || game.state === 'paused' || game.state === 'dialogue' || game.state === 'dead')) {
         Save.write(game);

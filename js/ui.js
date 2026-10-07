@@ -12,7 +12,7 @@ const UI = (() => {
       'inv-panel', 'inv-stats', 'inv-equipped', 'inv-grid',
       'skill-panel', 'skill-tree', 'sp-text',
       'btn-choose', 'btn-continue', 'continue-summary', 'btn-start', 'btn-back-title',
-      'btn-resume', 'btn-save', 'btn-restart',
+      'btn-resume', 'btn-save', 'btn-restart', 'btn-quit',
       'btn-retry-floor', 'btn-full-restart',
       'btn-inv', 'btn-skills', 'btn-pause',
       'class-cards', 'dialogue-box', 'dlg-name', 'dlg-text', 'dlg-reward', 'dlg-actions',
@@ -190,6 +190,7 @@ const UI = (() => {
         els['class-cards'].querySelectorAll('.class-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         els['btn-start'].disabled = false;
+        try { Analytics.event('class-selected-' + selectedClass); } catch (e) {}
       });
     });
     // paint mini icons
@@ -276,6 +277,23 @@ const UI = (() => {
     els['eq-weapon'].style.color = w ? Loot.RARITY[w.rarity].color : '';
     els['eq-armor'].style.color = a ? Loot.RARITY[a.rarity].color : '';
     els['eq-ring'].style.color = r ? Loot.RARITY[r.rarity].color : '';
+    renderTouchSkills(p);
+  }
+
+  function renderTouchSkills(p) {
+    const box = document.getElementById('touch-skills');
+    if (!box || !p || !p.skills) return;
+    const gift = Classes.get(p.classId).skillHint;
+    const nodes = Skills.NODES.filter(n => (p.skills.ranks[n.id] || 0) > 0);
+    nodes.sort((a, b) => (a.id === gift ? -1 : b.id === gift ? 1 : 0));
+    const shown = nodes.slice(0, 3);
+    const sig = shown.map((n, i) => (i + 1) + ':' + n.id + ':' + p.skills.ranks[n.id]).join(',');
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.innerHTML = shown.map((n, i) =>
+      `<button type="button" class="touch-skill" data-skill-slot="${i + 1}" data-skill-id="${n.id}" aria-label="${n.name}">` +
+      `<span class="touch-skill-icon">${n.icon}</span><span>${i + 1} ${n.name}</span></button>`
+    ).join('');
   }
 
   function renderInventory(game) {
