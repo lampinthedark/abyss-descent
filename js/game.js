@@ -776,14 +776,14 @@
   function swingGap(st) {
     const wind = game.player && game.player.useProjectile ? 0.22 : 0.18;
     const aspd = Math.max(0.25, st.aspd || 1);
-    const want = game.floor === 1 ? Math.max(1.22, 1 / aspd)
+    const want = game.floor === 1 ? Math.max(1.5, 1.15 / aspd)
       : game.floor === 2 ? Math.max(0.98, 0.92 / aspd)
         : Math.max(0.36, 0.8 / aspd);
     return Math.max(0.28, want - wind);
   }
   function paceDamage(dmg) {
-    // Floor 1 warrior connects for 8–10. A 57 HP skeleton needs 6 hits, never 1–2.
-    if (game.floor === 1) return Utils.clamp(Math.round(dmg * 0.5), 7, 10);
+    // Floor 1 is a flat 9. Skeleton 54 / 9 = 6 hits, imp 45 / 9 = 5. Never 1–2.
+    if (game.floor === 1) return 9;
     if (game.floor === 2) return Utils.clamp(Math.round(dmg * 0.6), 8, 12);
     return dmg;
   }

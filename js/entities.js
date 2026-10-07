@@ -133,11 +133,17 @@ const Entities = (() => {
   function createEnemy(x, y, floor) {
     const t = pickType(floor);
     const scale = 1 + (floor - 1) * 0.22;
-    // Floors 1–2 last long enough to read a telegraph and a hit, then the curve resumes.
-    const earlyHp = floor === 1 ? 2.05 : floor === 2 ? 1.55 : 1;
+    // Floor 1 warrior connects for a flat 9. Skeleton 54 = 6 hits, imp 45 = 5.
+    // Floor 2 keeps the previous curve so it stays a step tougher.
+    const earlyHp = floor === 1 ? 1 : floor === 2 ? 1.55 : 1;
     const earlyDmg = floor === 1 ? 0.55 : floor === 2 ? 0.72 : 1;
     const earlySpd = floor === 1 ? 0.72 : floor === 2 ? 0.84 : 1;
-    const hp = Math.round(t.hp * scale * earlyHp);
+    let hp = Math.round(t.hp * scale * earlyHp);
+    if (floor === 1) {
+      if (t.id === 'skel') hp = 54;
+      else if (t.id === 'imp') hp = 45;
+      else hp = Math.round(t.hp * 2.05);
+    }
     return {
       type: 'enemy',
       eid: t.id,
@@ -193,7 +199,7 @@ const Entities = (() => {
 
   function spawnWave(map, floor) {
     const enemies = [];
-    let count = floor <= 1 ? 4 + Utils.randInt(0, 1)
+    let count = floor <= 1 ? 3
       : floor === 2 ? 5 + Utils.randInt(0, 1)
         : 4 + floor * 2 + Utils.randInt(0, 3);
     const pts = (map.spawnPoints || []).filter(p => map.grounded(p.x, p.y));
