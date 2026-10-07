@@ -13,6 +13,7 @@
     enemies: [],
     npcs: [],
     drops: [],
+    embers: [],
     particles: [],
     projectiles: [],
     floatTexts: [],
@@ -77,7 +78,7 @@
     UI.hide('skill-panel');
     UI.hide('dialogue-box');
     UI.show('hud');
-    UI.setQuestTip('Speak to the figure near the entrance.', game.player);
+    refreshQuestHud();
     UI.updateHud(game);
     UI.log(`Floor ${game.floor} — ${Classes.get(classId).name} descends.`, 'story');
     persist('start');
@@ -100,22 +101,28 @@
     game.projectiles = [];
     game.floatTexts = [];
     game.cleared = !!state.cleared;
+    game.embers = (state.embers || []).map(e => ({ x: e.x, y: e.y }));
     for (const en of game.enemies) {
       plantOnFloor(en);
       retuneLightHp(en);
     }
     for (const n of game.npcs) plantOnFloor(n);
     for (const d of game.drops) plantOnFloor(d);
+    ensureEmbers();
+    for (const em of game.embers) plantOnFloor(em);
     const p = game.player;
     if (typeof state.playerX === 'number') p.x = state.playerX;
     if (typeof state.playerY === 'number') p.y = state.playerY;
     p.path = [];
     p.targetEnemy = null;
     p._pendingNpc = null;
+    p._pendingEmber = null;
+    p._portalHold = false;
     p.attackCd = 0;
     p.invuln = 0.35;
     plantOnFloor(p);
     centerCam();
+    refreshQuestHud();
     return true;
   }
 
@@ -149,6 +156,7 @@
     }
     for (const n of game.npcs) plantOnFloor(n);
     game.drops = [];
+    game.embers = [];
     game.particles = [];
     game.projectiles = [];
     game.floatTexts = [];
@@ -158,9 +166,17 @@
     p.y = game.map.startY;
     p.path = [];
     p.targetEnemy = null;
+    p._pendingNpc = null;
+    p._pendingEmber = null;
+    p._portalHold = false;
     p.attackCd = 0;
     p.invuln = 0.5;
     centerCam();
+    const living = game.enemies.filter(e => e.life > 0).length;
+    Quests.onNewWave(p, floor, living);
+    ensureEmbers();
+    for (const em of game.embers) plantOnFloor(em);
+    refreshQuestHud();
   }
 
   function centerCam() {
@@ -201,8 +217,7 @@
     UI.hide('skill-panel');
     UI.hide('dialogue-box');
     UI.show('hud');
-    const tip = game.player.questTip || 'Continue the descent.';
-    UI.setQuestTip(tip, game.player);
+    refreshQuestHud();
     UI.updateHud(game);
     if (dead) {
       UI.els['death-msg'].textContent =
@@ -270,22 +285,14 @@
       }
     }
     if (nearestNpc && Utils.dist(game.player.x, game.player.y, nearestNpc.x, nearestNpc.y) < 2.2) {
-      talkingNpc = nearestNpc;
-      // reset dialogue if finished
-      if (nearestNpc.lineIndex >= nearestNpc.lines.length) nearestNpc.lineIndex = 0;
-      if (UI.openDialogue(nearestNpc)) {
-        game.state = 'dialogue';
-        game.player.path = [];
-        game.player.targetEnemy = null;
-        GameAudio.sfx('talk');
-        UI.log(nearestNpc.name + ' speaks...', 'story');
-      }
+      beginTalk(nearestNpc);
       return;
     }
     if (nearestNpc) {
       // walk toward NPC first
       setPath(nearestNpc.x, nearestNpc.y);
       game.player._pendingNpc = nearestNpc;
+      game.player._pendingEmber = null;
       return;
     }
 
@@ -303,6 +310,7 @@
     if (nearest) {
       game.player.targetEnemy = nearest;
       game.player._pendingNpc = null;
+      game.player._pendingEmber = null;
       const st = Entities.playerStats(game.player);
       if (game.player.useProjectile) {
         // ranged: stand and shoot if in range, else approach
@@ -320,8 +328,26 @@
       return;
     }
 
+    let nearestEmber = null, bestEmber = 36;
+    for (const em of game.embers) {
+      const d = spriteClickDist(pos, em.x, em.y, 10);
+      if (d < bestEmber) { bestEmber = d; nearestEmber = em; }
+    }
+    if (nearestEmber) {
+      game.player.targetEnemy = null;
+      game.player._pendingNpc = null;
+      if (Utils.dist(game.player.x, game.player.y, nearestEmber.x, nearestEmber.y) < 2.2) {
+        collectEmber(nearestEmber);
+      } else {
+        setPath(nearestEmber.x, nearestEmber.y);
+        game.player._pendingEmber = nearestEmber;
+      }
+      return;
+    }
+
     game.player.targetEnemy = null;
     game.player._pendingNpc = null;
+    game.player._pendingEmber = null;
     setPath(world.x, world.y);
   }
 
@@ -372,13 +398,19 @@
       if (Utils.dist(p.x, p.y, n.x, n.y) < 1.3) {
         p.path = [];
         p._pendingNpc = null;
-        if (n.lineIndex >= n.lines.length) n.lineIndex = 0;
-        talkingNpc = n;
-        if (UI.openDialogue(n)) {
-          game.state = 'dialogue';
-          GameAudio.sfx('talk');
-          return;
-        }
+        beginTalk(n);
+        return;
+      }
+    }
+
+    if (p._pendingEmber) {
+      const em = p._pendingEmber;
+      if (game.embers.indexOf(em) < 0) p._pendingEmber = null;
+      else if (Utils.dist(p.x, p.y, em.x, em.y) < 1.15) {
+        p.path = [];
+        p._pendingEmber = null;
+        collectEmber(em);
+        return;
       }
     }
 
@@ -507,6 +539,11 @@
       }
     }
 
+    for (let i = game.embers.length - 1; i >= 0; i--) {
+      const em = game.embers[i];
+      if (Utils.dist(p.x, p.y, em.x, em.y) < 0.7) collectEmber(em);
+    }
+
     game.particles = game.particles.filter(pt => {
       pt.life -= dt;
       pt.x += pt.vx * dt;
@@ -523,9 +560,10 @@
     const living = game.enemies.some(e => e.life > 0);
     if (!game.cleared && !living) {
       game.cleared = true;
-      UI.log('Floor cleared! Find the portal.', 'level');
-      UI.setQuestTip('Find the glowing portal and descend.', p);
+      const vow = Quests.hud(p, questCtx());
+      UI.log(vow && game.floor === 1 ? ('Floor cleared. ' + vow.objective) : 'Floor cleared! Find the portal.', 'level');
       GameAudio.sfx('clear');
+      refreshQuestHud();
     }
     if (game.cleared && game.map) {
       game._portalAcc = (game._portalAcc || 0) + dt;
@@ -544,17 +582,18 @@
         });
       }
     }
-    if (game.cleared && game.map.isStairs(p.x, p.y)) {
-      game.floor++;
-      const heal = Math.round(p.maxLife * 0.35);
-      p.life = Math.min(p.maxLife, p.life + heal);
-      GameAudio.sfx('portal');
-      addShake(4);
-      loadFloor(game.floor);
-      UI.log(`Descending to Floor ${game.floor}...`, 'level');
-      UI.setQuestTip('Seek survivors — then cleanse and descend.', p);
-      UI.updateHud(game);
-      persist('floor');
+    if (p._portalHold && !game.map.isStairs(p.x, p.y)) p._portalHold = false;
+    if (game.cleared && game.map.isStairs(p.x, p.y) && !p._portalHold) {
+      const gate = Quests.portalGate(p, game.floor);
+      if (gate) {
+        talkingNpc = null;
+        p.path = [];
+        p.targetEnemy = null;
+        UI.showDialogue(gate);
+        game.state = 'dialogue';
+        return;
+      }
+      descendFloor();
     }
 
     game.ambientAcc = (game.ambientAcc || 0) + dt;
@@ -703,16 +742,22 @@
       plantOnFloor(d);
       game.drops.push(d);
     }
-    if (prog.leveled) {
-      const pts = prog.pointsGained > 0
-        ? ` — ${prog.pointsGained} skill point${prog.pointsGained === 1 ? '' : 's'} gained.`
-        : '.';
-      UI.log(`Level up! Now Lv ${p.level}${pts}`, 'level');
-      spawnFloat(p.x, p.y - 0.55, 'LEVEL UP', '#7dffa8', { scale: 1.45, crit: true, life: 1.15 });
-      spawnLevelBurst(p.x, p.y);
-      GameAudio.sfx('level');
-    }
+    announceLevel(p, prog);
+    const questBeat = Quests.onKill(p, game.floor);
+    if (questBeat === 'ready') UI.log('Vow ready — return and turn it in.', 'story');
+    if (questBeat) refreshQuestHud();
     persist('kill');
+  }
+
+  function announceLevel(p, prog) {
+    if (!prog || !prog.leveled) return;
+    const pts = prog.pointsGained > 0
+      ? ` — ${prog.pointsGained} skill point${prog.pointsGained === 1 ? '' : 's'} gained.`
+      : '.';
+    UI.log(`Level up! Now Lv ${p.level}${pts}`, 'level');
+    spawnFloat(p.x, p.y - 0.55, 'LEVEL UP', '#7dffa8', { scale: 1.45, crit: true, life: 1.15 });
+    spawnLevelBurst(p.x, p.y);
+    GameAudio.sfx('level');
   }
 
   function updateEnemy(en, dt, p, st) {
@@ -986,14 +1031,17 @@
       if (en.life > 0) drawFootLight(worldToScreen(en.x, en.y));
     }
     for (const d of game.drops) drawFootLight(worldToScreen(d.x, d.y));
+    for (const em of game.embers) drawFootLight(worldToScreen(em.x, em.y));
     const sprites = [];
     for (const n of game.npcs) sprites.push({ kind: 'npc', ref: n, depth: n.x + n.y });
     for (const d of game.drops) sprites.push({ kind: 'drop', ref: d, depth: d.x + d.y });
+    for (const em of game.embers) sprites.push({ kind: 'ember', ref: em, depth: em.x + em.y });
     for (const en of game.enemies) sprites.push({ kind: 'enemy', ref: en, depth: en.x + en.y });
     sprites.push({ kind: 'player', ref: game.player, depth: game.player.x + game.player.y });
     sprites.sort((a, b) => a.depth - b.depth);
     for (const s of sprites) {
       if (s.kind === 'drop') drawDrop(s.ref);
+      else if (s.kind === 'ember') drawEmber(s.ref);
       else if (s.kind === 'enemy') { drawTelegraph(s.ref); drawEnemy(s.ref); }
       else if (s.kind === 'npc') drawNpc(s.ref);
       else { drawPlayer(s.ref); drawSwingArc(s.ref); drawCastCharge(s.ref); }
@@ -1248,6 +1296,7 @@
       consider(en.x, en.y);
     }
     for (const d of game.drops) consider(d.x, d.y);
+    for (const em of game.embers) consider(em.x, em.y);
     return best;
   }
 
@@ -1639,11 +1688,12 @@
     ctx.restore();
 
     ctx.textAlign = 'center';
-    if (!n.talkedThrough) {
-      const pulse = 0.5 + Math.sin(animT * 3) * 0.3;
-      ctx.fillStyle = `rgba(220,180,100,${pulse})`;
-      ctx.font = 'bold 14px Segoe UI';
-      ctx.fillText('!', s.x, s.y - 36);
+    const mark = game.player ? Quests.marker(game.player, n, questCtx()) : '';
+    if (mark) {
+      const pulse = 0.55 + Math.sin(animT * 3) * 0.35;
+      ctx.fillStyle = mark === '?' ? `rgba(150,220,160,${pulse})` : `rgba(230,190,100,${pulse})`;
+      ctx.font = 'bold 15px Segoe UI';
+      ctx.fillText(mark, s.x, s.y - 36);
     }
     ctx.fillStyle = '#c0a080';
     ctx.font = '10px Segoe UI';
@@ -1912,6 +1962,29 @@
     ctx.stroke();
   }
 
+  function drawEmber(em) {
+    const s = worldToScreen(em.x, em.y);
+    const bob = Math.sin(animT * 4 + em.x * 2) * 3;
+    ctx.fillStyle = 'rgba(255,140,40,0.28)';
+    ctx.beginPath(); ctx.arc(s.x, s.y - 8 + bob, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2a140c';
+    ctx.beginPath(); ctx.ellipse(s.x, s.y - 2, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffb050';
+    ctx.beginPath(); ctx.arc(s.x, s.y - 8 + bob, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff0c0';
+    ctx.beginPath(); ctx.arc(s.x - 1, s.y - 10 + bob, 2, 0, Math.PI * 2); ctx.fill();
+    const pulse = 0.45 + Math.sin(animT * 5) * 0.4;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ffe08a';
+    ctx.font = 'bold 12px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', s.x, s.y - 22);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#e0b070';
+    ctx.font = '10px Segoe UI';
+    ctx.fillText('Ember', s.x, s.y + 14);
+  }
+
   function drawDrop(d) {
     const s = worldToScreen(d.x, d.y);
     const bob = Math.sin(animT * 5 + d.x * 3) * 3;
@@ -1979,6 +2052,10 @@
       ctx.fillStyle = '#e0c060';
       ctx.fillRect(ox + n.x * scale - 1, oy + n.y * scale - 1, 3, 3);
     }
+    for (const em of game.embers) {
+      ctx.fillStyle = '#ffb040';
+      ctx.fillRect(ox + em.x * scale - 1, oy + em.y * scale - 1, 3, 3);
+    }
     for (const en of game.enemies) {
       if (en.life <= 0) continue;
       ctx.fillStyle = '#c03030';
@@ -2009,8 +2086,204 @@
     requestAnimationFrame(frame);
   }
 
+  function questCtx() {
+    return {
+      floor: game.floor,
+      living: (game.enemies || []).filter(e => e.life > 0).length,
+      npc: talkingNpc,
+    };
+  }
+
+  function refreshQuestHud() {
+    if (!game.player) return;
+    const view = Quests.hud(game.player, questCtx());
+    if (view) {
+      UI.renderQuest(view, game.player);
+      return;
+    }
+    if (game.cleared) {
+      UI.renderQuest({
+        title: 'Descent',
+        objective: 'Find the glowing portal and descend.',
+        reward: '',
+        also: '',
+      }, game.player);
+      return;
+    }
+    if (game.floor === 1) {
+      UI.renderQuest({
+        title: 'The Ashen Hermit',
+        objective: 'Speak with the hermit by the entrance.',
+        reward: 'Reward: a vow — gold, XP, and either a skill point or the Ashen Band.',
+        also: '',
+      }, game.player);
+      return;
+    }
+    UI.renderQuest({
+      title: 'Descent',
+      objective: 'Seek the living, then cleanse this floor and descend.',
+      reward: '',
+      also: '',
+    }, game.player);
+  }
+
+  function beginTalk(npc) {
+    talkingNpc = npc;
+    const node = Quests.open(game.player, npc, questCtx());
+    if (!node) {
+      talkingNpc = null;
+      return false;
+    }
+    npc.talked = true;
+    UI.showDialogue(node);
+    game.state = 'dialogue';
+    game.player.path = [];
+    game.player.targetEnemy = null;
+    game.player._pendingNpc = null;
+    game.player._pendingEmber = null;
+    GameAudio.sfx('talk');
+    return true;
+  }
+
+  function handleDialogueAction(actionId) {
+    if (!UI.isDialogueOpen() && game.state !== 'dialogue') return;
+    const result = Quests.act(game.player, actionId, questCtx()) || { node: null };
+    if (result.stay) {
+      game.player._portalHold = true;
+      closeDialogue();
+      return;
+    }
+    if (result.abandon && result.abandon.length) {
+      UI.log('You left a vow unfinished.', 'danger');
+      game.embers = [];
+    }
+    if (result.toast) UI.log(result.toast, result.toastKind || 'story');
+    if (result.granted) grantQuest(result.granted);
+    if (result.spawnEmbers) {
+      ensureEmbers();
+      for (const em of game.embers) plantOnFloor(em);
+    }
+    refreshQuestHud();
+    UI.updateHud(game);
+    if (result.descend) {
+      closeDialogue();
+      descendFloor();
+      return;
+    }
+    if (result.node) UI.showDialogue(result.node);
+    else closeDialogue();
+    persist('talk');
+  }
+
+  function grantQuest(granted) {
+    const p = game.player;
+    const st = Entities.playerStats(p);
+    if (granted.gold) {
+      const amt = Math.round(granted.gold * (st.goldMult || 1));
+      p.gold += amt;
+      spawnFloat(p.x, p.y - 0.35, '+' + amt, '#ffe08a', { scale: 1.1, life: 0.9 });
+    }
+    if (granted.xp) announceLevel(p, Entities.gainXp(p, granted.xp));
+    if (granted.skillPoint) {
+      p.skills.bonus = (p.skills.bonus || 0) + granted.skillPoint;
+      Skills.syncUnspent(p.skills, p.level);
+      UI.log(granted.skillPoint + ' skill point ready — open Skills.', 'level');
+    }
+    if (granted.item) {
+      p.inventory.push(granted.item);
+      UI.log(granted.item.name + ' added to your bag.', granted.item.rarity || 'loot');
+    }
+    spawnFloat(p.x, p.y - 1.05, 'QUEST', '#e7c27a', { scale: 1.25, life: 1.15 });
+    GameAudio.sfx(granted.item && granted.item.rarity === 'rare' ? 'lootRare' : 'loot');
+  }
+
+  function descendFloor() {
+    const p = game.player;
+    game.floor++;
+    const heal = Math.round(p.maxLife * 0.35);
+    p.life = Math.min(p.maxLife, p.life + heal);
+    GameAudio.sfx('portal');
+    addShake(4);
+    loadFloor(game.floor);
+    UI.log(`Descending to Floor ${game.floor}...`, 'level');
+    UI.updateHud(game);
+    persist('floor');
+  }
+
+  function collectEmber(em) {
+    const i = game.embers.indexOf(em);
+    if (i < 0) return;
+    const beat = Quests.noteEmber(game.player);
+    if (!beat) return;
+    game.embers.splice(i, 1);
+    if (game.player._pendingEmber === em) game.player._pendingEmber = null;
+    spawnFloat(em.x, em.y - 0.4, 'Ember', '#ffb060', { scale: 1.15, life: 0.9 });
+    GameAudio.sfx('loot');
+    if (beat === 'ready') UI.log('Both embers gathered — return to the Ashen Hermit.', 'story');
+    else UI.log('Warden ember gathered.', 'story');
+    refreshQuestHud();
+    persist('quest');
+  }
+
+  function ensureEmbers() {
+    const q = game.player && Quests.get(game.player, 'embers');
+    if (!q || q.step !== 'gather' || Number(game.floor) !== 1) {
+      if (!q || q.step !== 'gather') game.embers = [];
+      return;
+    }
+    const want = Math.max(0, (q.need || 2) - (q.have || 0));
+    while (game.embers.length > want) game.embers.pop();
+    let guard = 0;
+    while (game.embers.length < want && guard < 8) {
+      guard++;
+      const spot = findEmberSpot(game.embers);
+      if (!spot) break;
+      game.embers.push({ x: spot.x, y: spot.y });
+    }
+  }
+
+  function findEmberSpot(existing) {
+    const map = game.map;
+    if (!map || !map.grounded) return null;
+    const avoid = existing.slice();
+    for (const n of game.npcs) avoid.push(n);
+    for (const en of game.enemies) if (en.life > 0) avoid.push(en);
+    avoid.push({ x: map.stairsX, y: map.stairsY });
+    let best = null;
+    let bestScore = -Infinity;
+    for (let y = 0; y < map.h; y++) {
+      for (let x = 0; x < map.w; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        if (!map.grounded(px, py) || map.isStairs(px, py)) continue;
+        const fromStart = Math.hypot(px - map.startX, py - map.startY);
+        if (fromStart < 6) continue;
+        let blocked = false;
+        for (const a of avoid) {
+          if (Math.hypot(px - a.x, py - a.y) < 3.2) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        const score = Math.min(fromStart, 16) + ((x * 13 + y * 7) % 7) * 0.2;
+        if (score > bestScore) { bestScore = score; best = { x: px, y: py }; }
+      }
+    }
+    if (best) return best;
+    for (let y = 0; y < map.h; y++) {
+      for (let x = 0; x < map.w; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        if (!map.grounded(px, py) || map.isStairs(px, py)) continue;
+        if (Math.hypot(px - map.startX, py - map.startY) < 3.5) continue;
+        let blocked = false;
+        for (const a of avoid) {
+          if (Math.hypot(px - a.x, py - a.y) < 1.6) { blocked = true; break; }
+        }
+        if (!blocked) return { x: px, y: py };
+      }
+    }
+    return null;
+  }
+
   function closeDialogue() {
-    UI.hide('dialogue-box');
+    UI.showDialogue(null);
     if (game.state === 'dialogue') game.state = 'playing';
     talkingNpc = null;
   }
@@ -2035,11 +2308,8 @@
     }
     if (game.state === 'dialogue' && (k === 'enter' || k === ' ')) {
       e.preventDefault();
-      UI.advanceDialogue();
-      if (!UI.isDialogueOpen()) {
-        closeDialogue();
-        persist('talk');
-      }
+      const action = UI.primaryDialogueAction();
+      if (action) handleDialogueAction(action);
       return;
     }
     if (game.state !== 'playing') return;
@@ -2057,7 +2327,7 @@
     // touchmove is cancelled on a non-passive document listener. Overflow
     // inside inventory, the skill tree, and class select may still scroll,
     // including from a nested scroller into its parent panel, but not into the page.
-    const INNER_SCROLL = '.side-panel, .select-panel, .panel, #inv-grid';
+    const INNER_SCROLL = '.side-panel, .select-panel, .panel, #inv-grid, #dialogue-box';
     let touchStartY = 0;
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length) touchStartY = e.touches[0].clientY;
@@ -2163,12 +2433,11 @@
         persist('pause');
       }
     });
-    UI.els['dlg-next'].addEventListener('click', () => {
-      UI.advanceDialogue();
-      if (!UI.isDialogueOpen()) {
-        closeDialogue();
-        persist('talk');
-      }
+    UI.els['dlg-actions'].addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-dlg-action]');
+      if (!btn) return;
+      e.preventDefault();
+      handleDialogueAction(btn.dataset.dlgAction);
     });
 
     // Prefer Pointer Events; fall back to touch/mouse. Guard against double-fire.

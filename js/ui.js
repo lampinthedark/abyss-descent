@@ -15,7 +15,8 @@ const UI = (() => {
       'btn-resume', 'btn-save', 'btn-restart',
       'btn-retry-floor', 'btn-full-restart',
       'btn-inv', 'btn-skills', 'btn-pause',
-      'class-cards', 'dialogue-box', 'dlg-name', 'dlg-text', 'dlg-next',
+      'class-cards', 'dialogue-box', 'dlg-name', 'dlg-text', 'dlg-reward', 'dlg-actions',
+      'q-title', 'q-obj', 'q-reward', 'q-also',
     ].forEach(id => { els[id] = document.getElementById(id); });
 
     document.querySelectorAll('[data-close]').forEach(btn => {
@@ -25,7 +26,6 @@ const UI = (() => {
     });
 
     renderClassCards();
-    els['dlg-next'].addEventListener('click', advanceDialogue);
   }
 
   function show(id) { els[id]?.classList.remove('hidden'); }
@@ -41,16 +41,38 @@ const UI = (() => {
     setTimeout(() => div.remove(), 3600);
   }
 
-  function setQuestTip(text, player) {
-    if (!text) {
+  function renderQuest(view, player) {
+    if (!view || !view.objective) {
       hide('quest-tip');
-      els['quest-tip'].textContent = '';
       if (player) player.questTip = '';
       return;
     }
-    els['quest-tip'].textContent = 'Quest: ' + text;
+    els['q-title'].textContent = view.title || 'Quest';
+    els['q-obj'].textContent = view.objective;
+    if (view.reward) {
+      els['q-reward'].textContent = view.reward;
+      els['q-reward'].classList.remove('hidden');
+    } else {
+      els['q-reward'].textContent = '';
+      els['q-reward'].classList.add('hidden');
+    }
+    if (view.also) {
+      els['q-also'].textContent = view.also;
+      els['q-also'].classList.remove('hidden');
+    } else {
+      els['q-also'].textContent = '';
+      els['q-also'].classList.add('hidden');
+    }
     show('quest-tip');
-    if (player) player.questTip = text;
+    if (player) player.questTip = view.objective;
+  }
+
+  function setQuestTip(text, player) {
+    if (!text) {
+      renderQuest(null, player);
+      return;
+    }
+    renderQuest({ title: 'Quest', objective: text, reward: '', also: '' }, player);
   }
 
   function drawClassIcon(canvas, classId) {
@@ -180,33 +202,51 @@ const UI = (() => {
 
   function getSelectedClass() { return selectedClass; }
 
-  function openDialogue(npc) {
-    activeNpc = npc;
-    els['dlg-name'].textContent = npc.name;
-    const line = Npc.nextLine(npc);
-    if (!line) {
-      els['dlg-text'].textContent = '...';
+  let dialogueActions = [];
+
+  function showDialogue(node) {
+    if (!node) {
+      dialogueActions = [];
       hide('dialogue-box');
       activeNpc = null;
       return false;
     }
-    els['dlg-text'].textContent = line;
+    activeNpc = node;
+    els['dlg-name'].textContent = node.name || 'NPC';
+    els['dlg-text'].textContent = node.text || '';
+    const reward = els['dlg-reward'];
+    if (node.reward) {
+      reward.textContent = node.reward;
+      reward.classList.remove('hidden');
+      reward.classList.toggle('received', node.rewardKind === 'received');
+    } else {
+      reward.textContent = '';
+      reward.classList.add('hidden');
+      reward.classList.remove('received');
+    }
+    dialogueActions = node.actions || [];
+    els['dlg-actions'].innerHTML = dialogueActions.map(a =>
+      `<button type="button" class="dlg-btn" data-dlg-action="${a.id}">${a.label}</button>`
+    ).join('');
     show('dialogue-box');
-    if (npc.questTip) setQuestTip(npc.questTip);
     return true;
   }
 
+  function primaryDialogueAction() {
+    if (dialogueActions.length === 1) return dialogueActions[0].id;
+    return null;
+  }
+
+  function openDialogue(npc) {
+    return showDialogue({
+      name: npc.name,
+      text: (npc.lines && npc.lines[0]) || '...',
+      actions: [{ id: 'close', label: 'Leave' }],
+    });
+  }
+
   function advanceDialogue() {
-    if (!activeNpc) { hide('dialogue-box'); return false; }
-    const line = Npc.nextLine(activeNpc);
-    if (!line) {
-      activeNpc.talkedThrough = true;
-      hide('dialogue-box');
-      activeNpc = null;
-      return false;
-    }
-    els['dlg-text'].textContent = line;
-    return true;
+    return primaryDialogueAction();
   }
 
   function isDialogueOpen() { return isVisible('dialogue-box'); }
@@ -367,7 +407,8 @@ const UI = (() => {
   return {
     init, els, show, hide, isVisible, log, updateHud,
     renderInventory, renderSkills, togglePanel,
-    getSelectedClass, setQuestTip, openDialogue, advanceDialogue, isDialogueOpen,
+    getSelectedClass, setQuestTip, renderQuest, showDialogue, primaryDialogueAction,
+    openDialogue, advanceDialogue, isDialogueOpen,
     refreshContinue,
   };
 })();

@@ -39,6 +39,7 @@ const Entities = (() => {
       invuln: 0,
       questTip: '',
       storyFlags: {},
+      quests: { active: {}, done: {} },
     };
     // Class technique: a free rank, recorded separately so it is not an unspent point.
     if (cls.skillHint && p.skills.ranks[cls.skillHint] !== undefined) {

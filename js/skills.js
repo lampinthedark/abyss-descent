@@ -40,9 +40,16 @@ const Skills = (() => {
 
   // Points you can still spend. Class gifts occupy a rank but are not an
   // unspent point: the first earned point (level 2) pays for that gift.
+  // Quest bonus points are spendable immediately and are not eaten by that gift.
   function expectedUnspent(state, level) {
     const earned = Math.max(0, (level || 1) - 1);
-    return Math.max(0, earned - giftedTotal(state) - purchasedTotal(state));
+    const gifted = giftedTotal(state);
+    const purchased = purchasedTotal(state);
+    const levelPoints = Math.max(0, earned - gifted);
+    const spentFromLevels = Math.min(purchased, levelPoints);
+    const bonus = Math.max(0, (state && state.bonus) || 0);
+    const spentFromBonus = Math.max(0, purchased - spentFromLevels);
+    return Math.max(0, (levelPoints - spentFromLevels) + (bonus - spentFromBonus));
   }
 
   function syncUnspent(state, level) {
