@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Abyss Descent</string>
+    <string name="title_activity_main">Abyss Descent</string>
+    <string name="package_name">io.github.lampinthedark.abyssdescent</string>
+    <string name="custom_url_scheme">io.github.lampinthedark.abyssdescent</string>
+</resources>

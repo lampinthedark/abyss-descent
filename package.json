@@ -1,0 +1,29 @@
+{
+  "name": "abyss-descent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isometric browser ARPG. The same static files ship on GitHub Pages and inside the Capacitor Android/iOS WebView.",
+  "scripts": {
+    "copy:www": "node scripts/copy-www.js",
+    "test": "node scripts/copy-www.js && node scripts/check-www.js",
+    "icons": "node scripts/generate-icons.js && capacitor-assets generate --android --ios",
+    "cap:sync": "npm run copy:www && cap sync",
+    "cap:sync:android": "npm run copy:www && cap sync android",
+    "cap:sync:ios": "npm run copy:www && cap sync ios",
+    "android:debug": "npm run cap:sync:android && cd android && ./gradlew assembleDebug",
+    "android:bundle": "npm run cap:sync:android && cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9",
+    "@capacitor/ios": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "7.6.9",
+    "sharp": "0.34.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

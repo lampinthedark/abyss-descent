@@ -1,0 +1,27 @@
+{
+  "appId": "io.github.lampinthedark.abyssdescent",
+  "appName": "Abyss Descent",
+  "webDir": "www",
+  "backgroundColor": "#0a0708",
+  "zoomEnabled": false,
+  "android": {
+    "backgroundColor": "#0a0708",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "zoomEnabled": false,
+    "webContentsDebuggingEnabled": true,
+    "adjustMarginsForEdgeToEdge": "disable"
+  },
+  "ios": {
+    "backgroundColor": "#0a0708",
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "allowsLinkPreview": false,
+    "zoomEnabled": false,
+    "preferredContentMode": "mobile"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  }
+}
