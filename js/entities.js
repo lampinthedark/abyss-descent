@@ -1,0 +1,162 @@
+/** Player, enemies, projectiles/effects */
+const Entities = (() => {
+  function createPlayer(x, y, classId = 'warrior') {
+    const cls = Classes.get(classId);
+    const p = {
+      type: 'player',
+      classId: cls.id,
+      x, y,
+      radius: 0.35,
+      baseLife: cls.base.life,
+      life: cls.base.life,
+      maxLife: cls.base.life,
+      baseDmg: cls.base.dmg,
+      baseArmor: cls.base.armor,
+      baseAspd: cls.base.aspd,
+      baseMove: cls.base.move,
+      classCleave: cls.combat.cleave,
+      classRange: cls.combat.range,
+      classStyle: cls.combat.style,
+      dmgVar: cls.combat.dmgVar,
+      useProjectile: !!cls.combat.projectile,
+      level: 1,
+      xp: 0,
+      xpToLevel: 40,
+      gold: 0,
+      inventory: [],
+      equipped: { weapon: null, armor: null, ring: null },
+      skills: Skills.createState(),
+      path: [],
+      targetEnemy: null,
+      attackCd: 0,
+      hitFlash: 0,
+      facing: 1,
+      swingAnim: 0,
+      invuln: 0,
+      questTip: '',
+      storyFlags: {},
+    };
+    // starter class skill free rank hint
+    if (cls.skillHint && p.skills.ranks[cls.skillHint] !== undefined) {
+      p.skills.ranks[cls.skillHint] = 1;
+    }
+    return p;
+  }
+
+  function playerStats(p) {
+    const sk = Skills.computeBonuses(p.skills);
+    let dmg = p.baseDmg;
+    let armor = p.baseArmor;
+    let life = p.baseLife;
+    let aspd = p.baseAspd;
+    let move = p.baseMove;
+    for (const slot of ['weapon', 'armor', 'ring']) {
+      const it = p.equipped[slot];
+      if (!it) continue;
+      dmg += it.dmg || 0;
+      armor += it.armor || 0;
+      life += it.life || 0;
+      aspd += it.aspd || 0;
+    }
+    dmg *= sk.dmgMult;
+    armor += sk.armorFlat;
+    life += sk.lifeFlat;
+    aspd *= sk.aspdMult;
+    move *= sk.moveMult;
+    return {
+      dmg: Math.round(dmg * 10) / 10,
+      armor,
+      maxLife: Math.round(life),
+      aspd,
+      move,
+      cleave: sk.cleave + (p.classCleave || 0),
+      lifesteal: sk.lifesteal,
+      xpMult: sk.xpMult,
+      goldMult: sk.goldMult,
+      range: p.classRange || 1.15,
+    };
+  }
+
+  function syncLife(p) {
+    const st = playerStats(p);
+    const ratio = p.maxLife > 0 ? p.life / p.maxLife : 1;
+    p.maxLife = st.maxLife;
+    p.life = Utils.clamp(Math.round(ratio * p.maxLife), 1, p.maxLife);
+  }
+
+  function xpForLevel(lv) {
+    return Math.floor(40 * Math.pow(1.35, lv - 1));
+  }
+
+  function gainXp(p, amount) {
+    const st = playerStats(p);
+    p.xp += Math.round(amount * st.xpMult);
+    let leveled = false;
+    while (p.xp >= p.xpToLevel) {
+      p.xp -= p.xpToLevel;
+      p.level++;
+      p.skills.points++;
+      p.baseLife += p.classId === 'warrior' ? 10 : p.classId === 'rogue' ? 6 : 7;
+      p.baseDmg += p.classId === 'sorcerer' ? 1.8 : 1.5;
+      p.xpToLevel = xpForLevel(p.level);
+      const st2 = playerStats(p);
+      p.maxLife = st2.maxLife;
+      p.life = p.maxLife;
+      leveled = true;
+    }
+    return leveled;
+  }
+
+  const ENEMY_TYPES = [
+    { id: 'skel', name: 'Skeleton', color: '#c8c0a8', hp: 28, dmg: 6, speed: 1.6, xp: 12, radius: 0.32 },
+    { id: 'imp', name: 'Imp', color: '#c04030', hp: 18, dmg: 5, speed: 2.4, xp: 10, radius: 0.28 },
+    { id: 'brute', name: 'Brute', color: '#605048', hp: 55, dmg: 12, speed: 1.1, xp: 22, radius: 0.42 },
+    { id: 'wraith', name: 'Wraith', color: '#6080a0', hp: 35, dmg: 9, speed: 1.9, xp: 18, radius: 0.3 },
+  ];
+
+  function createEnemy(x, y, floor) {
+    const t = Utils.pick(ENEMY_TYPES);
+    const scale = 1 + (floor - 1) * 0.22;
+    const hp = Math.round(t.hp * scale);
+    return {
+      type: 'enemy',
+      eid: t.id,
+      name: t.name,
+      color: t.color,
+      x, y,
+      radius: t.radius,
+      life: hp,
+      maxLife: hp,
+      dmg: Math.round(t.dmg * scale * 10) / 10,
+      speed: t.speed * (1 + floor * 0.02),
+      xp: Math.round(t.xp * (1 + floor * 0.15)),
+      attackCd: 0,
+      hitFlash: 0,
+      aggro: false,
+      pathTimer: 0,
+      vx: 0, vy: 0,
+    };
+  }
+
+  function spawnWave(map, floor) {
+    const enemies = [];
+    const count = Math.min(4 + floor * 2 + Utils.randInt(0, 3), map.spawnPoints.length);
+    const pts = [...map.spawnPoints].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < count; i++) {
+      const p = pts[i];
+      if (!p) break;
+      enemies.push(createEnemy(p.x, p.y, floor));
+    }
+    while (enemies.length < 3 + floor && pts.length) {
+      const p = pts[enemies.length % pts.length];
+      enemies.push(createEnemy(p.x + Utils.rand(-0.5, 0.5), p.y + Utils.rand(-0.5, 0.5), floor));
+      if (enemies.length > 40) break;
+    }
+    return enemies;
+  }
+
+  return {
+    createPlayer, playerStats, syncLife, gainXp, xpForLevel,
+    createEnemy, spawnWave, ENEMY_TYPES,
+  };
+})();

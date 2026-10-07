@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Abyss Descent — Isometric ARPG</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game" width="960" height="640"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="hud-top">
+        <div id="hud-vitals">
+          <div class="bar-wrap hp-wrap"><div id="hp-bar" class="bar"></div><span id="hp-text">100/100</span></div>
+          <div class="bar-wrap xp-wrap"><div id="xp-bar" class="bar"></div><span id="xp-text">XP 0</span></div>
+        </div>
+        <div id="hud-stats">
+          <span id="class-text">Warrior</span>
+          <span id="level-text">Lv 1</span>
+          <span id="gold-text">Gold 0</span>
+          <span id="floor-text">Floor 1</span>
+        </div>
+      </div>
+      <div id="hud-equip">
+        <span id="eq-weapon">Wpn —</span>
+        <span id="eq-armor">Arm —</span>
+        <span id="eq-ring">Ring —</span>
+      </div>
+      <div id="quest-tip" class="hidden"></div>
+      <div id="hud-btns">
+        <button type="button" id="btn-inv" title="Inventory (I)">Bag</button>
+        <button type="button" id="btn-skills" title="Skills (K)">Skills</button>
+        <button type="button" id="btn-pause" title="Pause (Esc)">❚❚</button>
+      </div>
+      <div id="msg-log"></div>
+    </div>
+
+    <div id="dialogue-box" class="hidden">
+      <div class="dlg-name" id="dlg-name">NPC</div>
+      <div class="dlg-text" id="dlg-text"></div>
+      <button type="button" id="dlg-next" class="dlg-btn">Continue</button>
+    </div>
+
+    <div id="title-screen" class="overlay">
+      <div class="panel title-panel">
+        <h1>ABYSS DESCENT</h1>
+        <p class="subtitle">When the star-well cracked, demons poured upward.</p>
+        <p class="lore">You are one of the few who still choose to go <em>down</em>.</p>
+        <ul class="controls-hint">
+          <li><b>Click / Tap</b> — move, attack, or talk to NPCs</li>
+          <li><b>I</b> — inventory · <b>K</b> — skill tree · <b>Esc</b> — pause</li>
+          <li>Speak to the living · cleanse demons · find the portal</li>
+        </ul>
+        <button type="button" id="btn-continue" class="big-btn hidden">Continue Descent</button>
+        <p id="continue-summary" class="continue-summary hidden"></p>
+        <button type="button" id="btn-choose" class="big-btn">Choose Your Fate</button>
+      </div>
+    </div>
+
+    <div id="select-screen" class="overlay hidden">
+      <div class="panel select-panel">
+        <h2>Choose a Class</h2>
+        <p class="lore select-lore">Three paths into the dark. Each bleeds differently.</p>
+        <div id="class-cards" class="class-cards"></div>
+        <button type="button" id="btn-start" class="big-btn" disabled>Start Descent</button>
+        <button type="button" id="btn-back-title" class="big-btn secondary">Back</button>
+      </div>
+    </div>
+
+    <div id="pause-screen" class="overlay hidden">
+      <div class="panel">
+        <h2>Paused</h2>
+        <button type="button" id="btn-resume" class="big-btn">Resume</button>
+        <button type="button" id="btn-save" class="big-btn secondary">Save Progress</button>
+        <button type="button" id="btn-restart" class="big-btn secondary">Restart Run</button>
+      </div>
+    </div>
+
+    <div id="death-screen" class="overlay hidden">
+      <div class="panel">
+        <h2>You Have Fallen</h2>
+        <p id="death-msg">The abyss claims another soul.</p>
+        <button type="button" id="btn-retry-floor" class="big-btn">Retry Floor</button>
+        <button type="button" id="btn-full-restart" class="big-btn secondary">New Run</button>
+      </div>
+    </div>
+
+    <div id="inv-panel" class="side-panel hidden">
+      <div class="panel-header">
+        <h2>Inventory</h2>
+        <button type="button" class="close-btn" data-close="inv-panel">✕</button>
+      </div>
+      <div id="inv-stats" class="stat-block"></div>
+      <div id="inv-equipped" class="equip-slots"></div>
+      <div id="inv-grid" class="item-grid"></div>
+      <p class="hint">Click item to equip / unequip.</p>
+    </div>
+
+    <div id="skill-panel" class="side-panel hidden">
+      <div class="panel-header">
+        <h2>Skill Tree</h2>
+        <button type="button" class="close-btn" data-close="skill-panel">✕</button>
+      </div>
+      <p id="sp-text" class="sp-line">Skill Points: 0</p>
+      <div id="skill-tree" class="skill-tree"></div>
+      <p class="hint">Click a node to spend 1 point. Prerequisites must be unlocked.</p>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/classes.js"></script>
+  <script src="js/loot.js"></script>
+  <script src="js/skills.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/npc.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
