@@ -164,6 +164,8 @@ if (!src.includes("fxCall('reset')") || !src.includes("fxCall('vow', 0)")) fail(
 if (!src.includes("fxCall('setReducedMotion'")) fail('reduced motion should be passed to fx');
 if (!src.includes('setTransform(1, 0, 0, 1, 0, 0)')) fail('screen flash should draw in an unshaken canvas');
 if (!src.includes('if (!heavy || time >= (en.flashAt || 0))')) fail('boss and elite sprite flashes need a cooldown');
+if (!src.includes('boss: !!en.boss') || !src.includes('elite: !!en.elite && !en.boss')) fail('fx visuals should mark bosses and elites');
+if (!src.includes("fxCall('death', en.x, en.y, en.eid, foeVisual(en))")) fail('death should pass boss and elite options');
 const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
 if (!sprites.includes('#5fd8ff')) fail('gems should be light cyan');
 if (!sprites.includes('#7b4fd4')) fail('imps should be violet');

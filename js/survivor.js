@@ -2619,6 +2619,37 @@
         fxCall('vow', vowCount);
         return vowCount;
       };
+      window.__svDrops = () => {
+        const rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+        const bases = ['iron-blade', 'bone-charm', 'ash-bead', 'iron-blade', 'bone-charm'];
+        const camLeft = Math.round(canvas.width / 2 - player.x * TILE);
+        const camTop = Math.round(canvas.height / 2 - player.y * TILE);
+        const spots = [];
+        for (let i = 0; i < rarities.length; i++) {
+          const rarity = rarities[i];
+          let item = null;
+          try { item = SurvivorSave.createItem(bases[i], rarity); } catch (err) { item = null; }
+          const g = gemPool.pop() || {};
+          g.x = player.x + (i - 2) * 1.2;
+          g.y = player.y + 4.6;
+          g.kind = 'item';
+          g.item = item || { rarity: rarity, name: rarity };
+          g.value = 0;
+          g.age = 0;
+          g.big = false;
+          g.fly = 0;
+          g.vx = 0;
+          g.vy = 0;
+          gems.push(g);
+          spots.push({
+            rarity: rarity,
+            x: g.x * TILE + camLeft,
+            y: g.y * TILE + camTop,
+          });
+        }
+        return { enemies: enemies.length, spots: spots };
+      };
+      window.__svItems = () => gems.filter((g) => g.kind === 'item').map((g) => (g.item && g.item.rarity) || '');
       window.__svPan = (x, y) => { player.x = x; player.y = y; };
       window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
       window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };

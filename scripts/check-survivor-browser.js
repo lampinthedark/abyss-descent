@@ -476,6 +476,44 @@ async function pageWith(browser, url, viewport) {
     await swarmed.waitForFunction(() => window.__sv && window.__sv().enemies >= 300, { timeout: 8000 });
     await new Promise(r => setTimeout(r, 400));
     await swarmed.screenshot({ path: path.join(shots, 'survivor-phone-crowd.png') });
+    const dropInfo = await swarmed.evaluate(() => window.__svDrops());
+    if (!dropInfo || dropInfo.enemies < 100) fail('drop crowd: ' + JSON.stringify(dropInfo));
+    await swarmed.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const dropPixels = await swarmed.evaluate((spots) => {
+      const canvas = document.querySelector('canvas');
+      const ctx = canvas.getContext('2d');
+      const want = {
+        common: [138, 133, 125],
+        uncommon: [94, 211, 122],
+        rare: [76, 124, 255],
+        epic: [208, 180, 255],
+        legendary: [242, 246, 255],
+      };
+      return spots.map((spot) => {
+        const rgb = want[spot.rarity];
+        let hits = 0;
+        let sample = null;
+        const cx = Math.round(spot.x);
+        const cy = Math.round(spot.y);
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const px = ctx.getImageData(cx + dx, cy + dy, 1, 1).data;
+            if (!sample) sample = [px[0], px[1], px[2]];
+            if (Math.abs(px[0] - rgb[0]) < 18 && Math.abs(px[1] - rgb[1]) < 18 && Math.abs(px[2] - rgb[2]) < 18) hits += 1;
+          }
+        }
+        return { rarity: spot.rarity, hits: hits, sample: sample, x: cx, y: cy };
+      });
+    }, dropInfo.spots);
+    const dropLeft = await swarmed.evaluate(() => window.__svItems());
+    await swarmed.screenshot({ path: path.join(shots, 'survivor-drops-crowd.png') });
+    console.log('drops', JSON.stringify({ enemies: dropInfo.enemies, pixels: dropPixels, left: dropLeft }));
+    dropPixels.forEach((row) => {
+      if (row.hits < 8) fail('rarity square ' + row.rarity + ' not on the floor: ' + JSON.stringify(row));
+    });
+    ['common', 'uncommon', 'rare', 'epic', 'legendary'].forEach((rarity) => {
+      if (dropLeft.indexOf(rarity) < 0) fail('missing floor drop ' + rarity + ': ' + dropLeft.join(','));
+    });
     if (swarmed.__errors.length) fail('phone crowd errors: ' + swarmed.__errors.join(' | '));
     await swarmed.close();
 
@@ -500,7 +538,6 @@ async function pageWith(browser, url, viewport) {
     await new Promise(r => setTimeout(r, 500));
     await ward.screenshot({ path: path.join(shots, 'survivor-warden-t150.png') });
     await ward.screenshot({ path: path.join(shots, 'survivor-hud.png') });
-    await ward.screenshot({ path: path.join(shots, 'survivor-drops-crowd.png') });
     await ward.evaluate(() => window.__svSetVows(0));
     await new Promise(r => setTimeout(r, 200));
     await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-0.png') });
