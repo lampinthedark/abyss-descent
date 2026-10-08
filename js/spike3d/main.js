@@ -35,7 +35,7 @@ const FOOT_Y = 2;
 const SRC_H = CELL_H - FOOT_Y;
 const ANIM_IDS = ['walk', 'attack', 'hit', 'death'];
 const ANIM_FRAMES = [4, 4, 2, 4];
-const KIND_SHEET = ['goblin/body/base', 'rat/body/base', 'skeleton/body/base', 'spider/body/base'];
+const KIND_SHEET = ['skeleton/body/base', 'rat/body/base', 'wolf/body/base', 'caster/body/base'];
 const FWD_X = Math.sin(YAW);
 const FWD_Z = Math.cos(YAW);
 const RIGHT_X = Math.cos(YAW);
@@ -694,8 +694,18 @@ function boot() {
     const boss = sim.boss;
     for (let i = 0; i < sim.count; i++) {
       const y = heightAt(sim.x[i], sim.z[i]);
-      const scale = (i === boss ? BOSS_SCALE : 1) * ppm;
-      const sheet = KIND_SHEET[sim.kind[i]] || KIND_SHEET[0];
+      let mul = 0.72;
+      let sheet = KIND_SHEET[sim.kind[i]] || KIND_SHEET[0];
+      if (i === boss) {
+        mul = BOSS_SCALE;
+        sheet = 'skeleton/body/boss';
+      } else if (sim.elite[i]) {
+        mul = 1.3;
+        sheet = 'skeleton/body/elite';
+      } else if (sim.kind[i] === 2 || sim.kind[i] === 3) {
+        mul = 1;
+      }
+      const scale = mul * ppm;
       if (sim.state[i] === ANIM.DEAD) {
         const fade = sim.fade[i];
         if (fade < 0.02) continue;

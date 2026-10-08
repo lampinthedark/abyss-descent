@@ -31,9 +31,11 @@
     { "id": "hero/crest/tall", "tint": "armour" },
     { "id": "hero/weapon/sword", "tint": "armour" },
     { "id": "hero/weapon/axe", "tint": "armour" },
-    { "id": "goblin/body/base", "tint": "none" },
     { "id": "rat/body/base", "tint": "none" },
     { "id": "skeleton/body/base", "tint": "none" },
-    { "id": "spider/body/base", "tint": "none" }
+    { "id": "skeleton/body/elite", "tint": "none" },
+    { "id": "skeleton/body/boss", "tint": "none", "outline": false },
+    { "id": "wolf/body/base", "tint": "none" },
+    { "id": "caster/body/base", "tint": "none" }
   ]
 }

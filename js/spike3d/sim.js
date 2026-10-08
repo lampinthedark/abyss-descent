@@ -15,6 +15,7 @@ export function createSim(max, obstacles) {
   const frame = new Uint8Array(max);
   const state = new Uint8Array(max);
   const kind = new Uint8Array(max);
+  const elite = new Uint8Array(max);
   const animT = new Float32Array(max);
   const fade = new Float32Array(max);
   const px = new Float32Array(max);
@@ -32,7 +33,7 @@ export function createSim(max, obstacles) {
   let rng = 123456789;
   let pulse = 0;
   const sim = {
-    x, z, dir, anim, frame, state, kind, fade, hero,
+    x, z, dir, anim, frame, state, kind, elite, fade, hero,
     get count() { return count; },
     get boss() { return boss; },
     place,
@@ -56,6 +57,7 @@ export function createSim(max, obstacles) {
     dir[i] = i & 7;
     animT[i] = rand();
     fade[i] = 1;
+    elite[i] = !isBoss && (i % 9 === 4) ? 1 : 0;
     if (i + 1 > count) count = i + 1;
     if (isBoss) boss = i;
   }
@@ -206,9 +208,9 @@ export function createSim(max, obstacles) {
       let dx = hero.x - x[i];
       let dz = hero.z - z[i];
       let dist = Math.hypot(dx, dz) || 1;
-      const hold = i === boss ? heroH * 2.4 : reach;
-      let speed = heroH * (kind[i] === 1 ? 2.3 : 1.7);
-      if (i === boss) speed *= 0.75;
+      const hold = i === boss ? heroH * 3.1 : kind[i] === 3 ? heroH * 2.7 : reach;
+      let speed = heroH * (kind[i] === 2 ? 3.1 : kind[i] === 1 ? 2.2 : 1.55);
+      if (i === boss) speed *= 0.7;
       if (dist < hold) {
         dx = 0; dz = 0;
       } else {

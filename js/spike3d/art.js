@@ -18,6 +18,11 @@ const RGB = {
   10: hexRgb(HEX.rat),
   11: hexRgb(HEX.ratDeep),
   12: hexRgb(HEX.ratPink),
+  19: hexRgb(HEX.wolf),
+  20: hexRgb(HEX.wolfDeep),
+  21: hexRgb(HEX.robe),
+  22: hexRgb(HEX.robeDeep),
+  23: hexRgb(HEX.violet),
   13: hexRgb(HEX.bone),
   14: hexRgb(HEX.boneDeep),
   15: hexRgb(HEX.spider),
@@ -38,6 +43,11 @@ const GOBD = 9;
 const RAT = 10;
 const RATD = 11;
 const PINK = 12;
+const WOLF = 19;
+const WOLFD = 20;
+const ROBE = 21;
+const ROBED = 22;
+const VIOLET = 23;
 const BONE = 13;
 const BONED = 14;
 const SPD = 15;
@@ -267,29 +277,22 @@ function drawGoblin(buf, d, lean, step, bob) {
 }
 
 function drawRat(buf, d, lean, step, bob) {
-  const y = 14 + bob;
-  if (d === 0) {
-    box(buf, 7 + lean, y, 10, 8, RAT, INK);
-    fill(buf, 8 + lean, y + 2, 2, 2, EYER);
-    fill(buf, 13 + lean, y + 2, 2, 2, EYER);
-    fill(buf, 6 + lean, y - 2, 3, 3, PINK);
-    fill(buf, 15 + lean, y - 2, 3, 3, PINK);
-  } else if (d === 4) {
-    box(buf, 7 + lean, y, 10, 8, RATD, INK);
-    fill(buf, 16 + lean, y + 2, 4, 2, PINK);
-  } else {
-    box(buf, 4 + lean, y, 14, 7, RAT, INK);
-    fill(buf, 16 + lean, y + 1, 3, 3, PINK);
-    fill(buf, 15 + lean, y + 3, 2, 2, EYER);
-    fill(buf, 2 + lean, y + 3, 5, 2, PINK);
+  const y = 10 + bob;
+  box(buf, 9 + lean, y, 6, 8, RAT);
+  fill(buf, 8 + lean, y, 2, 3, PINK);
+  fill(buf, 14 + lean, y, 2, 3, PINK);
+  if (d < 2) {
+    put(buf, 10 + lean, y + 3, INK);
+    put(buf, 13 + lean, y + 3, INK);
+  } else if (d !== 4) {
+    put(buf, 13 + lean, y + 3, INK);
   }
   const foot = step > 0 ? 0 : 1;
-  fill(buf, 6 + lean, 26 + foot, 2, 3, RATD);
-  fill(buf, 11 + lean, 26 + (1 - foot), 2, 3, RATD);
-  fill(buf, 15 + lean, 26 + foot, 2, 3, RATD);
+  fill(buf, 9 + lean, 20 + foot, 2, 10, RATD);
+  fill(buf, 13 + lean, 20 + (1 - foot), 2, 10, RATD);
 }
 
-function drawSkeleton(buf, d, lean, step, bob) {
+function drawSkeleton(buf, d, lean, step, bob, trim) {
   const y = 6 + bob;
   box(buf, 8 + lean, y, 8, 7, BONE, INK);
   if (d < 2) {
@@ -308,6 +311,39 @@ function drawSkeleton(buf, d, lean, step, bob) {
   box(buf, 8 + lean, ly, 2, 8, BONE, INK);
   box(buf, 14 + lean, ly + (step !== 0 ? 1 : 0), 2, 8, BONE, INK);
   if (d !== 4) box(buf, 17 + lean, y + 8, 2, 8, BONED, INK);
+  if (trim) {
+    fill(buf, 6 + lean, y + 7, 3, 2, VIOLET);
+    fill(buf, 15 + lean, y + 7, 3, 2, VIOLET);
+    fill(buf, 10 + lean, y + 9, 4, 1, VIOLET);
+  }
+}
+
+function drawWolf(buf, d, lean, step, bob) {
+  const y = 18 + bob;
+  box(buf, 3 + lean, y, 16, 5, WOLF);
+  if (d === 4) box(buf, 5 + lean, y - 2, 5, 4, WOLFD);
+  else box(buf, 15 + lean, y - 3, 6, 5, WOLF);
+  if (d < 2) put(buf, 18 + lean, y - 1, EYE);
+  const s = step > 0 ? 1 : 0;
+  fill(buf, 4 + lean, y + 5, 2, 4 + s, WOLFD);
+  fill(buf, 8 + lean, y + 5, 2, 5 - s, WOLFD);
+  fill(buf, 13 + lean, y + 5, 2, 4 + s, WOLFD);
+  fill(buf, 17 + lean, y + 5, 2, 5 - s, WOLFD);
+}
+
+function drawCaster(buf, d, lean, step, bob) {
+  const y = 5 + bob;
+  box(buf, 8 + lean, y, 8, 6, ROBED);
+  if (d < 2) fill(buf, 10 + lean, y + 3, 4, 2, INK);
+  else if (d !== 4) put(buf, 13 + lean, y + 3, INK);
+  box(buf, 7 + lean, y + 6, 10, 14, ROBE);
+  fill(buf, 8 + lean, y + 8, 2, 10, ROBED);
+  const sx = d === 4 ? 4 : 18;
+  fill(buf, sx + lean, y + 1, 2, 20, ROBED);
+  put(buf, sx + lean, y, SHINE);
+  const foot = step > 0 ? 0 : 1;
+  fill(buf, 8 + lean, 26, 3, 4, ROBED);
+  fill(buf, 13 + lean, 26 + foot, 3, 4, ROBED);
 }
 
 function drawSpider(buf, d, lean, step, bob) {
@@ -348,10 +384,12 @@ function renderLogical(sheetId, dir, anim, frame) {
   else if (sheetId === 'hero/shield/base') drawShield(buf, d, lean, bob);
   else if (sheetId === 'hero/weapon/sword') drawWeapon(buf, d, lean, bob, mot.thrust, false);
   else if (sheetId === 'hero/weapon/axe') drawWeapon(buf, d, lean, bob, mot.thrust, true);
-  else if (sheetId === 'goblin/body/base') drawGoblin(buf, d, lean, step, bob);
+  else if (sheetId === 'caster/body/base') drawCaster(buf, d, lean, step, bob);
   else if (sheetId === 'rat/body/base') drawRat(buf, d, lean, step, bob);
-  else if (sheetId === 'skeleton/body/base') drawSkeleton(buf, d, lean, step, bob);
-  else if (sheetId === 'spider/body/base') drawSpider(buf, d, lean, step, bob);
+  else if (sheetId === 'skeleton/body/base') drawSkeleton(buf, d, lean, step, bob, false);
+  else if (sheetId === 'skeleton/body/elite') drawSkeleton(buf, d, lean, step, bob, true);
+  else if (sheetId === 'skeleton/body/boss') drawSkeleton(buf, d, lean, step, bob, false);
+  else if (sheetId === 'wolf/body/base') drawWolf(buf, d, lean, step, bob);
   let out = pose.mirror ? mirror(buf) : buf;
   if (anim === 'death') {
     const keep = [1, 0.75, 0.48, 0.26][frame];
@@ -360,7 +398,7 @@ function renderLogical(sheetId, dir, anim, frame) {
   return out;
 }
 
-function blit(img, buf, ox, oy, cellW, cellH) {
+function blit(img, buf, ox, oy, cellW, cellH, outline) {
   const data = img.data;
   const width = img.width;
   for (let y = 0; y < LH; y++) {
@@ -381,6 +419,7 @@ function blit(img, buf, ox, oy, cellW, cellH) {
       }
     }
   }
+  if (!outline) return;
   // One source pixel of near-black rim so the figure reads on olive grass.
   const edge = hexRgb(HEX.ink);
   const mark = [];
@@ -478,7 +517,7 @@ function paintPlaceholders(spec) {
           const col = index % grid.columns;
           const row = (index / grid.columns) | 0;
           const buf = renderLogical(sheet.id, dir, anim.id, f);
-          blit(img, buf, col * grid.cellW, row * grid.cellH, grid.cellW, grid.cellH);
+          blit(img, buf, col * grid.cellW, row * grid.cellH, grid.cellW, grid.cellH, sheet.outline !== false);
         }
       }
     }
