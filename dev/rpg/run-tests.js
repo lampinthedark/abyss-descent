@@ -510,7 +510,8 @@ test('crafting is atomic: missing input / tool / level changes nothing', () => {
   give(w, 'cinderiron_ore', 1);
   let b = w.snapshot();
   eq(w.Crafting.make('smelt_verdite').reason, 'level_too_low'); deq(w.snapshot(), b);
-  eq(w.Crafting.make('smith_rustbound_sword').reason, 'level_too_low');
+  eq(w.Crafting.make('smith_rustbound_helm').reason, 'level_too_low');
+  eq(R.Modules.crafting.RECIPES.smith_rustbound_sword.level, 1, 'Q1 sword at Smithing 1');
   const w2 = mkWorld();
   give(w2, 'rustbound_bar', 1);
   b = w2.snapshot();

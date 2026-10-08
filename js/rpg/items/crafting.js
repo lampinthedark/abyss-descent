@@ -38,7 +38,8 @@
 
   // Anvil: bars -> normal-rarity gear. Bars per kind and level offset within the tier.
   var SMITH = {
-    dirk: [1, 0], hatchet: [1, 0], helm: [1, 1], sword: [2, 1], pickaxe: [2, 1], gauntlets: [1, 2],
+    // sword offset 0: UAT gate 2 / Q1 smiths a Rustbound Sword at Smithing 1.
+    dirk: [1, 0], hatchet: [1, 0], helm: [1, 1], sword: [2, 0], pickaxe: [2, 1], gauntlets: [1, 2],
     sabatons: [1, 2], shield: [2, 3], greaves: [3, 3], greataxe: [3, 4], cuirass: [5, 4],
   };
   Db.ORDER.forEach(function (id) {
