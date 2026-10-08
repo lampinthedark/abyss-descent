@@ -428,7 +428,7 @@ RPG.ai.tick(0.016);
 assert(animBrute.state === 'windup' && animBrute.animKey === 'mob_brute_poke', 'live swing uses attack.anim, got ' + animBrute.animKey);
 animBrute.takeHit(99999, {});
 const [namedMaw] = RPG.ai.spawnPack('ashmaw', 24, 70, 1, 12);
-assert(namedMaw.sprite === 'mob_ashmaw', 'ashmaw sprite stays mob_ashmaw when content says mob_boss');
+assert(namedMaw.spriteBase === 'mob_ashmaw', 'ashmaw sprite stays mob_ashmaw when content says mob_boss');
 assert(namedMaw.sheet.attack === 'mob_ashmaw_attack' && namedMaw.sheet.slam === 'mob_ashmaw_slam', 'ashmaw sheet keys drop mob_boss');
 assert(JSON.stringify(namedMaw.sheet).indexOf('mob_boss') === -1, 'no mob_boss key on the ashmaw sheet');
 namedMaw.takeHit(99999, {});
@@ -443,9 +443,9 @@ assert(plainRat.sheet.throw === undefined, 'rat has no throw clip');
 assert(plainGob.sheet.hurt === 'mob_goblin_idle' && plainGob.sheet.death === 'mob_goblin_idle' && plainGob.sheet.throw === 'mob_goblin_idle', 'goblin optional clips fall back to idle');
 assert(plainGob.sheet.attack === 'mob_goblin_attack' && RPG.ai.attacks.animKeyFor('goblin', 'ranged') === 'mob_goblin_attack', 'ranged stays on the club anim until the throw clip exists');
 plainRat.takeHit(1, {});
-assert(plainRat.anim === 'idle' && plainRat.animKey === 'mob_rat_idle' && plainRat.hp > 0, 'a graze without hurt art poses idle');
+assert(plainRat.pose === 'idle' && plainRat.animKey === 'mob_rat_idle' && plainRat.hp > 0, 'a graze without hurt art poses idle');
 plainRat.takeHit(9999, {});
-assert(plainRat.anim === 'idle' && plainRat.animKey === 'mob_rat_idle' && plainRat.render.mode === 'box', 'a kill without death art is an idle box');
+assert(plainRat.pose === 'idle' && plainRat.animKey === 'mob_rat_idle' && plainRat.render.mode === 'box', 'a kill without death art is an idle box');
 plainGob.takeHit(9999, {});
 
 RPG.sheet = {
@@ -466,9 +466,9 @@ assert(clipRat.sheetPack === 'mobs' && clipRat.placeholder === false, 'hurt clip
 assert(clipRat.sheet.idle === 'mob_rat_idle' && clipRat.sheet.attack === 'mob_rat_attack', 'rat idle and attack keys stay the field set');
 assert(clipRat.sheet.hurt === 'mob_rat_hurt' && clipRat.sheet.death === 'mob_rat_death', 'rat hurt and death use the mobs2 clips');
 clipRat.takeHit(1, {});
-assert(clipRat.anim === 'hurt' && clipRat.animKey === 'mob_rat_hurt' && clipRat.animFrame === 0, 'takeHit poses mob_rat_hurt');
+assert(clipRat.pose === 'hurt' && clipRat.animKey === 'mob_rat_hurt' && clipRat.animFrame === 0, 'takeHit poses mob_rat_hurt');
 clipRat.takeHit(9999, {});
-assert(clipRat.anim === 'death' && clipRat.animKey === 'mob_rat_death' && clipRat.animFrame === 3 && clipRat.holdFrame === 3, 'rat death holds the last corpse frame');
+assert(clipRat.pose === 'death' && clipRat.animKey === 'mob_rat_death' && clipRat.animFrame === 3 && clipRat.holdFrame === 3, 'rat death holds the last corpse frame');
 assert(clipRat.corpse === true && entities.indexOf(clipRat) >= 0 && clipRat.render.mode !== 'box', 'the belly-up rat stays in the world');
 
 // Content still names the goblin rock as the club clip. The throw clip wins.
@@ -501,7 +501,7 @@ assert(hero.hp === hpAfterThrow && heroHits.length === hitsAfterThrow && fxLog.f
 throwGob.takeHit(1, {});
 assert(throwGob.animKey === 'mob_goblin_hurt' && throwGob.animFrame === 0, 'goblin graze poses mob_goblin_hurt');
 throwGob.takeHit(9999, {});
-assert(throwGob.anim === 'death' && throwGob.animKey === 'mob_goblin_death' && throwGob.animFrame === 3 && throwGob.holdFrame === 3, 'goblin death holds the last corpse frame');
+assert(throwGob.pose === 'death' && throwGob.animKey === 'mob_goblin_death' && throwGob.animFrame === 3 && throwGob.holdFrame === 3, 'goblin death holds the last corpse frame');
 delete RPG.sheet.mobs2.anims.mob_goblin_throw;
 assert(RPG.ai.attacks.animKeyFor('goblin', 'ranged') === 'mob_goblin_attack', 'without the throw clip, ranged falls back to the club anim');
 RPG.content = null;
@@ -880,6 +880,32 @@ keepOut = [];
     swings += 1;
   }
   assert(fist.dead && swings === Math.ceil(hp0 / hit), 'field goblin dies to bare-handed core hits, swings ' + swings);
+}
+
+// Core's renderer draws e.sprite (full sheet key) at e.frame or every e.anim ms,
+// flipped by e.flip. Keys come from window.Sheet (assets/rpg/mobs_sheet.json).
+{
+  const mobsJson = JSON.parse(fs.readFileSync(path.join(root, 'assets/rpg/mobs_sheet.json'), 'utf8'));
+  const realFrames = mobsJson.frames || mobsJson;
+  const savedSheet = RPG.sheet;
+  RPG.sheet = null;
+  context.Sheet = {
+    has: (k) => !!realFrames[k],
+    get: (k) => (realFrames[k] ? { frames: realFrames[k].frames || 1, ms: realFrames[k].ms || null } : null),
+  };
+  const [drawGob] = RPG.ai.spawnPack('goblin', 60, 60, 1, 4);
+  const [drawRat] = RPG.ai.spawnPack('rat', 64, 60, 1, 4);
+  RPG.ai.tick(0.05);
+  assert(/^mob_goblin_(idle|walk)$/.test(drawGob.sprite), 'goblin draws a real mobs key, got ' + drawGob.sprite);
+  assert(/^mob_rat_(idle|walk)$/.test(drawRat.sprite), 'rat draws a real mobs key, got ' + drawRat.sprite);
+  assert(typeof drawGob.anim === 'number' && drawGob.anim > 0, 'idle/walk loops on a numeric e.anim');
+  assert(typeof drawGob.flip === 'boolean' && drawGob.render.mode === 'sheet' && drawGob.placeholder === false, 'goblin is not a box');
+  drawGob.facing = 1; RPG.ai.syncRender(drawGob);
+  assert(drawGob.flip === true, 'facing right mirrors the left-facing frames');
+  drawGob.takeHit(9999, {});
+  assert(context.Sheet.has(drawGob.sprite) && !drawGob.anim, 'a dead goblin holds a static real frame, got ' + drawGob.sprite);
+  delete context.Sheet;
+  RPG.sheet = savedSheet;
 }
 
 if (failed) {

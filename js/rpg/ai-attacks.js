@@ -206,11 +206,18 @@
   }
 
   function animRecord(atlas, key) {
-    if (!atlas || !key) return null;
-    const anims = atlas.anims || atlas.animations;
-    if (anims && anims[key]) return anims[key];
-    if (atlas.frames && atlas.frames[key]) return atlas.frames[key];
-    if (atlas.keys && atlas.keys[key]) return atlas.keys[key];
+    if (!key) return null;
+    if (atlas) {
+      const anims = atlas.anims || atlas.animations;
+      if (anims && anims[key]) return anims[key];
+      if (atlas.frames && atlas.frames[key]) return atlas.frames[key];
+      if (atlas.keys && atlas.keys[key]) return atlas.keys[key];
+    }
+    // Core's loaded sheets (window.Sheet from sheets.json: mobs, mobs2, ...).
+    const S = root.Sheet;
+    if (S && typeof S.has === 'function' && S.has(key)) {
+      return typeof S.get === 'function' ? (S.get(key) || { frames: 1 }) : { frames: 1 };
+    }
     return null;
   }
 
@@ -291,7 +298,7 @@
   function pose(mob, kind, frame) {
     if (!mob) return;
     const key = animKeyFor(mob.monsterId, kind);
-    mob.anim = key.indexOf('_throw') !== -1 ? 'throw' : suffixFor(kind);
+    mob.pose = key.indexOf('_throw') !== -1 ? 'throw' : suffixFor(kind);
     mob.animKey = key;
     mob.animFrame = frame;
     mob.holdFrame = frame;
@@ -300,8 +307,8 @@
 
   function poseIdle(mob) {
     if (!mob) return;
-    mob.anim = 'idle';
-    mob.animKey = (mob.sheet && mob.sheet.idle) || ((mob.sprite || spriteOf(mob.monsterId)) + '_idle');
+    mob.pose = 'idle';
+    mob.animKey = (mob.sheet && mob.sheet.idle) || ((mob.spriteBase || spriteOf(mob.monsterId)) + '_idle');
     mob.animFrame = 0;
     mob.holdFrame = 0;
     mob.attacking = false;

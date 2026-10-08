@@ -278,7 +278,54 @@
     return { x: x, y: y };
   }
 
+  /**
+   * Core's renderer draws e.sprite (a full sheet key) at e.frame, or loops it
+   * every e.anim ms, mirrored by e.flip (frames face left). Our own state lives
+   * in spriteBase / pose / animKey / animFrame; this mirrors it each tick.
+   */
+  function sheetHas(key, pack) {
+    if (!key) return false;
+    const S = root.Sheet;
+    if (S && typeof S.has === 'function' && S.has(key)) return true;
+    const atk = ai.attacks;
+    return !!(pack && atk && typeof atk.clipReady === 'function' && atk.clipReady(pack, key));
+  }
+
+  function loopMs(key, fallback) {
+    const S = root.Sheet;
+    const rec = S && typeof S.get === 'function' ? S.get(key) : null;
+    if (rec && Array.isArray(rec.ms) && typeof rec.ms[0] === 'number' && rec.ms[0] > 0) return rec.ms[0];
+    return fallback;
+  }
+
+  function syncRender(mob) {
+    if (!mob) return;
+    const keys = mob.sheet || {};
+    const pack = mob.sheetPack;
+    const idle = keys.idle || ((mob.spriteBase || 'mob') + '_idle');
+    let key = mob.animKey || idle;
+    if (!sheetHas(key, pack)) {
+      const walk = keys.walk;
+      key = (mob.pose === 'walk' && sheetHas(walk, pack)) ? walk : idle;
+    }
+    if (mob.pose === 'walk' && keys.walk && sheetHas(keys.walk, pack) && key === idle) key = keys.walk;
+    mob.sprite = key;
+    const looping = !mob.dead && (mob.pose === 'idle' || mob.pose === 'walk');
+    if (looping) {
+      mob.anim = loopMs(key, mob.pose === 'walk' ? 150 : 360);
+      mob.frame = 0;
+    } else {
+      mob.anim = 0;
+      mob.frame = mob.holdFrame != null && mob.dead ? mob.holdFrame : (mob.animFrame | 0);
+    }
+    mob.flip = (mob.facing || 0) > 0;
+    const ready = sheetHas(key, pack) || sheetHas(keys.attack, pack);
+    mob.placeholder = !ready;
+    if (mob.render) mob.render.mode = ready ? 'sheet' : 'box';
+  }
+
   function addToWorld(ent) {
+    syncRender(ent);
     const world = RPG.world;
     if (!world || typeof world.addEntity !== 'function') return;
     try { world.addEntity(ent); } catch (err) {}
@@ -355,7 +402,7 @@
     }
     if (dx !== 0) mob.facing = dx > 0 ? 1 : -1;
     if (!mob.attacking) {
-      mob.anim = 'walk';
+      mob.pose = 'walk';
       if (mob.sheet && mob.sheet.walk) mob.animKey = mob.sheet.walk;
       mob.animFrame = 0;
     }
@@ -449,7 +496,7 @@
     mob.state = 'return';
     mob.aggro = false;
     mob.attacking = false;
-    mob.anim = 'walk';
+    mob.pose = 'walk';
     mob.path = null;
     mob._repath = 0;
   }
@@ -490,20 +537,20 @@
   }
 
   function poseLife(mob, which) {
-    const idle = (mob.sheet && mob.sheet.idle) || ((mob.sprite || 'mob') + '_idle');
+    const idle = (mob.sheet && mob.sheet.idle) || ((mob.spriteBase || 'mob') + '_idle');
     const key = mob.sheet && mob.sheet[which];
     const clip = !!(key && key !== idle);
     mob.attacking = false;
     mob.corpse = false;
     if (!clip) {
-      mob.anim = 'idle';
+      mob.pose = 'idle';
       mob.animKey = idle;
       mob.animFrame = 0;
       mob.holdFrame = 0;
       if (which === 'death' && mob.render) mob.render.mode = 'box';
       return;
     }
-    mob.anim = which;
+    mob.pose = which;
     mob.animKey = key;
     if (which === 'death') {
       const atk = ai.attacks;
@@ -529,6 +576,8 @@
     if (mob.state !== 'return' && !mob.boss) alertPack(mob);
     if (mob.hp <= 0) poseLife(mob, 'death');
     else poseLife(mob, 'hurt');
+    if (mob.hp <= 0) mob.dead = true;
+    syncRender(mob);
     if (mob.hp <= 0) {
       mob.hp = 0;
       mob.dead = true;
@@ -548,7 +597,7 @@
     const keys = sheetKeysFor(sprite, attacks, spec.id);
     const atk = ai.attacks;
     const ready = atk && typeof atk.clipReady === 'function' ? atk.clipReady(pack, keys.attack) : false;
-    mob.sprite = sprite;
+    mob.spriteBase = sprite;
     mob.sheetPack = pack;
     mob.sheet = keys;
     mob.attacks = attacks;
@@ -567,7 +616,7 @@
       keys: keys,
       sheet: pack,
     };
-    mob.anim = 'idle';
+    mob.pose = 'idle';
     mob.animKey = keys.idle;
   }
 
@@ -908,6 +957,7 @@
     const snapshot = mobs.slice();
     for (let i = 0; i < snapshot.length; i++) sense(snapshot[i]);
     for (let i = 0; i < snapshot.length; i++) act(snapshot[i], dt);
+    for (let i = 0; i < mobs.length; i++) syncRender(mobs[i]);
   }
 
   function tick(dt) {
@@ -943,6 +993,7 @@
   ai.spawnZone = spawnZone;
   ai.spawnField = spawnField;
   ai.tick = tick;
+  ai.syncRender = syncRender;
   ai.forget = forget;
   ai.specs = SPECS;
   ai.FIELD = FIELD;

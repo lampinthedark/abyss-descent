@@ -293,7 +293,7 @@
       mob.x = nx;
       mob.y = ny;
       if (!mob.attacking) {
-        mob.anim = 'walk';
+        mob.pose = 'walk';
         mob.animKey = mob.sheet && mob.sheet.walk;
         mob.animFrame = 0;
       }
@@ -314,7 +314,7 @@
     mob.state = 'return';
     mob.aggro = false;
     poseIdle(mob);
-    mob.anim = 'walk';
+    mob.pose = 'walk';
     mob.animKey = mob.sheet && mob.sheet.walk;
   }
 
