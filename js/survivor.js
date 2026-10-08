@@ -713,22 +713,22 @@
       spawnEnemy('brute', 5, 2, { boss: true, name: 'Risen Brute' });
       boss5 = true;
     } else if (preview === 'juice') {
-      openingPack();
+      cds.bolt = 0.05;
       for (let i = 0; i < 28; i++) {
         const ang = (i / 28) * Math.PI * 2;
-        const dist = 2.8 + (i % 5) * 0.7;
+        const dist = 2.15 + (i % 5) * 0.72;
         const id = i % 11 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
         const en = spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
-        en.maxLife = id === 'brute' ? 36 : 16;
+        en.maxLife = id === 'brute' ? 40 : 18;
         en.life = en.maxLife;
       }
-      for (let i = 0; i < 14; i++) {
-        const ang = (i / 14) * Math.PI * 2 + 0.15;
-        const dist = 3.4 + (i % 4) * 0.4;
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2 + 0.2;
+        const dist = 3.8 + (i % 4) * 0.22;
         const g = gemPool.pop() || {};
         g.x = Math.cos(ang) * dist;
         g.y = Math.sin(ang) * dist;
-        g.value = 2;
+        g.value = 1;
         g.vx = 0;
         g.vy = 0;
         g.fly = 0;
@@ -984,20 +984,28 @@
   }
 
   function drawArena() {
-    const left = Math.floor(-camX / TILE) - 1;
-    const top = Math.floor(-camY / TILE) - 1;
-    const right = Math.ceil((canvas.width - camX) / TILE) + 1;
-    const bottom = Math.ceil((canvas.height - camY) / TILE) + 1;
-    const limit = (ARENA + 0.6) * (ARENA + 0.6);
-    for (let ty = top; ty <= bottom; ty++) {
-      for (let tx = left; tx <= right; tx++) {
-        const cx = tx + 0.5;
-        const cy = ty + 0.5;
-        if (cx * cx + cy * cy > limit) continue;
-        ctx.fillStyle = ((tx + ty) & 1) === 0 ? '#6a5344' : '#5a4638';
-        ctx.fillRect(tx * TILE + camX, ty * TILE + camY, TILE + 0.5, TILE + 0.5);
-      }
+    const origin = worldToScreen(0, 0);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, ARENA * TILE, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#5c4638';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const x0 = Math.floor(-camX / TILE) * TILE + camX;
+    const y0 = Math.floor(-camY / TILE) * TILE + camY;
+    ctx.beginPath();
+    for (let x = x0; x < canvas.width + TILE; x += TILE) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
     }
+    for (let y = y0; y < canvas.height + TILE; y += TILE) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+    }
+    ctx.strokeStyle = 'rgba(32, 22, 16, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
   }
 
   function heroOpts() {
@@ -1311,6 +1319,21 @@
             n += 1;
           }
           return n;
+        };
+        window.__svGems = () => {
+          for (let i = 0; i < 10; i++) {
+            const ang = (i / 10) * Math.PI * 2 + 0.2;
+            const dist = 3.2 + (i % 4) * 0.4;
+            const g = gemPool.pop() || {};
+            g.x = player.x + Math.cos(ang) * dist;
+            g.y = player.y + Math.sin(ang) * dist;
+            g.value = 1;
+            g.vx = 0;
+            g.vy = 0;
+            g.fly = 0;
+            gems.push(g);
+          }
+          return gems.length;
         };
       }
     }

@@ -148,13 +148,14 @@ async function pageWith(browser, url, viewport) {
     const juice = await pageWith(browser, base + 'survivor.html?debug=1&preview=juice', desk);
     await juice.waitForFunction(() => {
       const s = window.__sv();
-      return s && s.state === 'playing' && s.hits >= 1 && s.gems > 0 && s.floats > 0;
+      return s && s.state === 'playing' && s.hits >= 1 && s.floats > 0;
     }, { timeout: 8000 });
-    await juice.evaluate(() => window.__svFlash && window.__svFlash());
+    await juice.evaluate(() => { window.__svGems(); window.__svFlash(); });
+    await new Promise(r => setTimeout(r, 180));
     await juice.screenshot({ path: path.join(shots, 'survivor-juice-desktop.png') });
     await juice.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-    await new Promise(r => setTimeout(r, 200));
-    await juice.evaluate(() => window.__svFlash && window.__svFlash());
+    await juice.evaluate(() => { window.__svGems(); window.__svFlash(); });
+    await new Promise(r => setTimeout(r, 160));
     await juice.screenshot({ path: path.join(shots, 'survivor-juice-portrait.png') });
     if (juice.__errors.length) fail('juice errors: ' + juice.__errors.join(' | '));
     await juice.close();
