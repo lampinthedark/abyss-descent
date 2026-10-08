@@ -883,7 +883,9 @@
     return true;
   }
 
-  // Death banks an in-flight Rare+ once. Restart only cancels the flight.
+  // Death and Restart both bank an in-flight Rare+ once, with no arrival pop.
+  // Already-banked gems are skipped. releaseGemAt sends the silent lootPullOff.
+  // "You find:" is only the pickup path, after bankGroundItem succeeds.
   function claimUnbankedFlight() {
     for (let i = gems.length - 1; i >= 0; i--) {
       const g = gems[i];
@@ -3467,6 +3469,7 @@
   }
 
   function startRun() {
+    claimUnbankedFlight();
     const preview = previewOnce;
     previewOnce = '';
     resetRun();

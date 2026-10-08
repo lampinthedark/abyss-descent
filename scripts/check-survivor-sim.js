@@ -479,9 +479,21 @@ function rareFlightBank() {
   const restartId = restart.__svSeedItem('rare', 2.4, 0);
   stepLive(restart);
   if (!groundRow(restart, restartId) || !groundRow(restart, restartId).pull) fail('restart setup was not mid-flight');
+  const restartBefore = bagHits(restart, restartId);
   restart.__svRestart();
-  if (bagHits(restart, restartId) !== 0) fail('restart banked the in-flight rare');
+  if (bagHits(restart, restartId) !== restartBefore + 1) {
+    fail('restart banked ' + bagHits(restart, restartId) + ' (want ' + (restartBefore + 1) + ')');
+  }
   if (groundRow(restart, restartId)) fail('restart left the flight on the ground');
+
+  const landedRestart = boot(10, '?headless=1&debug=1');
+  quietArena(landedRestart);
+  const landedId = landedRestart.__svSeedItem('rare', 2.4, 0);
+  for (let i = 0; i < 20 && groundRow(landedRestart, landedId); i++) stepLive(landedRestart);
+  if (groundRow(landedRestart, landedId)) fail('restart landing stayed on the ground');
+  if (bagHits(landedRestart, landedId) !== 1) fail('restart landing banked ' + bagHits(landedRestart, landedId));
+  landedRestart.__svRestart();
+  if (bagHits(landedRestart, landedId) !== 1) fail('restart after landing banked ' + bagHits(landedRestart, landedId));
 
   const once = boot(9, '?headless=1&debug=1');
   quietArena(once);
@@ -493,7 +505,7 @@ function rareFlightBank() {
   const after = once.__svHurt(9999);
   if (after.state !== 'dead') fail('landed rare death ' + after.state);
   if (bagHits(once, onceId) !== 1) fail('landing plus death banked ' + bagHits(once, onceId));
-  console.log('mid-flight death banks once, restart clears without banking');
+  console.log('mid-flight death and restart each bank once, a landed item stays one copy');
 }
 
 function lootPullHeld() {
@@ -502,11 +514,15 @@ function lootPullHeld() {
   function watch(game) {
     const pulls = [];
     const offs = [];
+    const prevPull = game.FX.lootPull;
+    const prevOff = game.FX.lootPullOff;
     game.FX.lootPull = function (id, x, y, hx, hy, ms, rarity) {
       pulls.push({ id: id, x: x, y: y, hx: hx, hy: hy, ms: ms, rarity: rarity, n: arguments.length });
+      if (typeof prevPull === 'function') prevPull.apply(game.FX, arguments);
     };
     game.FX.lootPullOff = function (id, pop) {
       offs.push({ id: id, pop: pop, n: arguments.length });
+      if (typeof prevOff === 'function') prevOff.apply(game.FX, arguments);
     };
     return { pulls: pulls, offs: offs };
   }
@@ -553,8 +569,10 @@ function lootPullHeld() {
       if (!same(calls[frame - 1].hx, nearSnap.x) || !same(calls[frame - 1].hy, nearSnap.y) || calls[frame - 1].ms !== 400) {
         fail('bank aim ' + JSON.stringify(calls[frame - 1]));
       }
+      if (nearSnap.chat.indexOf('You find:') < 0) fail('bank missed the find line ' + nearSnap.chat);
       break;
     }
+    if (nearSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + nearSnap.chat);
     if (calls.length !== frame) fail('frame ' + frame + ' lootPull count ' + calls.length);
     expectAim(calls[frame - 1], row, nearSnap, 'rare');
     if (offFor(log, nearId).length) fail('cleared the trail on frame ' + frame);
@@ -600,9 +618,11 @@ function lootPullHeld() {
   const deadRow = groundRow(dead, deadId);
   if (!deadRow || !deadRow.pull) fail('death setup was not mid-flight');
   expectAim(pullFor(deadLog, deadId)[0], deadRow, deadSnap, 'rare');
+  if (deadSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + deadSnap.chat);
   const fell = dead.__svHurt(9999);
   if (fell.state !== 'dead') fail('mid-flight death ' + fell.state);
   if (bagHits(dead, deadId) !== 1) fail('death banked ' + bagHits(dead, deadId));
+  if (fell.chat.indexOf('You find') >= 0) fail('death bank announced a find ' + fell.chat);
   const deathOff = offFor(deadLog, deadId);
   const deathPull = pullFor(deadLog, deadId);
   if (deathPull.length !== 1) fail('death added a lootPull ' + deathPull.length);
@@ -618,14 +638,23 @@ function lootPullHeld() {
   const restartRow = groundRow(restart, restartId);
   if (!restartRow || !restartRow.pull) fail('restart setup was not mid-flight');
   expectAim(pullFor(restartLog, restartId)[0], restartRow, restartSnap, 'rare');
+  if (restartSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + restartSnap.chat);
+  const restartBefore = bagHits(restart, restartId);
   restart.__svRestart();
-  if (bagHits(restart, restartId) !== 0) fail('restart banked the flight');
+  if (bagHits(restart, restartId) !== restartBefore + 1) {
+    fail('restart banked ' + bagHits(restart, restartId) + ' (want ' + (restartBefore + 1) + ')');
+  }
+  if (groundRow(restart, restartId)) fail('restart left residue');
   const restartOff = offFor(restartLog, restartId);
   const restartPull = pullFor(restartLog, restartId);
   if (restartPull.length !== 1) fail('restart added a lootPull ' + restartPull.length);
   if (restartOff.length !== 1 || restartOff[0].n !== 1 || restartOff[0].pop !== undefined) {
     fail('restart lootPullOff ' + JSON.stringify(restartOff));
   }
+  for (let i = 0; i < 34; i++) stepLive(restart, 0.05);
+  if (groundRow(restart, restartId)) fail('restart residue returned');
+  const restartStale = lootStaleCount(restart);
+  if (restartStale != null && restartStale !== 0) fail('restart lootStale ' + restartStale);
 
   const paused = boot(4, '?headless=1&debug=1');
   const pauseLog = watch(paused);
@@ -654,7 +683,7 @@ function lootPullHeld() {
   if (pauseOff.length !== 1 || pauseOff[0].pop !== true || pauseOff[0].n !== 2) {
     fail('frame 25 window bank off ' + JSON.stringify(pauseOff));
   }
-  console.log('lootPull re-aims every flight tick, pop on bank, silent on death and restart');
+  console.log('lootPull re-aims every flight tick, pop on bank, silent bank on death and restart');
 }
 
 function rareBeside() {
