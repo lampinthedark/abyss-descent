@@ -1332,11 +1332,10 @@
   function viewHalfH() { return canvas.height / (TILE * 2); }
 
   function edgePoint(ang, pad) {
-    const inside = time >= BALANCE.edgeAt && !stillRing();
-    const extra = inside ? 0 : (pad == null ? 0.85 : pad);
-    const span = inside ? 0.72 : 1;
-    const halfW = viewHalfW() * span + extra;
-    const halfH = viewHalfH() * span + extra;
+    // Span 1 plus about a tile past the visible rect, on phone and desktop.
+    const extra = Math.max(1, pad == null ? 1 : pad);
+    const halfW = viewHalfW() + extra;
+    const halfH = viewHalfH() + extra;
     const c = Math.cos(ang);
     const s = Math.sin(ang);
     const fit = 1 / Math.max(Math.abs(c) / Math.max(0.8, halfW), Math.abs(s) / Math.max(0.8, halfH));
@@ -1475,29 +1474,24 @@
   }
 
   function spawnWave() {
-    const half = Math.max(viewHalfW(), viewHalfH());
-    const count = (Math.floor(time / 15) % 2 === 1) ? 16 : 10;
+    const swarm = (Math.floor(time / 15) % 2 === 1);
+    // Idle punishment is a thicker ring at the same edge, not a spawn on the hero.
+    let count = swarm ? 20 : 14;
+    if (stillRing()) count = swarm ? 24 : 18;
     const cap = Math.min(LIVE_CAP, spawnCap());
     const moving = player.moving && (headX * headX + headY * headY) > 0.01;
     for (let i = 0; i < count && enemies.length < cap; i++) {
       const a = ringAngle + (i / count) * Math.PI * 2;
       let x;
       let y;
-      if (stillRing()) {
-        x = player.x + Math.cos(a) * 0.58;
-        y = player.y + Math.sin(a) * 0.58;
-      } else if (time >= MINI_AT && moving && i % 3 === 0) {
+      if (time >= MINI_AT && moving && !stillRing() && i % 3 === 0) {
         const spot = viewEdge(aheadAngle(true), true, Math.max(3, BALANCE.minSpawn));
         x = spot.x;
         y = spot.y;
-      } else if (time >= BALANCE.edgeAt) {
-        const spot = edgePoint(a, 0.7);
+      } else {
+        const spot = edgePoint(a, 1);
         x = spot.x;
         y = spot.y;
-      } else {
-        const rad = half + 0.75;
-        x = player.x + Math.cos(a) * rad;
-        y = player.y + Math.sin(a) * rad;
       }
       spawnEnemy(spawnKind(), x, y);
       spawnedThisFrame += 1;
@@ -1590,7 +1584,10 @@
     const pressure = bossFightOn() ? 0.45 : 1;
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     ringAcc += dt;
-    const ringEvery = swarm ? 2.2 : 4.4;
+    // Slightly tighter than 2.2 / 4.4 so an off-screen ring still fills the view.
+    // Standing still tightens it again; the bodies stay on the edge.
+    let ringEvery = swarm ? 1.6 : 3.0;
+    if (stillRing()) ringEvery = swarm ? 1.25 : 2.2;
     if (ringAcc >= ringEvery && enemies.length < cap) {
       ringAcc = 0;
       spawnWave();
@@ -2290,11 +2287,15 @@
           sp *= 0.2;
         }
         const stand = (en.radius || 0.32) + (en.elite ? 0.2 : 0.72);
-        if (player.moving && !en.elite && dist < stand) {
+        // Idle trash stops in the chip band. Stacking on the hero fed the level
+        // blast and made standing still a better farm than circling.
+        const chipBand = (en.radius || 0.32) + BALANCE.idleReach - 0.55;
+        const holdIdle = !player.moving && !en.elite && !en.boss && dist < chipBand;
+        if (!holdIdle && player.moving && !en.elite && dist < stand) {
           const push = Math.min(stand - dist, sp * dt * 4);
           en.x -= (dx / dist) * push;
           en.y -= (dy / dist) * push;
-        } else {
+        } else if (!holdIdle) {
           en.x += (dx / dist) * sp * dt;
           en.y += (dy / dist) * sp * dt;
         }
@@ -3786,7 +3787,7 @@
       if (badge.appendChild) badge.appendChild(img);
     };
     if (img.addEventListener) img.addEventListener('load', showImage);
-    img.src = 'assets/ui/vow_badge.png';
+    img.src = 'assets/ui/vow_badge.png?v=6.1.1';
     if (img.complete && img.naturalWidth > 0) showImage();
   }
 
@@ -5301,7 +5302,7 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.1');
     mountVowBadge();
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);
