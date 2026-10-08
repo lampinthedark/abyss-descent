@@ -113,7 +113,7 @@ async function playQ1(seed) {
   ok(sword, 'sword made (quest recipe picked without a menu)');
   eq(RPG.quests.active().step, 3);
   s.tick(4);                                                  // player opens the bag
-  ok(w.Equipment.equip(sword.uid).ok); RPG.bus.emit('equip', { slot: 'weapon', itemId: sword.uid });
+  ok(w.Equipment.equip(sword.uid).ok); s.tick(0.3); // no bus 'equip' event: core D1 never emits one; runtime polls Equipment
   eq(RPG.quests.active().step, 4, 'wield step');
   eq(RPG.quests.marker('npc_questgiver'), '?');
   await s.talk('questgiver');

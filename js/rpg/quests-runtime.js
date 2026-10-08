@@ -182,7 +182,7 @@
      * Pass the bus payload as `ev` for an exact match (two kills in one frame); without it
      * we fall back to the last kill of that monster this frame.
      */
-    var frame = 0, killMemo = typeof WeakMap === 'function' ? new WeakMap() : null, lastKill = null;
+    var equipT = 0, frame = 0, killMemo = typeof WeakMap === 'function' ? new WeakMap() : null, lastKill = null;
     function finishesKill(id) {
       var a = state().active; if (!a || !id) return false;
       return !!C().advance(a, { type: 'kill', target: id }).stepDone;
@@ -210,6 +210,8 @@
     function update(dt) {
       frame++;
       checkArea();
+      equipT -= dt;
+      if (equipT <= 0) { equipT = 0.25; autoCheck(); } // equip steps need no bus event: poll what's worn
       refreshT -= dt;
       if (refreshT <= 0) { refreshT = SQ.TRACKER_REFRESH_S; refresh(); }
     }
