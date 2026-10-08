@@ -150,7 +150,7 @@
     en.alive = true;
     en.eid = type.id;
     en.name = (opts && opts.name) || type.name;
-    en.color = type.color;
+    en.color = type.id === 'imp' ? '#7b4fd4' : type.id === 'brute' ? '#8e97a3' : type.id === 'wraith' ? '#8a7498' : '#d7dbe3';
     en.x = x;
     en.y = y;
     en.radius = type.radius || 0.32;
@@ -290,7 +290,8 @@
     }
     if (!tick) {
       const big = amount >= 18 || !!en.boss;
-      floatText(en.x, en.y - 0.15, String(Math.max(1, Math.round(amount))), big ? '#ffe08a' : '#fff4e0', big);
+      floatText(en.x, en.y - 0.15, String(Math.max(1, Math.round(amount))), '#ffffff', big);
+      spark(en.x, en.y, '#ffffff', 3, 2.2);
       if (!en.boss && en.eid !== 'brute') {
         const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
         en.kx = ((en.x - player.x) / d) * 5;
@@ -305,7 +306,7 @@
       kills += 1;
       runGold += en.gold;
       dropGem(en);
-      burst(en.x, en.y, '#fff6e8');
+      burst(en.x, en.y, '#ffffff');
       if (en.boss) addShake(4.5);
       else if (en.eid === 'brute') addShake(2.6);
     }
@@ -537,7 +538,7 @@
       const ndy = player.y - g.y;
       if (ndx * ndx + ndy * ndy < 0.18) {
         player.xp += g.value;
-        spark(player.x, player.y, '#f6ff4a', 3, 2.6);
+        spark(player.x, player.y, '#ffffff', 3, 2.6);
         gems.splice(i, 1);
         g.fly = 0;
         g.vx = 0;
@@ -698,7 +699,7 @@
     if (bench) {
       for (let i = 0; i < 300; i++) {
         const ang = Math.random() * Math.PI * 2;
-        const dist = Math.sqrt(Math.random()) * 4.2;
+        const dist = 0.45 + Math.random() * 6.2;
         const id = i % 7 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
         spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
       }
@@ -1009,16 +1010,11 @@
   }
 
   function heroOpts() {
-    const c = hero.colors;
     return {
       flash: player.hitFlash > 0,
       moving: player.moving,
       facing: player.facing,
       time: animT,
-      skin: c.skin,
-      cape: c.cape,
-      armor: c.armor,
-      weapon: c.weapon,
     };
   }
 
@@ -1058,7 +1054,7 @@
     if (!hermit.on) return;
     const s = worldToScreen(hermit.x, hermit.y);
     SurvivorSprites.drawHermit(ctx, s.x, s.y, animT);
-    ctx.fillStyle = '#e0c080';
+    ctx.fillStyle = '#d8dce4';
     ctx.font = '11px Segoe UI';
     ctx.textAlign = 'center';
     ctx.fillText('Hermit', s.x, s.y + 18);
@@ -1071,12 +1067,7 @@
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
         const s = worldToScreen(player.x + Math.cos(a) * rad, player.y + Math.sin(a) * rad);
-        ctx.save();
-        ctx.translate(s.x, s.y);
-        ctx.rotate(a);
-        ctx.fillStyle = '#e6ebf2';
-        ctx.fillRect(-2, -10, 4, 20);
-        ctx.restore();
+        SurvivorSprites.drawBolt(ctx, s.x, s.y, a);
       }
     }
     for (let i = 0; i < shots.length; i++) {
@@ -1084,16 +1075,16 @@
       const s = worldToScreen(shot.x, shot.y);
       if (shot.kind === 'nova') {
         const px = shot.r * TILE;
-        ctx.strokeStyle = 'rgba(200,214,255,0.9)';
-        ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(s.x, s.y, px, 0, Math.PI * 2);
+        ctx.strokeStyle = '#14180c';
+        ctx.lineWidth = 5;
+        ctx.stroke();
+        ctx.strokeStyle = '#e8ff6a';
+        ctx.lineWidth = 3;
         ctx.stroke();
       } else {
-        ctx.fillStyle = shot.kind === 'pierce' ? '#f0d080' : '#d6e2ff';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, shot.kind === 'pierce' ? 5 : 4, 0, Math.PI * 2);
-        ctx.fill();
+        SurvivorSprites.drawBolt(ctx, s.x, s.y, Math.atan2(shot.vy, shot.vx));
       }
     }
   }
@@ -1125,24 +1116,19 @@
     for (let i = 0; i < enemies.length; i++) drawOrder.push(enemies[i]);
     drawOrder.sort(byY);
     const crowd = enemies.length > 100;
-    let heroDrawn = false;
     let hermitDrawn = !hermit.on;
     for (let i = 0; i < drawOrder.length; i++) {
       const en = drawOrder[i];
-      if (!heroDrawn && player.y <= en.y) {
-        drawHeroBody();
-        heroDrawn = true;
-      }
       if (!hermitDrawn && hermit.y <= en.y) {
         drawHermit();
         hermitDrawn = true;
       }
       drawFoe(en, crowd);
     }
-    if (!heroDrawn) drawHeroBody();
     if (!hermitDrawn) drawHermit();
     const s = worldToScreen(player.x, player.y);
     SurvivorSprites.drawHeroRing(ctx, s.x, s.y);
+    drawHeroBody();
   }
 
   function drawFloats() {
@@ -1153,11 +1139,11 @@
       const s = worldToScreen(f.x, f.y);
       const max = f.max || 0.72;
       const age = 1 - f.life / max;
-      const pop = 1 + Math.max(0, (f.big ? 0.42 : 0.22) - age) * (f.big ? 1.6 : 1.15);
-      const size = Math.round((f.big ? 22 : 15) * pop);
+      const pop = 1 + Math.max(0, (f.big ? 0.5 : 0.22) - age) * (f.big ? 1.35 : 1.15);
+      const size = Math.round((f.big ? 28 : 15) * pop);
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2.4));
-      ctx.font = 'bold ' + size + 'px Segoe UI';
-      ctx.lineWidth = 3;
+      ctx.font = (f.big ? '800 ' : 'bold ') + size + 'px Segoe UI';
+      ctx.lineWidth = 1;
       ctx.strokeStyle = '#140e0c';
       ctx.strokeText(f.text, s.x, s.y);
       ctx.fillStyle = f.color;
@@ -1187,7 +1173,9 @@
       const p = particles[i];
       const s = worldToScreen(p.x, p.y);
       ctx.globalAlpha = Math.max(0, p.life * 3);
-      ctx.fillStyle = p.color;
+      ctx.fillStyle = '#140e0c';
+      ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
     }
     ctx.globalAlpha = 1;

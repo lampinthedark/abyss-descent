@@ -171,6 +171,13 @@ async function pageWith(browser, url, viewport) {
     if (bench.__errors.length) fail('bench errors: ' + bench.__errors.join(' | '));
     await bench.close();
 
+    const swarmed = await pageWith(browser, base + 'survivor.html?debug=1&bench=1', phone);
+    await swarmed.waitForFunction(() => window.__sv && window.__sv().enemies >= 300, { timeout: 8000 });
+    await new Promise(r => setTimeout(r, 400));
+    await swarmed.screenshot({ path: path.join(shots, 'survivor-phone-crowd.png') });
+    if (swarmed.__errors.length) fail('phone crowd errors: ' + swarmed.__errors.join(' | '));
+    await swarmed.close();
+
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));
     if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=1')) fail('link: ' + link);

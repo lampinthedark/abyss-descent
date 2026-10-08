@@ -45,32 +45,49 @@ const SurvivorSprites = (() => {
     ctx.stroke();
   }
 
+  const CREAM = '#f4efe0';
+  const HERO = { robe: '#e07a28', trim: '#f0c14a', staff: '#ffe08a', skin: '#f2c9a2' };
+  const FOE = {
+    skel: { fill: '#d7dbe3', rim: '#f7f8fb' },
+    imp: { fill: '#7b4fd4', rim: '#d4c4ff' },
+    brute: { fill: '#8e97a3', rim: '#f2f4f8' },
+    wraith: { fill: '#8a7498', rim: '#e6d8ee' },
+  };
+
+  function foeInk(o) {
+    if (o.flash) return { fill: '#ffffff', rim: '#ffffff' };
+    return FOE[o.eid] || FOE.skel;
+  }
+
   function drawHeroRing(ctx, x, y) {
-    ring(ctx, x, y, 20, '#ffe08a', 'rgba(255, 214, 120, 0.28)');
+    ring(ctx, x, y, 20, CREAM, 'rgba(244, 239, 224, 0.28)');
   }
 
   function drawHero(ctx, x, y, o) {
     const clip = o.dying ? 'death' : o.moving ? 'walk' : 'idle';
-    if (drawSheet(ctx, 'hero', clip, o.time, x, y, 36)) return;
+    if (drawSheet(ctx, 'hero', clip, o.time, x, y, 36)) {
+      ctx.beginPath();
+      ctx.arc(x, y, 16, 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = CREAM;
+      ctx.stroke();
+      return;
+    }
     const flash = o.flash;
     const bob = o.moving ? Math.sin((o.time || 0) * 10) * 1.5 : 0;
-    const face = flash ? '#ffffff' : (o.skin || '#f0d2a8');
-    const body = flash ? '#ffffff' : (o.cape || '#6a5344');
-    const trim = flash ? '#ffffff' : (o.armor || '#e6ebf2');
+    const face = flash ? '#ffffff' : HERO.skin;
+    const body = flash ? '#ffffff' : HERO.robe;
+    const trim = flash ? '#ffffff' : HERO.trim;
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
     ctx.ellipse(x, y + 10, 12, 5, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x, y + bob, 13, 0, Math.PI * 2);
-    ctx.fillStyle = '#140e0c';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y + bob, 11, 0, Math.PI * 2);
+    ctx.arc(x, y + bob, 12, 0, Math.PI * 2);
     ctx.fillStyle = body;
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#ffe08a';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = CREAM;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(x, y - 3 + bob, 4.5, 0, Math.PI * 2);
@@ -79,7 +96,7 @@ const SurvivorSprites = (() => {
     ctx.fillStyle = trim;
     ctx.fillRect(x - 3, y + 1 + bob, 6, 5);
     const dir = o.facing < 0 ? -1 : 1;
-    ctx.strokeStyle = flash ? '#ffffff' : (o.weapon || '#f0d080');
+    ctx.strokeStyle = flash ? '#ffffff' : HERO.staff;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(x + dir * 6, y + bob);
@@ -94,18 +111,25 @@ const SurvivorSprites = (() => {
     const clip = dying ? 'death' : 'walk';
     const r = (o.boss ? 16 : o.eid === 'brute' ? 13 : o.eid === 'imp' ? 9 : 10) * (o.scale || 1) * pop;
     if (drawSheet(ctx, o.eid || 'skel', clip, o.time, x, y, r * 2.4)) return;
+    const ink = foeInk(o);
     ctx.globalAlpha = fade;
+    if ((o.eid === 'brute' || o.boss) && !o.flash) {
+      ctx.fillStyle = 'rgba(6, 8, 12, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(x + 1, y + r * 0.35, r * 0.95, r * 0.48, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = o.flash ? '#ffffff' : (o.color || '#9aa');
+    ctx.fillStyle = ink.fill;
     ctx.fill();
-    if (!o.crowd) {
+    if (!o.flash && (!o.crowd || o.eid !== 'skel')) {
       ctx.lineWidth = o.boss ? 3 : 2;
-      ctx.strokeStyle = '#140e0c';
+      ctx.strokeStyle = ink.rim;
       ctx.stroke();
     }
     if (!o.crowd && o.eid === 'imp' && !o.flash) {
-      ctx.fillStyle = '#3a100c';
+      ctx.fillStyle = '#3a2468';
       ctx.fillRect(x - r, y - r - 2, 3, 5);
       ctx.fillRect(x + r - 3, y - r - 2, 3, 5);
     }
@@ -120,40 +144,46 @@ const SurvivorSprites = (() => {
   }
 
   function drawGem(ctx, x, y) {
-    ctx.fillStyle = 'rgba(255, 236, 70, 0.45)';
-    ctx.beginPath();
-    ctx.arc(x, y, 11, 0, Math.PI * 2);
-    ctx.fill();
     ctx.beginPath();
     ctx.moveTo(x, y - 8);
     ctx.lineTo(x + 6, y);
     ctx.lineTo(x, y + 7);
     ctx.lineTo(x - 6, y);
     ctx.closePath();
-    ctx.fillStyle = '#f6ff4a';
+    ctx.fillStyle = '#5fd8ff';
     ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = '#1a1208';
+    ctx.strokeStyle = '#102028';
     ctx.stroke();
+  }
+
+  function drawBolt(ctx, x, y, angle) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle || 0);
+    ctx.fillStyle = '#14180c';
+    ctx.fillRect(-7, -3.5, 14, 7);
+    ctx.fillStyle = '#e8ff6a';
+    ctx.fillRect(-6, -2.5, 12, 5);
+    ctx.restore();
   }
 
   function drawHermit(ctx, x, y, time) {
     if (drawSheet(ctx, 'hermit', 'idle', time, x, y, 32)) return;
     const bob = Math.sin((time || 0) * 2) * 1;
-    ring(ctx, x, y + 8, 14, '#e0c080', 'rgba(90, 60, 40, 0.35)');
-    ctx.beginPath();
-    ctx.arc(x, y - 2 + bob, 10, 0, Math.PI * 2);
-    ctx.fillStyle = '#140e0c';
-    ctx.fill();
+    ring(ctx, x, y + 8, 14, '#c8ced6', 'rgba(40, 48, 56, 0.35)');
     ctx.beginPath();
     ctx.arc(x, y - 2 + bob, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#6a5344';
+    ctx.fillStyle = '#7d8490';
     ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#e6eaee';
+    ctx.stroke();
     ctx.beginPath();
     ctx.arc(x, y - 6 + bob, 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#f0d2a8';
+    ctx.fillStyle = '#e4e0ea';
     ctx.fill();
   }
 
-  return { FRAME, useSheet, drawHeroRing, drawHero, drawFoe, drawGem, drawHermit };
+  return { FRAME, useSheet, drawHeroRing, drawHero, drawFoe, drawGem, drawBolt, drawHermit };
 })();

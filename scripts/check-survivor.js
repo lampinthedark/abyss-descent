@@ -115,6 +115,13 @@ if (!src.includes('setFlush(false)')) fail('survivor should not auto-show held a
 if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
 if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
+if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
+const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
+if (!sprites.includes('#5fd8ff')) fail('gems should be light cyan');
+if (!sprites.includes('#7b4fd4')) fail('imps should be violet');
+if (!sprites.includes('#e8ff6a')) fail('bolts should be lime');
+if (!sprites.includes('#e07a28')) fail('hero robe should be warm');
+if (!sprites.includes('#f4efe0')) fail('hero outline should be cream');
 
 function fakeDocument() {
   const nodes = {};
