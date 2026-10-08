@@ -100,6 +100,10 @@ const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
 if (!html.includes('survivor.js?v=3')) fail('cache bust');
+if (!html.includes('survivor-fx.js')) fail('fx hooks should load');
+const fxSrc = fs.readFileSync(path.join(root, 'js/survivor-fx.js'), 'utf8');
+if (!fxSrc.includes('hit:') || !fxSrc.includes('evolve:') || !fxSrc.includes('draw:')) fail('fx stub is missing a hook');
+if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file should not hold game logic');
 if (!html.includes('survivor-sprites.js?v=3')) fail('sprite module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
@@ -126,6 +130,8 @@ if (!html.includes('id="sv-revive" class="big-btn secondary hidden"')) fail('rev
 if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
 if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
+if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.includes("fxCall('cast', 'nova'") || !src.includes("fxCall('cast', 'blade'")) fail('fx hit, death, and cast hooks');
+if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
 if (!src.includes('dungeon-tileset-ii.png?v=3')) fail('tileset is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
@@ -134,6 +140,8 @@ if (!sprites.includes('#7b4fd4')) fail('imps should be violet');
 if (!sprites.includes('#e8ff6a')) fail('bolts should be lime');
 if (!sprites.includes('#e07a28')) fail('hero robe should be warm');
 if (!sprites.includes('#f4efe0')) fail('hero outline should be cream');
+if (!sprites.includes('frameRect') || !sprites.includes('get atlas')) fail('atlas frame should be exposed for fx');
+if (!sprites.includes('const Sprites = SurvivorSprites')) fail('Sprites.atlas alias');
 
 function fakeDocument() {
   const nodes = {};

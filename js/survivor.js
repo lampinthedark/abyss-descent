@@ -53,6 +53,8 @@
   let curse = 0;
   let pickLeft = 0;
   let vowPayout = false;
+  let vowCount = 0;
+  const evolved = {};
   let rerollUsed = false;
   let foeSeq = 1;
   let novaSeq = 0;
@@ -242,6 +244,24 @@
     floats.push(f);
   }
 
+  function fxCall(name) {
+    const box = typeof FX !== 'undefined' ? FX : null;
+    const fn = box && box[name];
+    if (typeof fn !== 'function') return;
+    const args = [];
+    for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    fn.apply(box, args);
+  }
+
+  function foeVisual(en) {
+    const known = en.eid === 'brute' || en.eid === 'imp' || en.eid === 'skel' || en.eid === 'charger' || en.eid === 'shooter';
+    const id = en.boss ? 'boss' : (known ? en.eid : 'skel');
+    const clip = en.dying > 0 ? 'idle' : 'run';
+    let frame = null;
+    try { frame = SurvivorSprites.frameRect(id, clip, animT); } catch (e) {}
+    return { frame: frame, scale: en.scale || 1, flip: (en.facing || 1) > 0 };
+  }
+
   function spark(x, y, color, n, speed) {
     if (bench) return;
     for (let i = 0; i < n && particles.length < PARTICLE_CAP; i++) {
@@ -319,6 +339,7 @@
       const big = shown >= 18 || !!en.boss;
       floatText(en.x, en.y - 0.15, String(shown), '#ffffff', big, { fid: en.fid, amount: shown });
       spark(en.x, en.y, '#ffffff', 3, 2.2);
+      fxCall('hit', en.x, en.y, foeVisual(en));
       if (!en.boss && en.eid !== 'brute') {
         const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
         en.kx = ((en.x - player.x) / d) * 5;
@@ -334,6 +355,7 @@
       runGold += en.gold;
       dropGem(en);
       burst(en.x, en.y, '#ffffff');
+      fxCall('death', en.x, en.y, en.eid, foeVisual(en));
       if (en.boss) addShake(4.5);
       else if (en.eid === 'brute') addShake(2.6);
     }
@@ -473,8 +495,10 @@
     }
     if (owned.nova && cds.nova <= 0) {
       const dmg = (10 + owned.nova * 4) * power();
-      spawnShot('nova', player.x, player.y, 0, 0, dmg, 0.45);
-      cds.nova = (3.4 - owned.nova * 0.25) * haste();
+      const life = 0.45;
+      spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
+      cds.nova = Math.max(0.85, (3.4 - owned.nova * 0.25) * haste());
+      fxCall('cast', 'nova', player.x, player.y, { radius: life * 7.5 * area() });
       sfx('cast');
     }
     if (owned.pierce && cds.pierce <= 0 && aim) {
@@ -492,14 +516,17 @@
       const count = Math.min(owned.orbit, 4);
       const rad = (1.55 + owned.orbit * 0.12) * area();
       const dmg = (8 + owned.orbit * 3) * power() * dt * 2.2;
+      const positions = [];
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
         const bx = player.x + Math.cos(a) * rad;
         const by = player.y + Math.sin(a) * rad;
+        positions.push({ x: bx, y: by, angle: a });
         nearby(bx, by, 1.2, (en) => {
           if (Math.hypot(en.x - bx, en.y - by) < 0.7) damageEnemy(en, dmg, { tick: true });
         });
       }
+      fxCall('cast', 'blade', player.x, player.y, { radius: rad, positions: positions });
     }
   }
 
@@ -591,6 +618,7 @@
       if (left <= grab || (g.fly && left < 0.08)) {
         player.xp += g.value;
         spark(player.x, player.y, '#ffffff', 3, 2.6);
+        fxCall('pickup', g.x, g.y, g.kind || 'gem');
         gems.splice(i, 1);
         g.fly = 0;
         g.vx = 0;
@@ -611,6 +639,7 @@
     player.xp -= need;
     player.level += 1;
     levelUps += 1;
+    fxCall('levelUp');
     openLevel();
   }
 
@@ -629,6 +658,7 @@
       track(SurvivorData.minuteReachedEvent(minuteMark));
     }
     animT += dt;
+    fxCall('update', dt);
     if (player.hitFlash > 0) player.hitFlash -= dt;
     if (player.swing > 0) player.swing = Math.max(0, player.swing - dt);
     if (player.invuln > 0) player.invuln -= dt;
@@ -735,6 +765,8 @@
     boss5 = false;
     curse = 0;
     vowPayout = false;
+    vowCount = 0;
+    Object.keys(evolved).forEach((k) => { delete evolved[k]; });
     pickLeft = 0;
     rerollUsed = false;
     hits = 0;
@@ -889,6 +921,11 @@
     sfx('level');
   }
 
+  function grantEvolve(id) {
+    player.invuln = Math.max(player.invuln || 0, 0.5);
+    fxCall('evolve', id);
+  }
+
   function applyChoice(item) {
     if (!item) return;
     if (item.id === 'purse') {
@@ -903,6 +940,19 @@
     if (item.id === 'vitality') {
       player.maxLife += 15;
       player.life += 15;
+    }
+    checkEvolutions();
+  }
+
+  function checkEvolutions() {
+    const weapons = SurvivorData.WEAPONS;
+    for (let i = 0; i < weapons.length; i++) {
+      const w = weapons[i];
+      if (!w.evolvesWith || evolved[w.id]) continue;
+      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
+        evolved[w.id] = w.evolvesWith;
+        grantEvolve(w.id);
+      }
     }
   }
 
@@ -957,6 +1007,8 @@
       en.life = Math.round(en.life * 1.5);
     }
     state = 'playing';
+    vowCount += 1;
+    fxCall('vow', vowCount);
     const vow = $('sv-vow');
     if (vow) {
       vow.classList.remove('hidden');
@@ -1272,6 +1324,7 @@
     ctx.globalAlpha = 1;
     drawWeapons();
     drawFloats();
+    fxCall('draw', ctx, { x: camX, y: camY, zoom: zoom });
     ctx.restore();
     drawJoy();
   }

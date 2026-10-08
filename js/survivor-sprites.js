@@ -603,11 +603,19 @@ const SurvivorSprites = (() => {
 
   function useSheet() {}
 
+  function frameRect(id, clip, time) {
+    const fr = frameAt(id + ':' + clip, time);
+    if (!fr) return null;
+    return { sx: fr.x, sy: fr.y, sw: fr.w, sh: fr.h };
+  }
+
   return {
     FRAME,
     load,
     setZoom,
     ready: () => ready,
+    get atlas() { return atlas; },
+    frameRect,
     useSheet,
     drawHeroRing,
     drawHero,
@@ -618,3 +626,5 @@ const SurvivorSprites = (() => {
     drawGround,
   };
 })();
+
+const Sprites = SurvivorSprites;
