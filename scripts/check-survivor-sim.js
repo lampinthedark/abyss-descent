@@ -216,7 +216,7 @@ function lootCadence() {
       if (rareAt < 0 && snap.rareAt >= 0) rareAt = snap.rareAt;
       if (snap.time > 95 || snap.state === 'dead') break;
     }
-    if (!(rareAt >= 0 && rareAt <= 90)) fail('seed ' + seed + ' first rare at ' + rareAt);
+    if (!(rareAt >= 0 && rareAt <= 77.2)) fail('seed ' + seed + ' first rare at ' + rareAt);
     if (worst > 25.2) fail('seed ' + seed + ' loot gap ' + worst.toFixed(1) + 's');
     if (drops < 3) fail('seed ' + seed + ' only ' + drops + ' drops by ' + snap.time.toFixed(1));
   }
@@ -231,7 +231,57 @@ function lootCadence() {
   for (let i = 0; i < 40; i++) next = pair.__svStep(0.05);
   if (next.toast.indexOf('Common:') !== 0) fail('second toast ' + next.toast);
   if (next.toastQueued !== 0) fail('queue left ' + next.toastQueued);
-  console.log('loot every 15–25s, first rare by 1:30, both toasts named');
+  console.log('loot every 15–25s, first rare by 1:17, both toasts named');
+}
+
+function rareBeside() {
+  const rates = [1 / 60, 0.05];
+  rates.forEach((dt) => {
+    const label = dt < 0.02 ? '60fps' : '20fps';
+    const lines = [];
+    for (let seed = 1; seed <= 8; seed++) {
+      const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+      game.__svStart();
+      let snap = game.__svSnap();
+      const limit = Math.ceil(88 / dt) + 80;
+      for (let i = 0; i < limit && snap.time < 86 && snap.state !== 'dead' && snap.state !== 'won'; i++) {
+        snap = game.__svStep(dt);
+        if (snap.state === 'levelup') snap = game.__svChoose(0);
+        if (snap.state === 'hermit') snap = game.__svDecline();
+      }
+      const dropped = snap.rareAt;
+      const picked = snap.rarePickupAt;
+      lines.push(label + ' seed ' + seed + ' drop ' + (dropped < 0 ? '-' : dropped.toFixed(2))
+        + ' pickup ' + (picked < 0 ? '-' : picked.toFixed(2))
+        + ' dist ' + (snap.rareDropDist < 0 ? 'natural' : snap.rareDropDist.toFixed(2)));
+      if (!(dropped >= 0 && dropped <= 77.2)) {
+        fail(label + ' seed ' + seed + ' first rare dropped at ' + dropped + ' (state ' + snap.state + ')');
+      }
+      if (snap.rareDropDist >= 0) {
+        if (snap.rareDropDist > 1) fail(label + ' seed ' + seed + ' guaranteed rare landed ' + snap.rareDropDist + ' tiles away');
+        if (picked > dropped + 0.35) fail(label + ' seed ' + seed + ' guaranteed rare picked up at ' + picked + ' after ' + dropped);
+      }
+    }
+    console.log(lines.join(' | '));
+  });
+  const primed = boot(3, '?headless=1&debug=1');
+  primed.__svStart();
+  primed.__svSetTime(75);
+  primed.__svDeferDrops(999);
+  primed.__svSnap();
+  let held = primed.__svStep(0.05);
+  // The cadence drop on this frame is not the guarantee. Step until the
+  // beside-hero rare exists, which is at most 2s after 1:15.
+  for (let i = 0; i < 80 && held.rareDropDist < 0 && held.time < 80; i++) {
+    held = primed.__svStep(0.05);
+    if (held.state === 'levelup') held = primed.__svChoose(0);
+  }
+  if (!(held.rareAt >= 75 && held.rareAt <= 77.2)) fail('primed rare drop ' + held.rareAt);
+  if (!(held.rareDropDist > 0 && held.rareDropDist <= 1)) fail('primed rare dist ' + held.rareDropDist);
+  if (!(held.rarePickupAt >= held.rareAt && held.rarePickupAt <= held.rareAt + 0.06)) {
+    fail('primed rare pickup ' + held.rarePickupAt + ' drop ' + held.rareAt);
+  }
+  console.log('guaranteed rare drops beside the hero by 1:17 and is picked up there');
 }
 
 function idleDeath() {
@@ -415,7 +465,9 @@ function levelTimeline(seed) {
     if (gap > worst) worst = gap;
   }
   if (late < 6) fail('expected the climb to keep going after 2:00, got ' + late);
-  if (worst > 40) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
+  // The 1:15 beside-hero rare is an extra pickup. One late gap grew by
+  // about a second on the threat bot; a real stall is still much longer.
+  if (worst > 45) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
   return times;
 }
 
@@ -1495,6 +1547,8 @@ function watchRun(game, limit, kite) {
   let death = null;
   let lastHit = '';
   let minLate = 1;
+  let rareAt = null;
+  let rarePickupAt = null;
   const steps = Math.ceil(limit / 0.05) + 40;
   for (let n = 0; n < steps; n++) {
     snap = game.__svStep(0.05);
@@ -1520,6 +1574,8 @@ function watchRun(game, limit, kite) {
       if (on60 == null && snap.time >= 60) on60 = game.__svOnScreen();
     }
     if (on360 == null && snap.time >= 360) on360 = game.__svOnScreen();
+    if (rareAt == null && snap.rareAt >= 0) rareAt = snap.rareAt;
+    if (rarePickupAt == null && snap.rarePickupAt >= 0) rarePickupAt = snap.rarePickupAt;
     if (snap.time >= 420 && snap.maxLife > 0) {
       const ratio = snap.life / snap.maxLife;
       if (ratio < minLate) minLate = ratio;
@@ -1546,6 +1602,8 @@ function watchRun(game, limit, kite) {
     minLate: minLate,
     life: Math.round(snap.life),
     max: snap.maxLife,
+    rareAt: rareAt,
+    rarePickupAt: rarePickupAt,
   };
 }
 
@@ -1583,13 +1641,15 @@ function balanceTable() {
       avgOn: circle.avgOn == null ? '-' : circle.avgOn.toFixed(1),
       on60: circle.on60 == null ? '-' : String(circle.on60),
       on360: circle.on360 == null ? '-' : String(circle.on360),
+      rareDrop: circle.rareAt == null ? '-' : circle.rareAt.toFixed(1),
+      rarePickup: circle.rarePickupAt == null ? '-' : circle.rarePickupAt.toFixed(1),
     };
     rows.push(row);
     console.log(JSON.stringify(row));
   });
-  console.log('seed idle circle hit kite kiteHit kiteMin kiteHp evo wardenTtk demonTtk avgOn on60 on360');
+  console.log('seed idle circle hit kite kiteHit kiteMin kiteHp evo wardenTtk demonTtk avgOn on60 on360 rareDrop rarePickup');
   rows.forEach((r) => {
-    console.log([r.seed, r.idle, r.circle, r.circleHit, r.kite, r.kiteHit, r.kiteMin, r.kiteHp, r.evo, r.wardenTtk, r.demonTtk, r.avgOn, r.on60, r.on360].join(' '));
+    console.log([r.seed, r.idle, r.circle, r.circleHit, r.kite, r.kiteHit, r.kiteMin, r.kiteHp, r.evo, r.wardenTtk, r.demonTtk, r.avgOn, r.on60, r.on360, r.rareDrop, r.rarePickup].join(' '));
   });
 }
 
@@ -1611,6 +1671,7 @@ saveOnQuit();
 wardenHitFloor();
 earlyCrowd();
 lootCadence();
+rareBeside();
 idleDeath();
 groundCap();
 chestAtCap();

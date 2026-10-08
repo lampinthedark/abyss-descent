@@ -202,6 +202,10 @@
   let stillBite = 0;
   let itemDrops = 0;
   let rareAt = -1;
+  let rarePickupAt = -1;
+  let rareDue = false;
+  let rareArm = -1;
+  let rareDropDist = -1;
   let epicAt = -1;
   let legendAt = -1;
   let legendDrops = 0;
@@ -697,7 +701,10 @@
     if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
     if (item.rarity === 'epic' || item.rarity === 'legendary') epicSeen = true;
     itemDrops += 1;
-    if ((item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') && rareAt < 0) rareAt = time;
+    if ((item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') && rareAt < 0) {
+      rareAt = time;
+      rareDue = false;
+    }
     if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
     if (item.rarity === 'legendary') {
       if (en.bossKind === 'demon') demonLegend = true;
@@ -1118,6 +1125,7 @@
       if (sweepOn && en.sweepGen === sweepGen) sweepKills += 1;
       grantGold(en.gold);
       dropGem(en);
+      if (rareDue && rareAt < 0) dropRareBeside();
       if ((owned.might || 0) >= 5) pulseAround(en.x, en.y, 1.6, 6);
       burst(en.x, en.y, en.color || '#ffffff');
       const deadVis = foeVisual(en);
@@ -1374,7 +1382,6 @@
 
   function dropWorldItem(forced) {
     let kind = forced || 'mob';
-    if (!forced && rareAt < 0 && time >= 78) kind = 'rare';
     let item = null;
     try { item = SurvivorSave.mintDrop(kind); } catch (e) { item = null; }
     if (!item) return;
@@ -1385,10 +1392,30 @@
     if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') {
       if (rareAt < 0) rareAt = time;
       rareSeen = true;
+      rareDue = false;
     }
     if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
     itemDrops += 1;
     placePickup(x, y, 'item', item);
+  }
+
+  // Hard guarantee: if nothing Rare+ has dropped by 1:15, the next kill
+  // lays one beside the hero. If that kill does not come within 2s, it
+  // appears there anyway. Cadence drops stay on their own arc.
+  function dropRareBeside() {
+    if (rareAt >= 0) return;
+    let item = null;
+    try { item = SurvivorSave.mintDrop('rare'); } catch (e) { item = null; }
+    if (!item) return;
+    const reach = Math.max(0.2, pickupR());
+    const dist = Math.min(0.85, reach * 0.62);
+    const ang = Math.random() * Math.PI * 2;
+    rareDropDist = dist;
+    itemDrops += 1;
+    rareAt = time;
+    rareSeen = true;
+    rareDue = false;
+    placePickup(player.x + Math.cos(ang) * dist, player.y + Math.sin(ang) * dist, 'item', item);
   }
 
   function wardenAlive() {
@@ -1555,12 +1582,13 @@
       openHermit();
       return;
     }
-    if (state === 'playing' && rareAt < 0 && nextDropAt > 90) nextDropAt = 90;
+    if (state === 'playing' && rareAt < 0 && time >= 75 && !rareDue) {
+      rareDue = true;
+      rareArm = time;
+    }
     if (time >= nextDropAt && state === 'playing') {
-      const forceRare = rareAt < 0 && time >= 78;
       nextDropAt = time + 15 + Math.random() * 10;
-      if (rareAt < 0 && !forceRare && nextDropAt > 90) nextDropAt = 90;
-      dropWorldItem(forceRare ? 'rare' : '');
+      dropWorldItem('');
     }
     if (time >= MINI_AT && player.moving) {
       forwardAcc += dt;
@@ -2425,6 +2453,7 @@
           const box = fxBox();
           if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
+          if (rarePickupAt < 0 && rareBeam(g.item.rarity)) rarePickupAt = time;
           try { SurvivorSave.addItem(g.item); } catch (e) {}
           showToast(g.item);
           requestEvolution();
@@ -2699,6 +2728,7 @@
     tickEnemies(dt);
     tickFoeShots(dt);
     if (state !== 'playing') return;
+    if (rareDue && rareAt < 0 && rareArm >= 0 && time >= rareArm + 2) dropRareBeside();
     tickGems(dt);
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
@@ -2886,6 +2916,10 @@
     itemDrops = 0;
     nextDropAt = 15 + Math.random() * 10;
     rareAt = -1;
+    rarePickupAt = -1;
+    rareDue = false;
+    rareArm = -1;
+    rareDropDist = -1;
     epicAt = -1;
     legendAt = -1;
     legendDrops = 0;
@@ -4990,6 +5024,8 @@
       chat: chatLog.map((line) => line.text).join('\n'),
       toastQueued: toastQueue.length,
       rareAt: rareAt,
+      rarePickupAt: rarePickupAt,
+      rareDropDist: rareDropDist,
       epicAt: epicAt,
       legendAt: legendAt,
       legendDrops: legendDrops,
@@ -5228,6 +5264,7 @@
     window.__svMenu = () => { abandonToTitle(); return snapRun(); };
     window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
     window.__svSetTime = (t) => { time = t; return snapRun(); };
+    window.__svDeferDrops = (t) => { nextDropAt = t; return nextDropAt; };
     window.__svDebugLine = () => debugHudText();
     window.__svTags = () => {
       const out = [];
