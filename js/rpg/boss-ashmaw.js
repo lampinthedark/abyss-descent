@@ -216,7 +216,7 @@
     const line = mob.line;
     const tell = mob.tellId;
     const hero = heroOf();
-    if (line && hero && !hero.dead) {
+    if (line && hero && !hero.dead && hero.alive !== false) {
       const pad = typeof hero.radius === 'number' ? hero.radius : 0;
       if (distToSegment(hero.x, hero.y, line) <= CHARGE_HIT + pad) hurt(mob, 'charge');
     }
@@ -258,7 +258,7 @@
   function resolve(mob) {
     const kind = mob.state;
     const hero = heroOf();
-    if (kind === 'slam' && mob.slam && hero && !hero.dead) {
+    if (kind === 'slam' && mob.slam && hero && !hero.dead && hero.alive !== false) {
       const pad = typeof hero.radius === 'number' ? hero.radius : 0;
       if (dist(hero.x, hero.y, mob.slam.x, mob.slam.y) <= mob.slam.r + pad) hurt(mob, 'slam');
       clearTell(mob.tellId);
@@ -271,7 +271,7 @@
     }
     if (kind === 'claw') {
       const reach = clawReach(mob, hero);
-      if (hero && !hero.dead && dist(hero.x, hero.y, mob.x, mob.y) <= reach) hurt(mob, 'claw');
+      if (hero && !hero.dead && hero.alive !== false && dist(hero.x, hero.y, mob.x, mob.y) <= reach) hurt(mob, 'claw');
       endAttack(mob, 'claw');
     }
   }
@@ -342,7 +342,7 @@
       return;
     }
     const hero = heroOf();
-    if (!hero || hero.dead) {
+    if (!hero || hero.dead || hero.alive === false) {
       mob.state = 'wander';
       return;
     }

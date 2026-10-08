@@ -247,7 +247,10 @@
   function clearOfKeepOut(x, y) {
     const world = RPG.world;
     if (!world || typeof world.clearOfKeepOut !== 'function') return true;
-    try { return !!world.clearOfKeepOut(x, y); } catch (err) { return true; }
+    try {
+      // Core's keepOut works in tile cells: test the float point and its floored tile.
+      return !!world.clearOfKeepOut(x, y) && !!world.clearOfKeepOut(Math.floor(x), Math.floor(y));
+    } catch (err) { return true; }
   }
 
   function inArea(area, x, y) {
@@ -409,8 +412,30 @@
     return dist(mob.x, mob.y, tx, ty) < 0.04;
   }
 
+  /** Field mobs leash from their area rectangle (0 inside it); others from spawn. */
   function homeDist(mob) {
+    const a = mob.area;
+    if (a) {
+      const dx = Math.max(a.x0 - mob.x, 0, mob.x - a.x1);
+      const dy = Math.max(a.y0 - mob.y, 0, mob.y - a.y1);
+      return Math.sqrt(dx * dx + dy * dy);
+    }
     return dist(mob.x, mob.y, mob.spawnX, mob.spawnY);
+  }
+
+  /** Where a leashed mob walks back to: nearest legal point of its area, else spawn. */
+  function homePoint(mob) {
+    const a = mob.area;
+    if (a) {
+      const cx = Math.min(a.x1 - 0.25, Math.max(a.x0 + 0.25, mob.x));
+      const cy = Math.min(a.y1 - 0.25, Math.max(a.y0 + 0.25, mob.y));
+      if (spotOk(cx, cy, a)) return { x: cx, y: cy };
+    }
+    return { x: mob.spawnX, y: mob.spawnY };
+  }
+
+  function heroDown(hero) {
+    return !hero || hero.alive === false || !!hero.dead;
   }
 
   function heroPos() {
@@ -428,6 +453,15 @@
       if (m && !m.dead && m.scope === 'pair' && m.aggro) n++;
     }
     return n;
+  }
+
+  /** Another field pair already has a chaser (proximity can't add a second pair). */
+  function otherPairEngaged(mob) {
+    for (let i = 0; i < mobs.length; i++) {
+      const m = mobs[i];
+      if (m && !m.dead && m.scope === 'pair' && m.aggro && m.packId !== mob.packId) return true;
+    }
+    return false;
   }
 
   function alertPack(mob) {
@@ -470,10 +504,12 @@
   function sense(mob) {
     if (!mob || mob.dead || mob.state === 'return') return;
     const hero = heroPos();
-    if (!hero || hero.dead) return;
+    if (heroDown(hero)) return;
     if (!seesHero(mob, hero)) return;
     if (!clearOfKeepOut(hero.x, hero.y)) return;
     if (mob.scope === 'pair' && !mob.aggro && pairChasers() >= FIELD_CAP) return;
+    // Pair-only: walking near a second pair while one is engaged doesn't wake it; a hit still does.
+    if (mob.scope === 'pair' && !mob.aggro && otherPairEngaged(mob)) return;
     alertPack(mob);
   }
 
@@ -501,6 +537,7 @@
     if (mob.tellId && atk && atk.clearTell) atk.clearTell(mob.tellId);
     mob.tellId = null;
     mob.state = 'return';
+    mob.homeTo = homePoint(mob);
     mob.aggro = false;
     mob.attacking = false;
     mob.pose = 'walk';
@@ -590,6 +627,8 @@
       mob.dead = true;
       mob.state = 'dead';
       mob.aggro = false;
+      mob.pickable = false;
+      queueCorpse(mob);
       scheduleRespawn(mob);
       finishKill(mob);
       return { dead: true };
@@ -819,7 +858,7 @@
       }
       mob.wanderTo = null;
     }
-    if (homeDist(mob) > mob.leash) {
+    if (!mob.area && homeDist(mob) > mob.leash) {
       if (spotOk(mob.spawnX, mob.spawnY, mob.area)) {
         mob.x = mob.spawnX;
         mob.y = mob.spawnY;
@@ -864,21 +903,27 @@
 
     if (mob.state === 'return' || (mob.aggro && homeDist(mob) > mob.leash)) {
       if (mob.state !== 'return') startReturn(mob);
-      moveToward(mob, dt, mob.spawnX, mob.spawnY);
-      if (homeDist(mob) <= 0.35) {
+      const home = mob.homeTo || homePoint(mob);
+      moveToward(mob, dt, home.x, home.y);
+      const back = mob.area ? (inArea(mob.area, mob.x, mob.y) || dist(mob.x, mob.y, home.x, home.y) <= 0.35) : homeDist(mob) <= 0.35;
+      if (back) {
         mob.state = 'wander';
         mob.aggro = false;
         mob.path = null;
         mob.wanderTo = null;
         mob.wanderLeft = 0.2;
-        mob.x = mob.spawnX;
-        mob.y = mob.spawnY;
+        mob.homeTo = null;
+        // Area mobs walk home; only point-spawned mobs settle onto the spawn.
+        if (!mob.area) {
+          mob.x = mob.spawnX;
+          mob.y = mob.spawnY;
+        }
       }
       return;
     }
 
     const hero = heroPos();
-    if (mob.aggro && hero && !hero.dead) {
+    if (mob.aggro && hero && !heroDown(hero)) {
       if (!clearOfKeepOut(hero.x, hero.y)) {
         giveUpChase(mob);
         wander(mob, dt);
@@ -921,6 +966,29 @@
     mob.state = 'wander';
     mob.aggro = false;
     wander(mob, dt);
+  }
+
+  /** Corpses hold the death frame, fade over the last 0.5 s (e.alpha), then leave the world at 3 s. */
+  const CORPSE_SEC = 3;
+  const CORPSE_FADE = 0.5;
+  const corpses = [];
+
+  function queueCorpse(mob) {
+    if (!mob || mob._corpseQueued) return;
+    mob._corpseQueued = true;
+    corpses.push({ mob: mob, left: CORPSE_SEC });
+  }
+
+  function tickCorpses(dt) {
+    for (let i = corpses.length - 1; i >= 0; i--) {
+      const c = corpses[i];
+      c.left -= dt;
+      c.mob.alpha = c.left < CORPSE_FADE ? Math.max(0, c.left / CORPSE_FADE) : 1;
+      if (c.left > 0) continue;
+      corpses.splice(i, 1);
+      forget(c.mob);
+      removeFromWorld(c.mob);
+    }
   }
 
   const respawns = [];
@@ -967,6 +1035,7 @@
 
   function tickOnce(dt) {
     tickRespawns(dt);
+    tickCorpses(dt);
     const snapshot = mobs.slice();
     for (let i = 0; i < snapshot.length; i++) sense(snapshot[i]);
     for (let i = 0; i < snapshot.length; i++) act(snapshot[i], dt);

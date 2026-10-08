@@ -909,6 +909,73 @@ keepOut = [];
   for (const m of tuned) { m.aggro = false; m.state = 'wander'; }
 }
 
+// Field fixes: pair-only proximity, area leash, corpse despawn, floored keepOut, hero.alive.
+{
+  for (const e of entities) { if (e.kind === 'mob') { e.aggro = false; e.state = 'wander'; } }
+  hero.x = 500; hero.y = 500; hero.dead = false; hero.alive = true;
+  const areaA = { x0: 300, y0: 300, x1: 306, y1: 303 };
+  const areaB = { x0: 300, y0: 310, x1: 306, y1: 313 };
+  const f = RPG.ai.spawnZone({ id: 'town', spawns: [
+    { monsterId: 'goblin', x: 301, y: 301, n: 2, leash: 4, area: areaA, respawn: 10 },
+    { monsterId: 'goblin', x: 301, y: 311, n: 2, leash: 4, area: areaB, respawn: 10 },
+  ] });
+  const A = f.filter((m) => m.area === areaA);
+  const B = f.filter((m) => m.area === areaB);
+  hero.x = A[0].x; hero.y = A[0].y;
+  RPG.ai.tick(0.02);
+  assert(A.every((m) => m.aggro) && B.every((m) => !m.aggro), 'proximity wakes pair A only');
+  A[1].aggro = false; A[1].state = 'wander';
+  hero.x = B[0].x; hero.y = B[0].y;
+  RPG.ai.tick(0.02);
+  assert(A[0].aggro && B.every((m) => !m.aggro), 'walking past pair B while A is engaged does not wake B');
+  B[0].takeHit(1, { srcId: 'hero' });
+  assert(B[0].aggro, 'a hit still wakes a goblin of the second pair');
+  for (const m of f) { m.aggro = false; m.state = 'wander'; }
+
+  // Leash is measured from the area, and the walk home has no snap.
+  hero.x = 900; hero.y = 900;
+  const g = A[0];
+  g.x = areaA.x1 + 3; g.y = 301; g.aggro = true; g.state = 'chase';
+  RPG.ai.tick(0.02);
+  assert(g.state !== 'return', '3 tiles outside the area is inside leash 4, state ' + g.state);
+  g.x = areaA.x1 + 4.6; g.y = 301; g.aggro = true; g.state = 'chase';
+  let maxJump = 0;
+  for (let i = 0; i < 400 && (g.state === 'return' || i === 0); i++) {
+    const px = g.x, py = g.y;
+    RPG.ai.tick(0.02);
+    maxJump = Math.max(maxJump, Math.hypot(g.x - px, g.y - py));
+  }
+  assert(g.state === 'wander' && g.x <= areaA.x1 + 0.4 && g.x >= areaA.x0, 'leashed goblin walks back into its area, at ' + g.x.toFixed(2));
+  assert(maxJump < 0.3, 'no snap or teleport on the way home, max step ' + maxJump.toFixed(3));
+  assert(Math.abs(g.x - g.spawnX) > 0.5, 'area goblin stops at the area edge, not its spawn');
+
+  // Corpses: untappable at once, fade, then leave the world at 3 s.
+  const [c] = RPG.ai.spawnPack('rat', 700, 700, 1, 4);
+  c.takeHit(9999, { srcId: 'hero' });
+  assert(c.pickable === false && entities.includes(c), 'corpse stays drawn but is not tappable');
+  RPG.ai.tick(2.7);
+  assert(entities.includes(c) && c.alpha > 0 && c.alpha < 1, 'corpse fades in the last 0.5 s, alpha ' + c.alpha);
+  RPG.ai.tick(0.4);
+  assert(!entities.includes(c), 'corpse is removed after 3 s');
+
+  // keepOut is checked on the floored tile too.
+  RPG.world.clearOfKeepOut = (x, y) => !(x === 400 && y === 400);
+  const [k] = RPG.ai.spawnPack('goblin', 400.5, 400.5, 1, 4, { area: { x0: 399, y0: 399, x1: 402, y1: 402 } });
+  assert(!(Math.floor(k.x) === 400 && Math.floor(k.y) === 400), 'no spawn on a keepOut tile, got ' + k.x + ',' + k.y);
+  delete RPG.world.clearOfKeepOut;
+  k.takeHit(9999, {});
+
+  // A downed hero (alive === false) draws no aggro.
+  const [r] = RPG.ai.spawnPack('rat', 800, 800, 1, 4);
+  hero.x = 800; hero.y = 800; hero.alive = false; hero.dead = false;
+  RPG.ai.tick(0.02);
+  assert(!r.aggro, 'hero.alive === false is treated as dead');
+  hero.alive = true; hero.x = 900; hero.y = 900;
+  r.takeHit(9999, {});
+  for (const m of f) { m.aggro = false; m.state = 'wander'; }
+  RPG.ai.tick(3.1);
+}
+
 // Core's renderer draws e.sprite (full sheet key) at e.frame or every e.anim ms,
 // flipped by e.flip. Keys come from window.Sheet (assets/rpg/mobs_sheet.json).
 {

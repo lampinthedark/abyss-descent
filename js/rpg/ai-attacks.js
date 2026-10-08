@@ -356,7 +356,7 @@
   }
 
   function heroLiving(hero) {
-    if (!hero || hero.dead) return false;
+    if (!hero || hero.dead || hero.alive === false) return false;
     if (typeof hero.hp === 'number' && hero.hp <= 0) return false;
     if (typeof hero.hp !== 'number' && typeof hero.life === 'number' && hero.life <= 0) return false;
     return true;
@@ -511,7 +511,7 @@
   }
 
   function chooseAttack(mob, hero) {
-    if (!mob || !hero || hero.dead) return null;
+    if (!mob || !hero || hero.dead || hero.alive === false) return null;
     if (typeof hero.x !== 'number' || typeof hero.y !== 'number') return null;
     if (mob.cdMs > 0) return null;
     const d = dist(mob.x, mob.y, hero.x, hero.y);

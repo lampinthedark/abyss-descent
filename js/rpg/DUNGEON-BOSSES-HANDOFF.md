@@ -110,3 +110,11 @@ In the browser, after the scripts are pasted: load Ash Stair with `RPG.dungeon.l
 - `aggroRadius: <tiles>`: overrides the zone's proximity radius (town default 2) for that entry.
 - `pull: 'self'`: a hit wakes only the mob that was hit, not its pair. The 2-chaser cap still applies.
 - All three survive the respawn.
+
+## Town field fixes (Oct 9 freeze)
+
+- Pair-only proximity: while one field pair has a chaser, walking near another pair doesn't wake it. A hit still does, and the cap of 2 chasers still holds.
+- Area mobs leash from their `area` rectangle (0 inside it) and walk back to the nearest point of the area, with no snap or teleport.
+- Corpses: `pickable=false` on death. They hold the death frame, set `e.alpha` from 1 to 0 over the last 0.5 s, and leave the world at 3 s. Core can honour the fade by wrapping the entity draw in `ctx.globalAlpha = e.alpha == null ? 1 : e.alpha`. Without that, the corpse simply disappears at 3 s.
+- keepOut is checked on the float position and the floored tile.
+- A downed hero is `hero.alive === false` (`hero.dead` is still honoured).
