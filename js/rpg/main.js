@@ -250,7 +250,18 @@
     npc_smith: ['Bring me ore from the mine east of the square and I will show you the hammer.'],
   };
   RPG.bus.on('talk', function (ev) {
-    if (RPG.quests || !questStub) return; // Skills & Quests owns dialogue
+    if (RPG.quests) {
+      // Skills & Quests owns quest-giver dialogue; core gives everyone else their idle line.
+      const C = RPG.content || window.RPGContent || {};
+      const key = ev && ev.npcId ? String(ev.npcId).replace(/^npc_/, '') : '';
+      const isGiver = (C.QUESTS || []).some(function (q) { return q.giver === key; });
+      if (!key || isGiver || !RPG.ui || !RPG.ui.dialog) return;
+      const npc = C.NPCS && C.NPCS[key];
+      const line = (npc && npc.idle && npc.idle[0]) || (LINES[ev.npcId] || ['...'])[0];
+      RPG.ui.dialog(ev.npcId, [line], [{ id: 'ok', label: 'Okay' }]);
+      return;
+    }
+    if (!questStub) return;
     const id = ev && ev.npcId;
     const step = questStep();
     const choices = id === 'npc_questgiver'
