@@ -4438,6 +4438,7 @@
     }
     drawArena();
     for (let i = 0; i < gems.length; i++) drawGem(gems[i]);
+    drawFoes();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     camInfo.x = camX;
@@ -4445,7 +4446,6 @@
     camInfo.zoom = zoom;
     fxCall('drawUnder', ctx, camInfo);
     ctx.restore();
-    drawFoes();
     drawHeroActor();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
@@ -5049,6 +5049,12 @@
       goldMilli = 0;
       for (let i = 0; i < (n || 0); i++) grantGold(exact);
       return { gold: runGold, milli: goldMilli };
+    };
+    window.__svBeamOff = (id) => { beamOff(id); };
+    window.__svBeamOn = (id, x, y, rarity) => { beamFx(id, x, y, rarity); };
+    window.__svDraw = () => {
+      draw();
+      return { w: canvas.width, h: canvas.height, zoom: zoom, tile: TILE, camX: camX, camY: camY };
     };
     window.__svStep = (dt) => {
       if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();

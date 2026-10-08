@@ -1317,7 +1317,6 @@ const FX = (function () {
     }
 
     paintEmbers(ctx, zoom, calm);
-    paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
 
     if (flashLeft > 0) {
@@ -1513,6 +1512,17 @@ const FX = (function () {
     draw: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
       paint(ctx, cam || emptyCam);
+    },
+
+    drawUnder: function (ctx, cam) {
+      if (!ctx || !ctx.canvas) return;
+      const view = cam || emptyCam;
+      const zoom = (view && ok(view.zoom) && view.zoom > 0) ? view.zoom : 1;
+      const tile = framePx() * zoom;
+      const camX = view && ok(view.x) ? view.x : 0;
+      const camY = view && ok(view.y) ? view.y : 0;
+      ctx.imageSmoothingEnabled = false;
+      paintBeams(ctx, zoom, tile, camX, camY, ctx.canvas.width, ctx.canvas.height);
     },
 
     drawBeamArrows: function (ctx, cam, w, h) {
