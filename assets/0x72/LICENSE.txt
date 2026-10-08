@@ -1,0 +1,9 @@
+DungeonTileset II by 0x72
+Source: https://0x72.itch.io/dungeontileset-ii
+License: CC0 1.0 Universal (public domain)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Commercial use is allowed. Credit is not required. Abyss Descent credits 0x72 anyway.
+
+The file dungeon-tileset-ii.png is the v1.7 sheet from the free ($0) itch download, unchanged.
+Recolours of the wizard, imp, and ogre are applied at runtime and are not baked into this file.

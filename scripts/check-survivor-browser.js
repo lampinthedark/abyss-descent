@@ -68,6 +68,7 @@ async function pageWith(browser, url, viewport) {
     await new Promise(r => setTimeout(r, 1500));
     const early = await title.evaluate(() => window.__sv());
     if (!(early.x > 1 && Math.abs(early.y) < 0.6)) fail('top-down axes: ' + JSON.stringify(early));
+    if (!early.art) fail('tileset did not load');
     if (movedAt - t0 > 10000) fail('took too long to move: ' + (movedAt - t0));
     await title.screenshot({ path: path.join(shots, 'survivor-early.png') });
     await title.screenshot({ path: path.join(shots, 'survivor-topdown-desktop.png') });
@@ -159,6 +160,20 @@ async function pageWith(browser, url, viewport) {
     await juice.screenshot({ path: path.join(shots, 'survivor-juice-portrait.png') });
     if (juice.__errors.length) fail('juice errors: ' + juice.__errors.join(' | '));
     await juice.close();
+
+    const five = await pageWith(browser, base + 'survivor.html?debug=1&preview=crowd', phone);
+    await five.waitForFunction(() => window.__sv && window.__sv().art && window.__sv().time > 290 && window.__sv().enemies > 20, { timeout: 8000 });
+    await new Promise(r => setTimeout(r, 500));
+    await five.screenshot({ path: path.join(shots, 'survivor-phone-5min.png') });
+    if (five.__errors.length) fail('five minute errors: ' + five.__errors.join(' | '));
+    await five.close();
+
+    const boss = await pageWith(browser, base + 'survivor.html?debug=1&preview=boss', desk);
+    await boss.waitForFunction(() => window.__sv && window.__sv().art && window.__sv().enemies > 5, { timeout: 8000 });
+    await new Promise(r => setTimeout(r, 600));
+    await boss.screenshot({ path: path.join(shots, 'survivor-boss.png') });
+    if (boss.__errors.length) fail('boss errors: ' + boss.__errors.join(' | '));
+    await boss.close();
 
     const bench = await pageWith(browser, base + 'survivor.html?debug=1&bench=1', desk);
     await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 20000 });

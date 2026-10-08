@@ -5,6 +5,8 @@ body.survivor #game {
   max-width: none;
   max-height: none;
   cursor: default;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 #sv-hud {

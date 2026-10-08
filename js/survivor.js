@@ -1,6 +1,7 @@
 /** Survivor mode. Top-down arena. One thumb steers; the staff fires on its own. */
 (() => {
-  const TILE = 48;
+  let TILE = 48;
+  let zoom = 3;
   const ARENA = 18;
   const CELL = 3;
   const RUN_SECONDS = 600;
@@ -86,6 +87,7 @@
       maxLife: hero.base.life,
       facing: 1,
       moving: false,
+      swing: 0,
       hitFlash: 0,
       invuln: 0.4,
       xp: 0,
@@ -108,13 +110,16 @@
 
   function resize() {
     const wrap = canvas.parentElement || document.body;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = wrap.clientWidth || window.innerWidth;
     const h = wrap.clientHeight || window.innerHeight;
-    canvas.width = Math.max(320, Math.floor(w * dpr));
-    canvas.height = Math.max(240, Math.floor(h * dpr));
+    zoom = w < 760 ? 3 : 2;
+    TILE = SurvivorSprites.FRAME * zoom;
+    SurvivorSprites.setZoom(zoom);
+    canvas.width = Math.max(320, Math.floor(w));
+    canvas.height = Math.max(240, Math.floor(h));
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
+    ctx.imageSmoothingEnabled = false;
   }
 
   function worldToScreen(x, y) {
@@ -366,7 +371,7 @@
       boss5 = true;
       const ang = Math.random() * Math.PI * 2;
       spawnEnemy('brute', player.x + Math.cos(ang) * 6.5, player.y + Math.sin(ang) * 6.5, {
-        boss: true, name: 'Risen Brute',
+        boss: true, name: 'Risen Demon',
       });
       sfx('portal');
     }
@@ -407,6 +412,7 @@
       const d = Math.hypot(dx, dy) || 1;
       const sp = T.boltSpeed * (1 + (owned.area || 0) * 0.04);
       spawnShot('bolt', player.x, player.y, (dx / d) * sp, (dy / d) * sp, boltDamage(), 1.4);
+      player.swing = 0.16;
       cds.bolt = (0.58 - Math.min(0.28, (owned.bolt - 1) * 0.05)) * haste();
       player.facing = dx >= 0 ? 1 : -1;
       sfx('cast');
@@ -578,6 +584,7 @@
     }
     animT += dt;
     if (player.hitFlash > 0) player.hitFlash -= dt;
+    if (player.swing > 0) player.swing = Math.max(0, player.swing - dt);
     if (player.invuln > 0) player.invuln -= dt;
     if (shakeMag > 0) {
       shakeMag = Math.max(0, shakeMag - dt * 12);
@@ -688,7 +695,7 @@
     const preview = previewOnce;
     previewOnce = '';
     resetRun();
-    if (preview === 'crowd') time = MINI_AT - 1;
+    if (preview === 'crowd' || preview === 'boss') time = MINI_AT - 1;
     state = 'playing';
     hide('sv-title');
     hide('sv-level');
@@ -707,11 +714,19 @@
       openingPack();
       for (let i = 0; i < 110; i++) {
         const ang = Math.random() * Math.PI * 2;
-        const dist = 2.2 + Math.random() * 7;
+        const dist = 1.15 + Math.random() * 3.1;
         const id = i % 8 === 0 ? 'brute' : i % 2 === 0 ? 'imp' : 'skel';
         spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
       }
-      spawnEnemy('brute', 5, 2, { boss: true, name: 'Risen Brute' });
+      spawnEnemy('brute', 2.1, 0.4, { boss: true, name: 'Risen Demon' });
+      boss5 = true;
+    } else if (preview === 'boss') {
+      for (let i = 0; i < 16; i++) {
+        const ang = (i / 16) * Math.PI * 2;
+        const id = i % 4 === 0 ? 'imp' : 'skel';
+        spawnEnemy(id, Math.cos(ang) * (1.5 + (i % 3) * 0.45), Math.sin(ang) * (1.5 + (i % 3) * 0.45));
+      }
+      spawnEnemy('brute', 1.7, 0.15, { boss: true, name: 'Risen Demon' });
       boss5 = true;
     } else if (preview === 'juice') {
       cds.bolt = 0.05;
@@ -985,28 +1000,8 @@
   }
 
   function drawArena() {
-    const origin = worldToScreen(0, 0);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(origin.x, origin.y, ARENA * TILE, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.fillStyle = '#5c4638';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const x0 = Math.floor(-camX / TILE) * TILE + camX;
-    const y0 = Math.floor(-camY / TILE) * TILE + camY;
-    ctx.beginPath();
-    for (let x = x0; x < canvas.width + TILE; x += TILE) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
-    }
-    for (let y = y0; y < canvas.height + TILE; y += TILE) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
-    }
-    ctx.strokeStyle = 'rgba(32, 22, 16, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
+    ctx.imageSmoothingEnabled = false;
+    SurvivorSprites.drawGround(ctx, camX, camY, ARENA);
   }
 
   function heroOpts() {
@@ -1015,6 +1010,7 @@
       moving: player.moving,
       facing: player.facing,
       time: animT,
+      lunge: player.swing || 0,
     };
   }
 
@@ -1023,18 +1019,19 @@
     SurvivorSprites.drawHero(ctx, s.x, s.y, heroOpts());
     if (player.life < player.maxLife) {
       ctx.fillStyle = '#200808';
-      ctx.fillRect(s.x - 16, s.y - 28, 32, 4);
+      ctx.fillRect(s.x - 16, s.y - 30 * zoom - 4, 32, 4);
       ctx.fillStyle = '#c03030';
-      ctx.fillRect(s.x - 16, s.y - 28, 32 * (player.life / player.maxLife), 4);
+      ctx.fillRect(s.x - 16, s.y - 30 * zoom - 4, 32 * (player.life / player.maxLife), 4);
     }
   }
 
   function drawFoe(en, crowd) {
     const s = worldToScreen(en.x, en.y);
-    if (s.x < -48 || s.y < -48 || s.x > canvas.width + 48 || s.y > canvas.height + 48) return;
+    if (s.x < -96 || s.y < -120 || s.x > canvas.width + 96 || s.y > canvas.height + 40) return;
     SurvivorSprites.drawFoe(ctx, s.x, s.y, {
       eid: en.eid,
       boss: en.boss,
+      facing: en.facing,
       scale: en.scale,
       color: en.color,
       flash: en.hitFlash > 0,
@@ -1153,13 +1150,17 @@
   }
 
   function draw() {
-    camX = canvas.width / 2 - player.x * TILE;
-    camY = canvas.height / 2 - player.y * TILE;
+    camX = Math.round(canvas.width / 2 - player.x * TILE);
+    camY = Math.round(canvas.height / 2 - player.y * TILE);
+    ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#100c0c';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     if (shakeMag > 0) {
-      ctx.translate(Math.sin(shakePhase) * shakeMag, Math.cos(shakePhase * 0.83) * shakeMag);
+      ctx.translate(
+        Math.round(Math.sin(shakePhase) * shakeMag),
+        Math.round(Math.cos(shakePhase * 0.83) * shakeMag)
+      );
     }
     drawArena();
     for (let i = 0; i < gems.length; i++) {
@@ -1296,6 +1297,7 @@
         state, time, kills, level: player.level, levelUps, hits,
         enemies: enemies.length, gems: gems.length, floats: floats.length,
         x: player.x, y: player.y, life: player.life,
+        art: SurvivorSprites.ready(),
       });
       if (/preview=juice/.test(search)) {
         window.__svFlash = () => {
@@ -1364,6 +1366,7 @@
   }
 
   bind();
+  SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=3');
   if (bench || previewOnce) startRun();
   requestAnimationFrame(frame);
 })();
