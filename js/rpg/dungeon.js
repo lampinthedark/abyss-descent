@@ -219,10 +219,24 @@
     return { spawned: spawned, exit: zone.exit || null };
   }
 
+  const STAIR_SHUT = 'Warden Ilse wants a word before you go down.';
+
+  /** Core calls this before loadZone on the town stairs (12, 27). */
+  function canEnter() {
+    if (!RPG.quests || typeof RPG.quests.isDone !== 'function') {
+      return { ok: false, line: STAIR_SHUT };
+    }
+    if (!RPG.quests.isDone('q2')) {
+      return { ok: false, line: STAIR_SHUT };
+    }
+    return { ok: true };
+  }
+
   RPG.dungeon = {
     load: load,
     sample: sample,
     normalize: normalize,
     fallbackSample: fallbackSample,
+    canEnter: canEnter,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

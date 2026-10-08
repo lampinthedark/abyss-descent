@@ -550,6 +550,26 @@ noQuest.takeHit(9999, {});
 assert(lootCalls.length === 1 && lootCalls[0].opts && lootCalls[0].opts.questFinish === false, 'missing completesOnKill passes questFinish false');
 RPG.quests = null;
 
+const stairShut = 'Warden Ilse wants a word before you go down.';
+let gate = RPG.dungeon.canEnter();
+assert(gate && gate.ok === false && gate.line === stairShut, 'stairs stay shut when quests are not loaded');
+RPG.quests = {};
+gate = RPG.dungeon.canEnter();
+assert(gate.ok === false && gate.line === stairShut, 'stairs stay shut when isDone is missing');
+RPG.quests = { isDone() { return false; } };
+gate = RPG.dungeon.canEnter();
+assert(gate.ok === false && gate.line === stairShut, 'stairs stay shut until q2 is done');
+let askedQuest = null;
+RPG.quests = {
+  isDone(id) {
+    askedQuest = id;
+    return id === 'q2';
+  },
+};
+gate = RPG.dungeon.canEnter();
+assert(gate && gate.ok === true && askedQuest === 'q2', 'stairs open when isDone(q2) is true');
+RPG.quests = null;
+
 // Ashmaw guarantee when the items table returns a common with no beam.
 fxLog.length = 0;
 const [maw] = RPG.ai.spawnPack('ashmaw', 30, 30, 1, 10);
