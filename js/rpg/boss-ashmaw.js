@@ -17,13 +17,6 @@
   const SLAM_R = 2.5;
   const CHARGE_REACH = 7;
   const CHARGE_HIT = 0.85;
-  const RARITY_COLOR = {
-    legendary: '#ff9a2e',
-    'very rare': '#c070ff',
-    veryrare: '#c070ff',
-    epic: '#c070ff',
-    rare: '#5aa0ff',
-  };
 
   function attackRow(kind) {
     const mapped = kind === 'claw' ? 'melee' : kind;
@@ -390,72 +383,15 @@
     if (mob.windupElapsed >= mob.windupMs) resolve(mob);
   }
 
-  function previewOf(monsterId) {
-    const id = monsterId || 'ashmaw';
-    let list = null;
-    const Loot = root.Loot;
-    if (Loot && typeof Loot.preview === 'function') {
-      try { list = Loot.preview(id); } catch (err) { list = null; }
-    }
-    if (!Array.isArray(list) && RPG.Loot && typeof RPG.Loot.preview === 'function') {
-      try { list = RPG.Loot.preview(id); } catch (err) { list = null; }
-    }
-    if (!Array.isArray(list) && RPG.items && typeof RPG.items.preview === 'function') {
-      try { list = RPG.items.preview(id); } catch (err) { list = null; }
-    }
-    return Array.isArray(list) ? list : [];
-  }
-
-  function dropColor(entry) {
-    const name = entry && entry.name ? String(entry.name) : '';
-    if (/^wyrmfang$/i.test(name)) return '#ff9a2e';
-    if (entry && entry.beamColor) return entry.beamColor;
-    const rarity = String((entry && entry.rarity) || '').toLowerCase();
-    if (RARITY_COLOR[rarity]) return RARITY_COLOR[rarity];
-    return (entry && entry.color) || '#d9d3c4';
-  }
-
   /**
-   * Ashmaw nameplate drops. Order is Loot.preview order (do not sort).
-   * Skills & Quests owns the rumour line; this is only the panel.
+   * Nameplate paint. Same call the Skills & Quests rumour screen uses.
+   * No-ops when the shared helper is not on the page. Does not map the preview.
    */
-  function canDropPanel(monsterId) {
-    const id = monsterId || 'ashmaw';
-    const raw = previewOf(id);
-    const drops = [];
-    for (let i = 0; i < raw.length; i++) {
-      const entry = raw[i] || {};
-      const color = dropColor(entry);
-      drops.push({
-        name: entry.name,
-        base: entry.base,
-        rarity: entry.rarity,
-        color: color,
-        beamColor: color,
-        icon: entry.icon || '',
-        label: entry.label,
-        source: entry.source,
-      });
-    }
-    const panel = {
-      monsterId: id,
-      title: 'Can drop',
-      drops: drops,
-    };
-    const ui = RPG.ui || null;
-    const hooks = ['showCanDrop', 'showBossDrops', 'bossNameplate', 'nameplate', 'showNameplate'];
-    let drawn = false;
-    if (ui) {
-      for (let i = 0; i < hooks.length; i++) {
-        const fn = ui[hooks[i]];
-        if (typeof fn !== 'function') continue;
-        try { fn(panel); drawn = true; } catch (err) {}
-        break;
-      }
-    }
-    panel.drawn = drawn;
-    RPG.bossPanel = panel;
-    return panel;
+  function canDropPanel(ctx, x, y) {
+    if (!RPG.ui || typeof RPG.ui.drawDropRows !== 'function') return;
+    const Loot = root.Loot;
+    if (!Loot || typeof Loot.preview !== 'function') return;
+    return RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'));
   }
 
   function spawn(x, y, opts) {
@@ -463,9 +399,7 @@
     if (typeof ai.spawnPack !== 'function') return null;
     const leash = typeof opts.leash === 'number' ? opts.leash : undefined;
     const pack = ai.spawnPack('ashmaw', x, y, 1, leash);
-    const mob = pack[0] || null;
-    if (mob) mob.canDrop = canDropPanel('ashmaw');
-    return mob;
+    return pack[0] || null;
   }
 
   ai.boss = {
