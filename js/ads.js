@@ -15,10 +15,18 @@ const Ads = (() => {
   };
 
   let combatFn = function () { return false; };
+  let allowFn = null;
   const queue = [];
   let showing = null;
   let flushQueue = true;
   let resultFn = null;
+
+  function noteDrop(kind) {
+    try {
+      if (!/(?:^|[?&])debug=1(?:&|$)/.test(location.search || '')) return;
+      console.log('ad dropped: ' + kind);
+    } catch (e) {}
+  }
 
   function inCombat() {
     try { return !!combatFn(); } catch (e) { return false; }
@@ -59,6 +67,18 @@ const Ads = (() => {
 
   function offer(kind) {
     if (!adtest) return 'unavailable';
+    if (allowFn) {
+      let ok = false;
+      try { ok = !!allowFn(kind); } catch (e) { ok = false; }
+      if (!ok || showing) {
+        noteDrop(kind);
+        return 'dropped';
+      }
+      showing = kind;
+      setHeld(false);
+      showPrompt(kind);
+      return 'shown';
+    }
     if (inCombat()) {
       queue.push(kind);
       setHeld(true);
@@ -79,6 +99,11 @@ const Ads = (() => {
     showing = null;
     hidePrompt();
     try { if (resultFn && kind) resultFn(kind, reason || 'dismiss'); } catch (e) {}
+    if (allowFn) {
+      queue.length = 0;
+      setHeld(false);
+      return;
+    }
     if (inCombat() || !flushQueue) {
       setHeld(queue.length > 0);
       return;
@@ -93,7 +118,7 @@ const Ads = (() => {
   }
 
   function tick() {
-    if (!adtest) return;
+    if (!adtest || allowFn) return;
     if (showing && inCombat()) {
       queue.unshift(showing);
       showing = null;
@@ -147,6 +172,11 @@ const Ads = (() => {
     offerReroll() { try { return offer('reroll'); } catch (e) { return 'unavailable'; } },
     offerDoubleGold() { try { return offer('gold'); } catch (e) { return 'unavailable'; } },
     setCombat,
+    setAllow(fn) {
+      allowFn = typeof fn === 'function' ? fn : null;
+      queue.length = 0;
+      setHeld(false);
+    },
     setFlush(on) { flushQueue = on !== false; },
     onResult(fn) { resultFn = typeof fn === 'function' ? fn : null; },
     tick() { try { tick(); } catch (e) {} },
