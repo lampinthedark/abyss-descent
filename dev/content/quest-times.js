@@ -36,7 +36,7 @@ function walkS(a, b) {
 
 function goblinFightS(loadout, kills) {
   const l = byId(loadout), d = C.MONSTERS.goblin;
-  const p = { attack: l.attack, strength: l.strength, hitpoints: l.hitpoints, gear: l.gear };
+  const p = { attack: l.attack, strength: l.strength, defence: l.defence, hitpoints: l.hitpoints, gear: l.gear };
   const avgPack = (d.pack[0] + d.pack[1]) / 2;
   const packs = Math.ceil(kills / avgPack);
   let t = 0, taken = 0;
@@ -100,6 +100,8 @@ if (require.main === module) {
       (q.stub ? '' : ' (x' + NEW_PLAYER_SLACK + ' new-player slack: ' + (q.totalS * NEW_PLAYER_SLACK / 60).toFixed(1) + ' min)'));
     for (const [k, v] of q.legs) console.log('- ' + k + ': ' + v.toFixed(1) + ' s');
   }
+  const both = all[0].totalS + all[1].totalS;
+  console.log('\n### Q1 + Q2 combined: ' + (both / 60).toFixed(1) + ' min (x' + NEW_PLAYER_SLACK + ' new-player slack: ' + (both * NEW_PLAYER_SLACK / 60).toFixed(1) + ' min)');
   console.log('\nAssumed speeds: ' + JSON.stringify(SPEEDS));
   const ok = all[0].totalS < 600;
   console.log('\nQ1 under 10 min (UAT gate 2): ' + (ok ? 'YES' : 'NO') + ' (' + (all[0].totalS / 60).toFixed(1) + ' min)');

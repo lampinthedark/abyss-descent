@@ -11,7 +11,10 @@
  *                Dodge 0.35 s invulnerable, 2 s cd
  *                (Ground Slam is cut to week 2 and is NOT simulated; SKILLS.slam is kept
  *                 only so week-2 tuning can switch it on with opts.skillSet)
- *   combat XP    4/damage to the stat behind the hit + 1.33/damage to Hitpoints
+ *   mob hit      clamp(0.75 + 0.015*(mob.atk - Defence - gear.def), 0.40, 0.97) per attack that lands
+ *                (a dodge / side-step cancels the hit outright; armour still reduces a landed hit)
+ *   regen        out of combat: 2 HP/s once 4 s have passed without taking damage (also mid-fight)
+ *   combat XP    1/damage to the style stat + 0.33/damage to Hitpoints
  *   XP curve     floor(sum_{l<L} floor(l + 300*2^(l/7)) / 4), cap 99 (PLAN stats.js)
  */
 'use strict';
@@ -23,12 +26,21 @@ const SKILLS = {
   bolt: { mult: 1.2, cd: 4, maxTargets: 1 },
 };
 const DODGE = { invuln: 0.35, cd: 2 };
+const REGEN = { hpPerS: 2, delayS: 4 };          // approved: 2 HP/s after 4 s without taking damage
+const XP_RATE = { style: 1, hitpoints: 0.33 };   // approved: per damage dealt (was 4 / 1.33)
 const WEEK1_SKILLS = ['cleave', 'bolt'];
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function hitChance(attack, aim, def) { return clamp(0.75 + 0.015 * (attack + aim - def), 0.40, 0.97); }
 function maxHit(strength, power) { return 2 + Math.floor(strength / 4) + power; }
 function minHit(max) { return Math.ceil(max / 2); }
+function mobHitChance(atk, defence, gearDef) { return clamp(0.75 + 0.015 * ((atk || 0) - (defence || 0) - (gearDef || 0)), 0.40, 0.97); }
+function combatXp(damage) { return { style: damage * XP_RATE.style, hitpoints: damage * XP_RATE.hitpoints }; }
+function regenAfter(hp, maxHp, sinceHitS, idleS) {
+  // HP after idleS more seconds with no damage, given sinceHitS already elapsed since the last hit
+  const live = Math.max(0, idleS - Math.max(0, REGEN.delayS - sinceHitS));
+  return Math.min(maxHp, hp + REGEN.hpPerS * live);
+}
 function taken(dmg, armour) { return dmg * 50 / (50 + armour); }
 function playerHp(hitpoints, gearMaxHp) { return 40 + 6 * (hitpoints - 10) + (gearMaxHp || 0); }
 function swingSeconds(attackSpeed) { return SWING_S / (1 + (attackSpeed || 0) / 100); }
@@ -51,9 +63,10 @@ function rng32(seed) {
 
 /**
  * Fight one player against a group of mobs (all engaged at once: worst case).
- * player: { attack, strength, hitpoints, gear:{aim,power,armour,maxHp,attackSpeed,crit,lifesteal} }
- * opts:   { policy:'never'|'telegraphs'|'good', skills:true, skillSet:['cleave','bolt'], rng, maxS, startHp, food:{heal,count} }
- * Returns { t, won, dead, swings, landed, dmgDealt, dmgTaken, hpLeft, perMob:[{landed, swings, t}] }.
+ * player: { attack, strength, defence, hitpoints, gear:{aim,power,armour,def,maxHp,attackSpeed,crit,lifesteal} }
+ * opts:   { policy:'never'|'telegraphs'|'good', skills:true, skillSet:['cleave','bolt'], rng, maxS, startHp,
+ *           sinceHit (s since the player last took damage, default: long ago), food:{heal,count}, regen:true }
+ * Returns { t, won, dead, swings, landed, dmgDealt, dmgTaken, regenHp, hpLeft, sinceHit, mobAttacks, mobLanded, perMob:[...] }.
  */
 function fight(player, mobDefs, opts) {
   opts = opts || {};
@@ -77,7 +90,10 @@ function fight(player, mobDefs, opts) {
   let t = 0, nextAct = TAP_WINDUP_S, dodgeCd = 0, invulnUntil = -1;
   const cds = { cleave: 0, slam: 0, bolt: 0 };
   const skillSet = opts.skillSet || WEEK1_SKILLS;
-  let swings = 0, landed = 0, dealt = 0, takenSum = 0, eaten = 0;
+  let swings = 0, landed = 0, dealt = 0, takenSum = 0, eaten = 0, regenSum = 0, mobAttacks = 0, mobLanded = 0;
+  const useRegen = opts.regen !== false;
+  let lastHitAt = -(opts.sinceHit != null ? opts.sinceHit : 99);
+  const pDef = player.defence || 0;
   const food = opts.food || null;          // { heal, count }
   let foodLeft = food ? food.count : 0;
   let target = mobs[0];
@@ -146,7 +162,13 @@ function fight(player, mobDefs, opts) {
           } else if (policy !== 'never' && k === 'ranged' && rnd() < 0.5) m.pending.sidestep = true; // ASSUMED: moving dodges half the projectiles
         }
         if (m.pending.left <= 0) {
-          if (t > invulnUntil && !m.pending.sidestep) { const x = taken(m.pending.a.dmg, g.armour); hp -= x; takenSum += x; }
+          // a roll / side-step cancels the hit outright; otherwise the mob rolls GD's mirrored hit chance
+          if (t > invulnUntil && !m.pending.sidestep) {
+            mobAttacks++;
+            if (rnd() < mobHitChance(m.d.atk, pDef, g.def)) {
+              const x = taken(m.pending.a.dmg, g.armour); hp -= x; takenSum += x; mobLanded++; lastHitAt = t;
+            }
+          }
           m.cds[m.pending.k] = m.pending.a.cooldownMs / 1000 * (m.d.enrage && m.hp < m.d.hp * m.d.enrage.belowHpPct / 100 ? m.d.enrage.cooldownMult : 1);
           m.busy = REST; m.pending = null;
         }
@@ -164,12 +186,16 @@ function fight(player, mobDefs, opts) {
       }
     }
 
+    if (useRegen && hp > 0 && hp < maxHpP && t - lastHitAt >= REGEN.delayS) {
+      const r = Math.min(maxHpP - hp, REGEN.hpPerS * dt); hp += r; regenSum += r;
+    }
     for (const k in cds) cds[k] -= dt;
     dodgeCd -= dt;
     t += dt;
   }
   const won = mobs.every(m => !m.alive);
-  return { t, won, dead: hp <= 0, eaten, swings, landed, dmgDealt: dealt, dmgTaken: takenSum, hpLeft: hp, maxHp: maxHpP,
+  return { t, won, dead: hp <= 0, eaten, swings, landed, dmgDealt: dealt, dmgTaken: takenSum, regenHp: regenSum, hpLeft: hp, maxHp: maxHpP,
+    sinceHit: t - lastHitAt, mobAttacks, mobLanded,
     perMob: mobs.map(m => ({ id: m.d.id, landed: m.landed, swings: m.swings, diedAt: m.diedAt })) };
 }
 
@@ -187,10 +213,13 @@ function simulate(player, mobDefs, opts, n, seed) {
     landedFirst: mean(r => r.perMob[0].landed), landedP10: pct(r => r.perMob[0].landed, 0.1), landedP90: pct(r => r.perMob[0].landed, 0.9),
     dmgTaken: mean(r => r.dmgTaken), pctHp: mean(r => r.dmgTaken) / rs[0].maxHp * 100,
     pDeath: mean(r => (r.dead ? 1 : 0)), dmgDealt: mean(r => r.dmgDealt), maxHp: rs[0].maxHp,
-    winRate: mean(r => (r.won ? 1 : 0)), eaten: mean(r => r.eaten),
+    winRate: mean(r => (r.won ? 1 : 0)), eaten: mean(r => r.eaten), regenHp: mean(r => r.regenHp),
+    netPctHp: mean(r => (r.maxHp - Math.max(0, r.hpLeft)) / r.maxHp * 100),
+    mobHitRate: (function () { const a = rs.reduce((s, r) => s + r.mobAttacks, 0); return a ? rs.reduce((s, r) => s + r.mobLanded, 0) / a : 0; })(),
     ttkWon: (function () { const w = rs.filter(r => r.won); return w.length ? w.reduce((a, r) => a + r.t, 0) / w.length : null; })(),
   };
 }
 
-module.exports = { SWING_S, TAP_WINDUP_S, SKILLS, WEEK1_SKILLS, DODGE, hitChance, maxHit, minHit, taken, playerHp, swingSeconds,
+module.exports = { SWING_S, TAP_WINDUP_S, SKILLS, WEEK1_SKILLS, DODGE, REGEN, XP_RATE, hitChance, mobHitChance, combatXp, regenAfter,
+  maxHit, minHit, taken, playerHp, swingSeconds,
   XP_TABLE, levelFor, rng32, fight, simulate };

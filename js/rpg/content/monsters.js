@@ -1,11 +1,14 @@
 /**
  * Week-1 monsters in GD's shape:
- *   {id, name, hp, def, speed (tiles/s), aggro (tiles), leash (tiles), xp, pack:[min,max],
+ *   {id, name, hp, def, atk, speed (tiles/s), aggro (tiles), leash (tiles), xp, pack:[min,max],
  *    attacks:[{kind:'melee'|'ranged'|'charge'|'slam', dmg, range (tiles), windupMs, cooldownMs, ...}]}
  *
- * - def is NEW (GD's hit formula needs target.def).
- * - xp = 4 x hp: the stat XP a full kill pays under GD's per-damage rule
- *   (plus 1.33 x hp to Hitpoints). Informational; GD awards per damage.
+ * - def (required): GD's player hit formula reads target.def.
+ * - atk (required): core reads mob.atk for the mirrored mob hit chance
+ *   clamp(0.75 + 0.015*(atk - player Defence - gear.def), 0.40, 0.97).
+ *   A dodge cancels the hit outright; armour still reduces a landed hit.
+ * - xp = 1 x hp: the style-stat XP a full kill pays under GD's per-damage rule
+ *   (plus 0.33 x hp to Hitpoints). Informational; GD awards per damage.
  * - Every windupMs >= 400; boss attacks >= 600. 'charge' draws telegraphLine
  *   (length = range), 'slam' draws telegraph (ring radius = radius, or range).
  * - cooldownMs is per attack, counted from the hit; balance-sim also rests a
@@ -26,17 +29,29 @@
   C.MIN_WINDUP_MS = 400;
   C.MIN_BOSS_WINDUP_MS = 600;
 
+  /**
+   * Approved combat rules this data is tuned against (core owns the real
+   * implementation; the sims in dev/content mirror these and tests pin them).
+   */
+  C.COMBAT_RULES = {
+    xpPerDamage: 1,            // to the style stat behind the hit
+    hpXpPerDamage: 0.33,       // to Hitpoints
+    regenHpPerS: 2,            // out-of-combat regen...
+    regenDelayMs: 4000,        // ...once this long has passed without taking damage
+    mobHit: { base: 0.75, perPoint: 0.015, min: 0.40, max: 0.97 },   // atk - Defence - gear.def
+  };
+
   var M = {
     rat: {
       id: 'rat', name: 'Plague Rat', zone: 'goblin_field', sprite: 'mob_rat',
-      hp: 10, def: 0, speed: 2.4, aggro: 3, leash: 7, pack: [2, 3],
+      hp: 10, def: 0, atk: 1, speed: 2.4, aggro: 3, leash: 7, pack: [2, 3],
       attacks: [
         { kind: 'melee', dmg: 1, range: 1, windupMs: 400, cooldownMs: 1400 },
       ],
     },
     goblin: {
       id: 'goblin', name: 'Ditch Goblin', zone: 'goblin_field', sprite: 'mob_goblin',
-      hp: 22, def: 3, speed: 2.0, aggro: 4, leash: 8, pack: [2, 3],
+      hp: 22, def: 3, atk: 8, speed: 2.0, aggro: 4, leash: 8, pack: [2, 3],
       attacks: [
         { kind: 'melee', dmg: 2, range: 1, windupMs: 500, cooldownMs: 2300 },
         { kind: 'ranged', dmg: 2, range: 4, windupMs: 700, cooldownMs: 7000, minRange: 2, projectile: 'rock' },
@@ -44,14 +59,14 @@
     },
     skeleton: {
       id: 'skeleton', name: 'Rattlebone Skeleton', zone: 'ash_stair', sprite: 'mob_skeleton',
-      hp: 100, def: 10, speed: 1.6, aggro: 5, leash: 9, pack: [2, 3],
+      hp: 100, def: 10, atk: 14, speed: 1.6, aggro: 5, leash: 9, pack: [2, 3],
       attacks: [
         { kind: 'melee', dmg: 2, range: 1, windupMs: 550, cooldownMs: 2600 },
       ],
     },
     imp: {
       id: 'imp', name: 'Cinder Imp', zone: 'ash_stair', sprite: 'mob_imp',
-      hp: 65, def: 8, speed: 2.4, aggro: 6, leash: 10, pack: [2, 3],
+      hp: 65, def: 8, atk: 18, speed: 2.4, aggro: 6, leash: 10, pack: [2, 3],
       attacks: [
         // ranged only: imps hold ~4-5 tiles and hop back when you close in (kite AI)
         { kind: 'ranged', dmg: 3, range: 5, windupMs: 600, cooldownMs: 2600, projectile: 'ember' },
@@ -59,7 +74,7 @@
     },
     brute: {
       id: 'brute', name: 'Grave Brute', zone: 'ash_stair_brute', sprite: 'mob_brute', elite: true,
-      hp: 300, def: 14, speed: 1.4, aggro: 6, leash: 12, pack: [1, 1],
+      hp: 300, def: 14, atk: 24, speed: 1.4, aggro: 6, leash: 12, pack: [1, 1],
       attacks: [
         { kind: 'slam', dmg: 22, range: 1.5, radius: 1.5, windupMs: 800, cooldownMs: 7000, telegraph: 'ring' },
         { kind: 'charge', dmg: 18, range: 5, windupMs: 700, cooldownMs: 9000, telegraph: 'line' },
@@ -68,7 +83,7 @@
     },
     ashmaw: {
       id: 'ashmaw', name: 'Ashmaw the Wyrmling', zone: 'ash_stair_boss', sprite: 'mob_ashmaw', boss: true,
-      hp: 960, def: 8, speed: 1.6, aggro: 8, leash: 99, pack: [1, 1],
+      hp: 960, def: 8, atk: 30, speed: 1.6, aggro: 8, leash: 99, pack: [1, 1],
       attacks: [
         { kind: 'slam', dmg: 24, range: 2.5, radius: 2.5, windupMs: 1000, cooldownMs: 8000, telegraph: 'ring', name: 'Cinder Ring' },
         { kind: 'charge', dmg: 20, range: 7, windupMs: 900, cooldownMs: 11000, telegraph: 'line', name: 'Ash Rush' },
@@ -77,7 +92,7 @@
       enrage: { belowHpPct: 30, cooldownMult: 0.75 },
     },
   };
-  Object.keys(M).forEach(function (k) { M[k].xp = M[k].hp * 4; });
+  Object.keys(M).forEach(function (k) { M[k].xp = Math.round(M[k].hp * C.COMBAT_RULES.xpPerDamage); });
 
   C.MONSTERS = M;
   C.MONSTER_IDS = Object.keys(M);

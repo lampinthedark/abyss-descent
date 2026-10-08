@@ -6,7 +6,7 @@
  *   node:    const RPGContent = require('./js/rpg/content/index.js');
  *
  * Shapes are GD's (docs/rpg-content.md):
- *   monster    {id, hp, def, speed, aggro, leash, xp, pack:[min,max], attacks:[{kind, dmg, range, windupMs, cooldownMs}]}
+ *   monster    {id, hp, def, atk, speed, aggro, leash, xp, pack:[min,max], attacks:[{kind, dmg, range, windupMs, cooldownMs}]}
  *   quest step {text, arrowTo, done:{type, target, count}}
  */
 (function (root, factory) {

@@ -2,7 +2,7 @@
 /**
  * Content tests (node, no deps).  npm run test:content
  *
- * - monster shape (GD's), def present, windups >= 400 ms (boss >= 600), boss has
+ * - monster shape (GD's), def + atk present (atk required: core reads mob.atk), windups >= 400 ms (boss >= 600), boss has
  *   a warned ring slam + charge, charge/slam telegraph kinds
  * - every quest step target exists (npc / node / item / recipe / monster / zone)
  *   and every arrowTo resolves; Q1 starts "Mine Rustbound ore" -> node_ore_rustbound
@@ -11,9 +11,14 @@
  * - every dungeon key (tiles, edges, props) exists in a sheet (live sheets, else snapshot)
  * - BFS: entry -> boss room -> exit, every exit reachable; spawns on walkable tiles;
  *   walk entry -> boss < 60 s; room count (3-4 pack rooms + elite + boss)
+ * - approved rule changes: mirrored mob hit chance (atk), out-of-combat regen
+ *   (2 HP/s after 4 s), combat XP 1/dmg + 0.33/dmg to Hitpoints
  * - balance targets (GD formula): rat 2-3 hits, goblin 4-6 hits at Rustbound,
- *   ~25% HP per goblin pack, brute needs dodging, ashmaw 60-90 s and lethal without dodging
- * - Q1 estimate < 10 min; dungeon first clear 15-20 min at Cinderiron
+ *   20-35% HP per goblin pack, brute needs dodging, ashmaw ~90 s Cinderiron / ~60 s Verdite
+ *   and lethal without dodging; mob danger ordering
+ * - Q1 estimate < 10 min, Q1+Q2 < 10 min with new-player slack; dungeon first clear
+ *   ~15 min at Cinderiron with a handful of stews; Attack 15-20 after the first clear
+ *   and Attack 40 multi-hour
  * - icon keys in docs/rpg-item-icons.json exist in the drawn rpg32 set
  * - banned names over every new content file and every display string
  */
@@ -50,12 +55,13 @@ const Db = R.ItemsDb, CR = R.Modules.crafting;
 
 // ---------------------------------------------------------------- monsters
 console.log('# monsters');
-test('GD shape + def on every monster', () => {
+test('GD shape + def + atk on every monster', () => {
   const KINDS = ['melee', 'ranged', 'charge', 'slam'];
   for (const id of C.MONSTER_IDS) {
     const m = C.MONSTERS[id];
     eq(m.id, id);
-    for (const k of ['hp', 'def', 'speed', 'aggro', 'leash', 'xp']) ok(typeof m[k] === 'number' && m[k] >= 0, id + '.' + k);
+    for (const k of ['hp', 'def', 'atk', 'speed', 'aggro', 'leash', 'xp']) ok(typeof m[k] === 'number' && m[k] >= 0, id + '.' + k);
+    ok(Number.isInteger(m.atk) && Number.isInteger(m.def), id + ' atk/def integers');
     ok(Array.isArray(m.pack) && m.pack.length === 2 && m.pack[0] >= 1 && m.pack[1] >= m.pack[0], id + '.pack');
     ok(m.attacks.length >= 1, id + ' attacks');
     for (const a of m.attacks) {
@@ -81,7 +87,20 @@ test('ids rat goblin skeleton imp brute ashmaw; ashmaw has a ring slam and a cha
 test('every content monster has an RPGItems drop table (Loot ids match)', () => {
   for (const id of C.MONSTER_IDS) { ok(R.Loot.MONSTERS[id], id); eq(C.MONSTERS[id].name, R.Loot.MONSTERS[id].name, id + ' display name'); }
 });
-test('xp = 4 x hp (GD per-damage rate)', () => { for (const id of C.MONSTER_IDS) eq(C.MONSTERS[id].xp, C.MONSTERS[id].hp * 4); });
+test('xp = 1 x hp (approved per-damage style rate)', () => { for (const id of C.MONSTER_IDS) eq(C.MONSTERS[id].xp, C.MONSTERS[id].hp * 1); });
+test('atk field: required on every monster, danger rises rat < goblin < skeleton < imp <= brute <= ashmaw', () => {
+  const cin = require('./loadouts.js').byId('cinderiron');
+  const h = id => M.mobHitChance(C.MONSTERS[id].atk, cin.defence, cin.gear.def);
+  ok(h('rat') < h('goblin') && h('goblin') < h('skeleton') && h('skeleton') < h('imp') && h('imp') <= h('brute') && h('brute') <= h('ashmaw'),
+    C.MONSTER_IDS.map(id => id + ' ' + h(id).toFixed(2)).join(', '));
+  ok(C.MONSTERS.ashmaw.atk > C.MONSTERS.brute.atk && C.MONSTERS.brute.atk > C.MONSTERS.skeleton.atk);
+});
+test('COMBAT_RULES in content match the sim (regen, XP rate, mob hit)', () => {
+  const R0 = C.COMBAT_RULES;
+  eq(R0.xpPerDamage, M.XP_RATE.style); eq(R0.hpXpPerDamage, M.XP_RATE.hitpoints);
+  eq(R0.regenHpPerS, M.REGEN.hpPerS); eq(R0.regenDelayMs, M.REGEN.delayS * 1000);
+  deq(R0.mobHit, { base: 0.75, perPoint: 0.015, min: 0.40, max: 0.97 });
+});
 
 // ---------------------------------------------------------------- quests
 console.log('# quests');
@@ -268,6 +287,10 @@ test('town gate zone + field spawns sit on GD town walkable ground (snapshot of 
 console.log('# balance (GD formula)');
 const B = require('./balance-sim.js');
 const N = QUICK ? 120 : 250;
+const L = require('./loadouts.js');
+// a target that never attacks: a lone mob only uses a minRange ranged attack while others hold melee
+const DUMMY = { id: 'dummy', hp: 1e6, def: 0, atk: 0, pack: [1, 1], attacks: [{ kind: 'ranged', dmg: 1, range: 4, minRange: 2, windupMs: 400, cooldownMs: 1000 }] };
+const P_RUST = { attack: 3, strength: 3, defence: 3, hitpoints: 10, gear: L.byId('rustbound').gear };
 test('formula pieces match GD exactly', () => {
   eq(M.hitChance(1, 4, 0), 0.75 + 0.015 * 5);
   eq(M.hitChance(99, 99, 0), 0.97); eq(M.hitChance(1, 0, 99), 0.40);
@@ -278,15 +301,65 @@ test('formula pieces match GD exactly', () => {
   deq(M.WEEK1_SKILLS, ['cleave', 'bolt'], 'Ground Slam cut to week 2');
   eq(M.XP_TABLE[40], 37224);
 });
+test('mob hit formula: clamp(0.75 + 0.015*(atk - Defence - gear.def), 0.40, 0.97)', () => {
+  eq(M.mobHitChance(10, 10, 0), 0.75);
+  ok(Math.abs(M.mobHitChance(8, 3, 0) - (0.75 + 0.015 * 5)) < 1e-12);
+  ok(Math.abs(M.mobHitChance(20, 5, 5) - (0.75 + 0.015 * 10)) < 1e-12, 'gear.def subtracts');
+  eq(M.mobHitChance(99, 1, 0), 0.97); eq(M.mobHitChance(0, 99, 0), 0.40);
+});
+test('mob hit roll in the sim lands at the formula rate; dodged hits never land', () => {
+  const g = C.MONSTERS.goblin;
+  const r = M.simulate(P_RUST, [g, g, g], { policy: 'never' }, 300, 5);
+  const want = M.mobHitChance(g.atk, 3, 0);
+  ok(Math.abs(r.mobHitRate - want) < 0.03, r.mobHitRate.toFixed(3) + ' vs ' + want);
+  // a perfect dodger against a single slam: roll covers the hit, nothing lands even at 97%
+  const slam = { id: 'slammer', hp: 1e6, def: 0, atk: 99, pack: [1, 1], attacks: [{ kind: 'slam', dmg: 30, range: 1.5, radius: 1.5, windupMs: 800, cooldownMs: 1e6, telegraph: 'ring' }] };
+  for (let i = 0; i < 20; i++) { const f = M.fight(P_RUST, [slam], { policy: 'telegraphs', maxS: 6, rng: M.rng32(100 + i) }); eq(f.dmgTaken, 0, 'dodged slam landed'); }
+  // armour still reduces a landed hit
+  const f2 = M.fight(P_RUST, [slam], { policy: 'never', maxS: 6, rng: M.rng32(3) });
+  ok(f2.dmgTaken === 0 || Math.abs(f2.dmgTaken - M.taken(30, P_RUST.gear.armour)) < 1e-9, 'landed slam = dmg*50/(50+armour): ' + f2.dmgTaken);
+});
+test('regen: 2 HP/s once 4 s pass without taking damage (in and out of a fight)', () => {
+  eq(M.REGEN.hpPerS, 2); eq(M.REGEN.delayS, 4);
+  eq(M.regenAfter(10, 40, 0, 4), 10, 'nothing inside the 4 s delay');
+  eq(M.regenAfter(10, 40, 0, 6), 14);
+  eq(M.regenAfter(10, 40, 10, 5), 20, 'delay already served');
+  eq(M.regenAfter(35, 40, 10, 30), 40, 'capped at max HP');
+  const fresh = M.fight(P_RUST, [DUMMY], { skills: false, startHp: 20, sinceHit: 99, maxS: 5, rng: M.rng32(1) });
+  ok(Math.abs(fresh.hpLeft - 30) < 0.1, 'fresh: ' + fresh.hpLeft);
+  const justHit = M.fight(P_RUST, [DUMMY], { skills: false, startHp: 20, sinceHit: 0, maxS: 5, rng: M.rng32(1) });
+  ok(Math.abs(justHit.hpLeft - 22) < 0.1, 'just hit: ' + justHit.hpLeft);
+  const off = M.fight(P_RUST, [DUMMY], { skills: false, startHp: 20, sinceHit: 99, maxS: 5, regen: false, rng: M.rng32(1) });
+  eq(off.hpLeft, 20);
+});
+test('combat XP: 1 per damage to the style stat + 0.33 per damage to Hitpoints', () => {
+  deq(M.XP_RATE, { style: 1, hitpoints: 0.33 });
+  const x = M.combatXp(100);
+  eq(x.style, 100); ok(Math.abs(x.hitpoints - 33) < 1e-9);
+  // one goblin kill pays 22 style XP; Attack 2 (83 XP) takes ~4 goblins all on Attack
+  eq(M.combatXp(C.MONSTERS.goblin.hp).style, 22);
+  eq(M.levelFor(4 * 22), 2);
+});
+test('XP pace: Attack 15-20 after the first clear (typical), Attack 40 is multi-hour (>= 2.5 h of clears)', () => {
+  const e = B.dungeonEstimate('cinderiron', QUICK ? 40 : 80, 'good');
+  const rep = B.dungeonEstimate('verdite', QUICK ? 40 : 80, 'good', { repeat: true });
+  const xp = B.xpModel(e.xpDamage, { first: e.totalS, repeat: rep.totalS });
+  const T = xp.styles.typical, end = T.stages[T.stages.length - 1];
+  ok(end.attack >= 15 && end.attack <= 20, 'typical Attack after first clear ' + end.attack);
+  ok(T.stages[2].attack >= 5 && T.stages[2].defence >= 5, 'grind reaches Cinderiron reqs');
+  ok(T.toA40.hours.repeat >= 2.5, 'typical hours to Attack 40 ' + T.toA40.hours.repeat.toFixed(2));
+  ok(xp.styles.even.toA40.hours.repeat > T.toA40.hours.repeat);
+});
 test('Rustbound player: rat in 2-3 hits, goblin in 4-6 hits', () => {
   const rat = B.row('rat', 'starter', N), gob = B.row('goblin', 'rustbound', N), gob0 = B.row('goblin', 'starter', N);
   ok(rat.hits >= 2 && rat.hits <= 3 && rat.hitsP10 >= 2 && rat.hitsP90 <= 3, 'rat ' + rat.hits);
   ok(gob.hits >= 4 && gob.hits <= 6 && gob.hitsP10 >= 4 && gob.hitsP90 <= 6, 'goblin ' + gob.hits);
   ok(gob0.hits >= 4 && gob0.hits <= 6, 'goblin (sword only) ' + gob0.hits);
 });
-test('goblin pack costs ~25% HP to a never-dodging Rustbound player (18-35%)', () => {
-  const r = B.row('goblin', 'rustbound', N);
-  ok(r.never.pctHp >= 18 && r.never.pctHp <= 35, r.never.pctHp);
+test('goblin pack costs 20-35% HP to a never-dodging Rustbound player (sword-only Q2 player <= 37%)', () => {
+  const r = B.row('goblin', 'rustbound', N), r0 = B.row('goblin', 'starter', N);
+  ok(r.never.pctHp >= 20 && r.never.pctHp <= 35, r.never.pctHp);
+  ok(r0.never.pctHp >= 20 && r0.never.pctHp <= 37, 'starter ' + r0.never.pctHp);
   eq(r.never.dieNoFood < 0.02, true);
 });
 test('brute needs dodging at Cinderiron (never-dodger dies without food; dodger survives)', () => {
@@ -294,21 +367,40 @@ test('brute needs dodging at Cinderiron (never-dodger dies without food; dodger 
   ok(r.never.dieNoFood >= 0.9, 'never ' + r.never.dieNoFood);
   ok(r.good.dieFood <= 0.05 && r.good.pctHp < 90, 'good ' + r.good.pctHp);
 });
-test('ashmaw: 60-90 s at Cinderiron / Verdite (+-10%), lethal to a never-dodger even with 6 stews', () => {
+test('ashmaw: ~90 s at Cinderiron, ~60 s at Verdite (+-10%), lethal to a never-dodger even with 6 stews', () => {
   const c = B.row('ashmaw', 'cinderiron', N), v = B.row('ashmaw', 'verdite', N);
-  ok(c.packTtk >= 54 && c.packTtk <= 99, 'cinderiron ' + c.packTtk);
-  ok(v.packTtk >= 54 && v.packTtk <= 99, 'verdite ' + v.packTtk);
+  ok(c.packTtk >= 81 && c.packTtk <= 99, 'cinderiron ' + c.packTtk);
+  ok(v.packTtk >= 54 && v.packTtk <= 66, 'verdite ' + v.packTtk);
   ok(c.never.dieFood >= 0.95 && v.never.dieFood >= 0.95, 'never-dodger survives: ' + c.never.dieFood + ' ' + v.never.dieFood);
   ok(v.good.dieFood <= 0.05, 'verdite dodger ' + v.good.dieFood);
 });
-test('dungeon first clear ~15-20 min at Cinderiron (good dodger 13.5-21)', () => {
-  const e = B.dungeonEstimate('cinderiron', QUICK ? 80 : 150, 'good');
-  ok(e.totalS / 60 >= 13.5 && e.totalS / 60 <= 21, (e.totalS / 60).toFixed(1));
+test('dungeon first clear ~15 min at Cinderiron (good dodger 13.5-18), a handful of stews with regen', () => {
+  const e = B.dungeonEstimate('cinderiron', QUICK ? 60 : 120, 'good');
+  ok(e.totalS / 60 >= 13.5 && e.totalS / 60 <= 18, (e.totalS / 60).toFixed(1));
+  ok(e.foodStews <= 5, 'stews ' + e.foodStews.toFixed(2));
+  ok(e.regenHp > 0 && e.expDeaths < 0.1, 'regen ' + e.regenHp + ' deaths ' + e.expDeaths);
+  const t = B.dungeonEstimate('cinderiron', QUICK ? 60 : 120, 'telegraphs');
+  ok(t.foodStews <= 8 && t.totalS / 60 <= 20, 'telegraph-only roller: ' + t.foodStews.toFixed(1) + ' stews, ' + (t.totalS / 60).toFixed(1) + ' min');
 });
 test('Q1 estimate < 10 min (gate 2)', () => {
   const Q = require('./quest-times.js').estimates();
   ok(Q[0].totalS < 600, Q[0].totalS);
   ok(Q[0].totalS * 2.5 < 600, 'even at 2.5x new-player slack');
+});
+test('first-Rare pity still fires on the goblin field: Q2 + the Cinderiron field grind pass the guarantee on near-town mobs', () => {
+  const FR = R.Loot.FIRST_RARE;
+  ok(R.Loot.MONSTERS.goblin.nearTown && R.Loot.MONSTERS.rat.nearTown);
+  const q2Kills = 5 + 2.5;                                     // Q2 (as in balance-sim q2Damage): ~5 goblins (2 packs) + one rat pack
+  const grind = B.grindDamage(B.STYLES.typical) / C.MONSTERS.goblin.hp;
+  ok(q2Kills + grind >= FR.GUARANTEE, 'field kills before the dungeon ' + (q2Kills + grind).toFixed(0));
+  for (const s of C.FIELD_SPAWNS) ok(R.Loot.MONSTERS[s.monsterId].nearTown, s.monsterId);
+});
+test('Q1 ~2-3 min and Q1+Q2 ~7 min (< 10) with new-player slack; Q1 text unchanged', () => {
+  const QT = require('./quest-times.js'), Q = QT.estimates(), k = QT.NEW_PLAYER_SLACK;
+  const q1 = Q[0].totalS * k / 60, both = (Q[0].totalS + Q[1].totalS) * k / 60;
+  ok(q1 >= 2 && q1 <= 3, 'Q1 ' + q1.toFixed(2));
+  ok(both >= 5.5 && both < 10, 'Q1+Q2 ' + both.toFixed(2));
+  eq(C.quest('q1_blade').steps[0].text, 'Mine Rustbound ore');
 });
 
 // ---------------------------------------------------------------- icons
