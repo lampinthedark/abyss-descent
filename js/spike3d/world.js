@@ -11,9 +11,9 @@ const STEP = 64 / CELLS;
 const VERTE = CELLS + 1;
 
 function rawHeight(x, z) {
-  let h = Math.sin(x * 0.15) * Math.cos(z * 0.13) * 0.32;
-  h += Math.sin((x + z * 0.6) * 0.41) * 0.1;
-  if (x > 9 && x < 24 && z > -7 && z < 7) return 0.06;
+  if (slab(x, z)) return 0.03;
+  let h = Math.sin(x * 0.15) * Math.cos(z * 0.13) * 0.28;
+  h += Math.sin((x + z * 0.6) * 0.41) * 0.08;
   return h;
 }
 
@@ -24,8 +24,12 @@ for (let iz = 0; iz < VERTE; iz++) {
   }
 }
 
+export function pathX(z) {
+  return Math.sin(z * 0.42) * 1.7;
+}
+
 export function groundKind(x, z) {
-  if (dungeon(x, z)) return 'dungeon';
+  if (slab(x, z)) return 'stone';
   if (sand(x, z)) return 'sand';
   return 'grass';
 }
@@ -52,16 +56,20 @@ export function heightAt(x, z) {
 }
 
 function sand(x, z) {
-  const pz = Math.sin(x * 0.16) * 5;
-  return Math.abs(z - pz) < 1.85;
+  return Math.abs(x - pathX(z)) < 1.2;
 }
 
-function dungeon(x, z) {
-  return x > 9 && x < 24 && z > -7 && z < 7;
+function slab(x, z) {
+  return (x > 3.4 && x < 7.6 && z > -2.2 && z < 5.8) || (x > -6.4 && x < -3.2 && z > 1.6 && z < 7.2);
 }
 
 function grassColor(ix, iz) {
-  return ((ix * 3 + iz * 5) & 3) === 0 ? [0.235, 0.275, 0.141] : [0.290, 0.329, 0.173];
+  const g = (ix * 5 + iz * 3) & 7;
+  if (g === 0) return [0.20, 0.28, 0.12];
+  if (g === 1) return [0.27, 0.35, 0.16];
+  if (g === 2) return [0.23, 0.31, 0.13];
+  if (g === 3) return [0.30, 0.37, 0.17];
+  return [0.24, 0.33, 0.14];
 }
 
 function sandColor(ix, iz) {
@@ -116,7 +124,7 @@ export function buildWorld() {
       const mx = (x0 + x1) * 0.5;
       const mz = (z0 + z1) * 0.5;
       let rgb;
-      if (dungeon(mx, mz)) rgb = ((ix + iz) & 1) === 0 ? [0.486, 0.525, 0.561] : [0.400, 0.439, 0.471];
+      if (slab(mx, mz)) rgb = ((ix + iz) & 1) === 0 ? [0.56, 0.55, 0.51] : [0.45, 0.44, 0.41];
       else if (sand(mx, mz)) rgb = sandColor(ix, iz);
       else rgb = grassColor(ix, iz);
       const y00 = heights[iz * VERTE + ix];
@@ -128,15 +136,10 @@ export function buildWorld() {
     }
   }
 
-  const wallH = 1.15;
+  const wallH = 0.22;
   const segs = [
-    [9.4, 0.6, -7, 0.35, wallH, 0.35],
-    [9.4, 0.6, -4.2, 0.35, wallH, 2.2],
-    [9.4, 0.6, 4.2, 0.35, wallH, 2.2],
-    [9.4, 0.6, 7, 0.35, wallH, 0.35],
-    [24, 0.6, 0, 0.35, wallH, 7.2],
-    [16.5, 0.6, -7, 7, wallH, 0.35],
-    [16.5, 0.6, 7, 7, wallH, 0.35],
+    [5.4, wallH, 0.8, 1.45, wallH, 0.28],
+    [-4.8, wallH, 4.5, 0.28, wallH, 1.35],
   ];
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];

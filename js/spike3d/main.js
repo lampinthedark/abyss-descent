@@ -1,5 +1,4 @@
 import {
-  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -12,7 +11,7 @@ import {
   NearestFilter,
   NoToneMapping,
   NormalBlending,
-  PerspectiveCamera,
+  OrthographicCamera,
   PlaneGeometry,
   Scene,
   ShaderMaterial,
@@ -21,13 +20,13 @@ import {
 } from 'three';
 import { TIERS, hexUnit } from './palette.js';
 import { loadAtlas } from './art.js';
-import { buildWorld, groundKind, heightAt, OBSTACLES } from './world.js';
+import { buildWorld, groundKind, heightAt, OBSTACLES, pathX } from './world.js';
 import { ANIM, createSim } from './sim.js';
+import { beamHeightCss, beamSpec, beamStrips, plateShadow } from './loot-beams.js';
 
-const PITCH = 32 * Math.PI / 180;
-const YAW = 0.62;
-const FOV = 40;
-const DIST = 15;
+const PITCH = 66 * Math.PI / 180;
+const YAW = 0;
+const CAM_DIST = 40;
 const CELL_W = 48;
 const CELL_H = 64;
 const FOOT_X = 24;
@@ -50,8 +49,10 @@ const dprCap = params.get('dpr');
 const dpr = Math.max(0.5, Math.min(dprCap ? Number(dprCap) : (window.devicePixelRatio || 1), 3));
 const bossOn = params.get('boss') !== '0';
 const focusBoss = params.get('focus') === 'boss';
+const arrowTest = params.get('arrow') === '1';
 const lootPair = params.get('loot') === '1';
 const lineup = params.get('tiers') === '1';
+const mock = params.get('mock') === '1';
 const BOSS_SCALE = 2.2;
 const ringOn = params.get('ring') !== '0';
 const glance = params.get('glance') === '1';
@@ -114,37 +115,6 @@ void main() {
 }
 `;
 
-const BILL_VERT = `
-attribute vec3 iPos;
-attribute vec2 iSize;
-uniform vec3 uRight;
-uniform vec3 uUp;
-varying vec2 vUv;
-void main() {
-  float ox = (uv.x - 0.5) * iSize.x;
-  float oy = uv.y * iSize.y;
-  vec3 world = iPos + uRight * ox + uUp * oy;
-  vUv = uv;
-  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
-}
-`;
-
-const RAIN_FRAG = `
-precision highp float;
-varying vec2 vUv;
-uniform float uTime;
-vec3 hue(float h) {
-  vec3 p = abs(fract(vec3(h) + vec3(1.0, 0.6666667, 0.3333333)) * 6.0 - 3.0);
-  return clamp(p - 1.0, 0.0, 1.0);
-}
-void main() {
-  float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-  if (edge > 0.18) discard;
-  float h = fract(uTime * 0.33 + vUv.x * 0.15 + vUv.y * 0.05);
-  gl_FragColor = vec4(hue(h), 1.0);
-}
-`;
-
 const view = document.getElementById('view');
 const benchEl = document.getElementById('bench');
 const tierEl = document.getElementById('tier');
@@ -186,6 +156,7 @@ window.__spike = api;
 
 if (bare) document.body.classList.add('bare');
 if (bigBench) document.body.classList.add('bench');
+if (mock) document.body.classList.add('mock');
 
 function clampInt(value, fallback, min, max) {
   const n = Number(value);
@@ -200,6 +171,7 @@ function fail(msg) {
 }
 
 function say(text, now) {
+  if (mock) return;
   chatEls[0].textContent = chatEls[1].textContent;
   chatEls[1].textContent = text;
   chatUntil[0] = chatUntil[1];
@@ -230,7 +202,10 @@ function boot() {
   const gl = renderer.getContext();
   api.renderer = gl.getParameter(gl.RENDERER) || '';
 
-  const camera = new PerspectiveCamera(FOV, 1, 0.05, 80);
+  const camera = new OrthographicCamera(-5, 5, 5, -5, 0.05, 140);
+  let frustumW = 10;
+  let frustumH = 10;
+  let lookShift = 0;
   const right = new Vector3(1, 0, 0);
   const up = new Vector3(0, 1, 0);
   const tmp = new Vector3();
@@ -243,8 +218,8 @@ function boot() {
   sim.hero.tier = 1;
   sim.hero.weapon = 0;
   sim.hero.shield = 1;
-  if (glance || stand) sim.setFrozen(true);
-  if (stand) sim.setHold(true);
+  if (glance || stand || mock) sim.setFrozen(true);
+  if (stand || mock) sim.setHold(true);
 
   const ringTex = ringTexture();
   const ring = new Mesh(new PlaneGeometry(1, 1), ringMaterial(ringTex));
@@ -258,7 +233,6 @@ function boot() {
   let animOffset;
   let perDir;
   let table;
-  let lootRects;
   let drops;
 
   const stats = {
@@ -290,13 +264,18 @@ function boot() {
     viewH = window.innerHeight;
     renderer.setPixelRatio(dpr);
     renderer.setSize(viewW, viewH, false);
-    camera.aspect = viewW / Math.max(1, viewH);
+    frustumW = 10 * (viewW / 390);
+    frustumH = frustumW * (viewH / Math.max(1, viewW));
+    camera.left = -frustumW / 2;
+    camera.right = frustumW / 2;
+    camera.top = frustumH / 2;
+    camera.bottom = -frustumH / 2;
     camera.updateProjectionMatrix();
+    if (mock) placeMockJoy();
   }
 
   function spriteHeight() {
-    const visible = 2 * DIST * Math.tan((FOV * Math.PI / 180) / 2);
-    return (heroPx / Math.max(1, viewH)) * visible / Math.cos(PITCH);
+    return (heroPx / Math.max(1, viewH)) * frustumH / Math.cos(PITCH);
   }
 
   function makeMat(texture, cut, depthTest, depthWrite, blending) {
@@ -393,52 +372,6 @@ function boot() {
     };
   }
 
-  function makeSizeBatch(max, material) {
-    const geo = new InstancedBufferGeometry();
-    geo.setAttribute('position', new BufferAttribute(new Float32Array([
-      0, 0, 0, 1, 0, 0, 1, 1, 0,
-      0, 0, 0, 1, 1, 0, 0, 1, 0,
-    ]), 3));
-    geo.setAttribute('uv', new BufferAttribute(new Float32Array([
-      0, 0, 1, 0, 1, 1,
-      0, 0, 1, 1, 0, 1,
-    ]), 2));
-    const pos = new Float32Array(max * 3);
-    const size = new Float32Array(max * 2);
-    const aPos = new InstancedBufferAttribute(pos, 3);
-    const aSize = new InstancedBufferAttribute(size, 2);
-    aPos.setUsage(DynamicDrawUsage);
-    aSize.setUsage(DynamicDrawUsage);
-    geo.setAttribute('iPos', aPos);
-    geo.setAttribute('iSize', aSize);
-    geo.instanceCount = 0;
-    const mesh = new Mesh(geo, material);
-    mesh.frustumCulled = false;
-    mesh.matrixAutoUpdate = false;
-    mesh.visible = false;
-    let n = 0;
-    return {
-      mesh,
-      begin() { n = 0; },
-      push(x, y, z, w, h) {
-        if (n >= max) return;
-        const i3 = n * 3;
-        pos[i3] = x;
-        pos[i3 + 1] = y;
-        pos[i3 + 2] = z;
-        size[n * 2] = w;
-        size[n * 2 + 1] = h;
-        n += 1;
-      },
-      end() {
-        geo.instanceCount = n;
-        mesh.visible = n > 0;
-        aPos.needsUpdate = true;
-        aSize.needsUpdate = true;
-      },
-    };
-  }
-
   function pushFrame(batch, sheet, dir, anim, frame, x, y, z, tint, scale, alpha, desat, shine) {
     const frames = ANIM_FRAMES[anim];
     let f = frame;
@@ -478,17 +411,16 @@ function boot() {
     if (glance || stand === 'grass') {
       h.x = GRASS.x;
       h.z = GRASS.z;
-    } else if (stand === 'path') {
-      h.x = 0;
-      h.z = 0;
     } else {
       h.orbit = 0;
-      h.x = heroWorld * 3.2;
       h.z = 0;
+      h.x = pathX(h.z);
     }
-    const cols = glance ? 11 : 9;
+    const spanX = Math.max(4, frustumW * 0.92);
+    const spanZ = Math.max(6, (frustumH / Math.sin(PITCH)) * 0.86);
+    const cols = glance ? 11 : Math.max(6, Math.round(Math.sqrt(count * (spanX / spanZ))));
+    const rows = Math.ceil(count / Math.max(1, cols));
     const gap = heroWorld * (glance ? 0.48 : 0.78);
-    const rows = Math.ceil(count / cols);
     for (let i = 0; i < count; i++) {
       let px;
       let pz;
@@ -499,18 +431,29 @@ function boot() {
         px = h.x + RIGHT_X * Math.cos(ang) * rad + FWD_X * Math.sin(ang) * rad * 0.35;
         pz = h.z + RIGHT_Z * Math.cos(ang) * rad + FWD_Z * Math.sin(ang) * rad * 0.35;
         if (i === 0) kind = 3;
-      } else {
+      } else if (glance) {
         const c = i % cols;
         const r = (i / cols) | 0;
         const side = (c - (cols - 1) / 2) * gap;
-        const along = ((rows - 1) / 2 - r) * gap * (glance ? 0.92 : 0.86);
+        const along = ((rows - 1) / 2 - r) * gap * 0.92;
         px = h.x + FWD_X * along + RIGHT_X * side;
         pz = h.z + FWD_Z * along + RIGHT_Z * side;
+      } else {
+        const c = i % cols;
+        const r = (i / cols) | 0;
+        const u = cols <= 1 ? 0.5 : c / (cols - 1);
+        const v = rows <= 1 ? 0.5 : r / (rows - 1);
+        px = h.x + (u - 0.5) * spanX;
+        pz = h.z + (v - 0.42) * spanZ;
+        if (Math.hypot(px - h.x, pz - h.z) < heroWorld * 0.9) px += spanX * 0.12;
       }
       const isBoss = bossOn && i === count - 1;
-      if (isBoss && focusBoss) {
-        px = h.x + FWD_X * heroWorld * 1.7;
-        pz = h.z + FWD_Z * heroWorld * 1.7;
+      if (isBoss && arrowTest) {
+        px = h.x + 28;
+        pz = h.z - 28;
+      } else if (isBoss && (focusBoss || mock)) {
+        px = h.x + RIGHT_X * heroWorld * 1.15 + FWD_X * heroWorld * 1.55;
+        pz = h.z + RIGHT_Z * heroWorld * 1.15 + FWD_Z * heroWorld * 1.55;
       }
       sim.place(i, px, pz, isBoss ? 2 : kind, isBoss);
     }
@@ -526,26 +469,18 @@ function boot() {
 
   function placeDrops() {
     const h = sim.hero;
-    const spots = [
-      [-1.15, 0.35], [-1.15, 1.15], [-1.15, 1.95],
-      [-2.05, 0.35], [-2.05, 1.15], [-2.05, 1.95],
-      [-2.95, 0.55], [-2.95, 1.35], [-2.95, 2.15],
-    ];
+    const hide = glance && !lootPair && !mock;
+    const row = lootPair || mock;
     for (let i = 0; i < drops.length; i++) {
-      const s = spots[i];
-      drops[i].x = h.x + RIGHT_X * s[0] * heroWorld + FWD_X * s[1] * heroWorld;
-      drops[i].z = h.z + RIGHT_Z * s[0] * heroWorld + FWD_Z * s[1] * heroWorld;
-    }
-    if (lootPair && drops.length > 6) {
-      drops[0].x = h.x + FWD_X * heroWorld * 1.15 - RIGHT_X * heroWorld * 0.7;
-      drops[0].z = h.z + FWD_Z * heroWorld * 1.15 - RIGHT_Z * heroWorld * 0.7;
-      drops[6].x = h.x + FWD_X * heroWorld * 1.15 + RIGHT_X * heroWorld * 0.7;
-      drops[6].z = h.z + FWD_Z * heroWorld * 1.15 + RIGHT_Z * heroWorld * 0.7;
-      for (let i = 0; i < drops.length; i++) {
-        if (i === 0 || i === 6) continue;
-        drops[i].x = h.x - FWD_X * heroWorld * 12;
-        drops[i].z = h.z - FWD_Z * heroWorld * 12;
+      const drop = drops[i];
+      if (hide) {
+        drop.x = h.x - FWD_X * 40;
+        drop.z = h.z - FWD_Z * 40;
+        continue;
       }
+      const spot = row ? drop.showcase : drop.scatter;
+      drop.x = h.x + RIGHT_X * spot[0] + FWD_X * spot[1];
+      drop.z = h.z + RIGHT_Z * spot[0] + FWD_Z * spot[1];
     }
   }
 
@@ -650,15 +585,20 @@ function boot() {
     api.tier = sim.hero.tier;
     api.corpseFade = sim.fade[corpseSlot];
 
-    const lookAhead = glance ? heroWorld * 0.05 : heroWorld * 1.35;
-    const lookX = hx + FWD_X * lookAhead;
-    const lookZ = hz + FWD_Z * lookAhead;
-    const lookY = hy + heroWorld * 0.42;
     const cp = Math.cos(PITCH);
     const sp = Math.sin(PITCH);
-    camera.position.set(lookX - FWD_X * cp * DIST, lookY + sp * DIST, lookZ - FWD_Z * cp * DIST);
-    camera.lookAt(lookX, lookY, lookZ);
-    camera.updateMatrixWorld();
+    const depthPerPx = (frustumH / Math.sin(PITCH)) / Math.max(1, viewH);
+    for (let pass = 0; pass < 2; pass++) {
+      const lookX = hx + FWD_X * lookShift;
+      const lookZ = hz + FWD_Z * lookShift;
+      const lookY = hy + heroWorld * 0.2;
+      camera.position.set(lookX - FWD_X * cp * CAM_DIST, lookY + sp * CAM_DIST, lookZ - FWD_Z * cp * CAM_DIST);
+      camera.lookAt(lookX, lookY, lookZ);
+      camera.updateMatrixWorld();
+      const chest = projectCss(hx, hy + heroWorld * 0.55, hz);
+      const err = chest.y / Math.max(1, viewH) - 0.55;
+      lookShift -= err * viewH * depthPerPx;
+    }
     const e = camera.matrixWorld.elements;
     right.set(e[0], 0, e[2]);
     if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
@@ -687,6 +627,9 @@ function boot() {
     api.heroPxMeasured = Math.abs(feet.y - head.y);
     api.fx = feet.x;
     api.fy = feet.y;
+    api.chest = projectCss(hx, hy + drawH * 0.5, hz).y / Math.max(1, viewH);
+    api.heroScreen = feet.y / Math.max(1, viewH);
+    heroWorld = drawH;
     api.visible = visibleCount();
 
     enemies.begin();
@@ -738,51 +681,16 @@ function boot() {
     }
     heroBatch.end();
 
-    loot.begin();
-    rainbow.begin();
-    sparks.begin();
-    for (let i = 0; i < drops.length; i++) {
-      const drop = drops[i];
-      const y = heightAt(drop.x, drop.z);
-      const m = drop.metrics;
-      const plate = drop.plate;
-      const icon = drop.icon;
-      const beamY = y;
-      loot.push(drop.x, beamY, drop.z, lootRects.white.u, lootRects.white.v, lootRects.white.du, lootRects.white.dv, m.beamW, m.beamH, m.beamW * 0.5, 0, drop.color[0], drop.color[1], drop.color[2], 1, worldPerPx, 0.92, 0, 0);
-      const plateY = y + m.beamH * worldPerPx;
-      if (m.rainbow) rainbow.push(drop.x, plateY - 4 * worldPerPx, drop.z, (plate.w + 10) * worldPerPx, (plate.h + 8) * worldPerPx);
-      loot.push(drop.x, plateY, drop.z, plate.u, plate.v, plate.du, plate.dv, plate.w, plate.h, plate.w * 0.5, 0, 1, 1, 1, 1, worldPerPx, 1, 0, 0);
-      const iconY = plateY + plate.h * worldPerPx;
-      loot.push(drop.x, iconY, drop.z, icon.u, icon.v, icon.du, icon.dv, icon.w, icon.h, icon.w * 0.5, 0, 1, 1, 1, 1, worldPerPx, 1, 0, 0);
-      if (m.rainbow) {
-        const pulse = 0.5 + 0.5 * Math.sin(now * 0.001 * Math.PI * 4);
-        const sparkPx = 12 + 16 * pulse;
-        sparks.push(drop.x, iconY + icon.h * worldPerPx * 0.45, drop.z, lootRects.star.u, lootRects.star.v, lootRects.star.du, lootRects.star.dv, sparkPx, sparkPx, sparkPx * 0.5, sparkPx * 0.15, 1, 1, 1, 1, worldPerPx, 0.95, 0, 0);
+    paintDrops();
+    paintBoss(boss, drawH);
+    paintLevel(head);
+    paintHud(now);
+
+    if (!mock) {
+      for (let i = 0; i < 2; i++) {
+        const left = chatUntil[i] - now;
+        chatEls[i].style.opacity = left <= 0 ? '0' : (left < 500 ? String(left / 500) : '1');
       }
-    }
-    loot.end();
-    rainbow.end();
-    sparks.end();
-    rainMat.uniforms.uTime.value = now * 0.001;
-
-    ui.begin();
-    if (bossOn && boss >= 0 && boss < sim.count) {
-      const st = sim.state[boss];
-      if (st === ANIM.HIT && lastBossState !== ANIM.HIT) bossHp = Math.max(0, bossHp - 0.18);
-      if (st === ANIM.WALK && lastBossState === ANIM.DEAD) bossHp = 1;
-      lastBossState = st;
-      const by = heightAt(sim.x[boss], sim.z[boss]) + drawH * (BOSS_SCALE + 0.28);
-      const name = lootRects.name;
-      ui.push(sim.x[boss], by + 8 * worldPerPx, sim.z[boss], name.u, name.v, name.du, name.dv, name.w, name.h, name.w * 0.5, 0, 1, 1, 1, 1, worldPerPx, 1, 0, 0);
-      ui.push(sim.x[boss], by, sim.z[boss], lootRects.white.u, lootRects.white.v, lootRects.white.du, lootRects.white.dv, 54, 6, 27, 0, 0.12, 0.08, 0.07, 1, worldPerPx, 1, 0, 0);
-      const fill = Math.max(2, 50 * bossHp);
-      ui.push(sim.x[boss] - (50 - fill) * 0.5 * worldPerPx, by + worldPerPx, sim.z[boss], lootRects.white.u, lootRects.white.v, lootRects.white.du, lootRects.white.dv, fill, 4, fill * 0.5, 0, 0.75, 0.16, 0.14, 1, worldPerPx, 1, 0, 0);
-    }
-    ui.end();
-
-    for (let i = 0; i < 2; i++) {
-      const left = chatUntil[i] - now;
-      chatEls[i].style.opacity = left <= 0 ? '0' : (left < 500 ? String(left / 500) : '1');
     }
 
     renderer.info.reset();
@@ -791,16 +699,167 @@ function boot() {
     if (ringOn) renderer.render(ringScene, camera);
     renderer.render(enemyScene, camera);
     renderer.render(corpseScene, camera);
-    renderer.render(rainScene, camera);
-    renderer.render(lootScene, camera);
-    renderer.render(sparkScene, camera);
     renderer.render(heroScene, camera);
-    renderer.render(uiScene, camera);
 
     if ((stats.frames & 7) === 0) paintBench(now);
     api.ready = true;
     requestAnimationFrame(frame);
   }
+
+  const bossPlate = document.getElementById('bossplate');
+  const bossFill = document.getElementById('bosshpfill');
+  const bossArrow = document.getElementById('bossarrow');
+  const bossArr = bossArrow.querySelector('.arr');
+  const levelEl = document.getElementById('levelup');
+  const wasDead = new Uint8Array(1000);
+  let kills = 0;
+
+  function showEl(el, on) {
+    if (!el) return;
+    el.style.display = on ? '' : 'none';
+  }
+
+  function placePlate(el, x, y) {
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    const r = el.getBoundingClientRect();
+    let dx = 0;
+    let dy = 0;
+    if (r.left < 4) dx = 4 - r.left;
+    if (r.right > viewW - 4) dx = (viewW - 4) - r.right;
+    if (r.top < 4) dy = 4 - r.top;
+    if (r.bottom > viewH - 4) dy = (viewH - 4) - r.bottom;
+    if (dx || dy) {
+      el.style.left = (x + dx) + 'px';
+      el.style.top = (y + dy) + 'px';
+    }
+  }
+
+  function paintDrops() {
+    const info = [];
+    for (let i = 0; i < drops.length; i++) {
+      const drop = drops[i];
+      const y = heightAt(drop.x, drop.z);
+      const p = projectCss(drop.x, y, drop.z);
+      const on = p.z < 1 && p.x >= -4 && p.x <= viewW + 4 && p.y >= -4 && p.y <= viewH + 4;
+      showEl(drop.beam, on);
+      showEl(drop.plate, on);
+      showEl(drop.ring, on);
+      showEl(drop.badge, on);
+      showEl(drop.gem, on);
+      showEl(drop.flash, on);
+      if (!on) {
+        info.push({ rarity: drop.rarity, on: false });
+        continue;
+      }
+      const h = beamHeightCss(drop.rarity, p.y);
+      if (drop.beam) {
+        const w = Number(drop.beam.dataset.width) || 0;
+        drop.beam.style.height = h + 'px';
+        drop.beam.style.left = (p.x - w / 2) + 'px';
+        drop.beam.style.top = (p.y - h) + 'px';
+      }
+      if (drop.gem) {
+        drop.gem.style.left = p.x + 'px';
+        drop.gem.style.top = (p.y - 2) + 'px';
+      }
+      if (drop.ring) {
+        drop.ring.style.left = p.x + 'px';
+        drop.ring.style.top = p.y + 'px';
+      }
+      if (drop.badge) {
+        drop.badge.style.left = p.x + 'px';
+        drop.badge.style.top = (p.y - 6) + 'px';
+      }
+      if (drop.flash) {
+        drop.flash.style.left = p.x + 'px';
+        drop.flash.style.top = p.y + 'px';
+      }
+      placePlate(drop.plate, p.x, drop.badge ? p.y - 20 : p.y - 12);
+      info.push({
+        rarity: drop.rarity,
+        on: true,
+        height: h,
+        width: drop.beam ? Number(drop.beam.dataset.width) : 0,
+        x: p.x,
+        y: p.y,
+        name: drop.plate.style.color,
+      });
+    }
+    api.loot = info;
+  }
+
+  function paintBoss(boss, drawH) {
+    if (!bossOn || boss < 0 || boss >= sim.count) {
+      bossPlate.hidden = true;
+      bossArrow.classList.remove('on');
+      api.bossArrow = false;
+      return;
+    }
+    const st = sim.state[boss];
+    if (st === ANIM.HIT && lastBossState !== ANIM.HIT) bossHp = Math.max(0, bossHp - 0.18);
+    if (st === ANIM.WALK && lastBossState === ANIM.DEAD) bossHp = 1;
+    lastBossState = st;
+    const by = heightAt(sim.x[boss], sim.z[boss]) + drawH * (BOSS_SCALE + 0.22);
+    const p = projectCss(sim.x[boss], by, sim.z[boss]);
+    const inside = p.z < 1 && p.x >= 16 && p.x <= viewW - 16 && p.y >= 16 && p.y <= viewH - 16;
+    bossFill.style.width = Math.round(bossHp * 100) + '%';
+    if (inside) {
+      bossPlate.hidden = false;
+      bossArrow.classList.remove('on');
+      bossPlate.style.left = p.x + 'px';
+      bossPlate.style.top = p.y + 'px';
+      api.bossArrow = false;
+      return;
+    }
+    bossPlate.hidden = true;
+    const pad = 36;
+    let x = p.x;
+    let y = p.y;
+    if (p.z > 1) {
+      x = viewW - x;
+      y = viewH - y;
+    }
+    x = Math.max(pad, Math.min(viewW - pad, x));
+    y = Math.max(pad, Math.min(viewH - pad, y));
+    const ang = Math.atan2((p.z > 1 ? viewH - p.y : p.y) - y, (p.z > 1 ? viewW - p.x : p.x) - x);
+    bossArrow.classList.add('on');
+    bossArrow.style.left = x + 'px';
+    bossArrow.style.top = y + 'px';
+    bossArr.style.transform = 'rotate(' + ang + 'rad)';
+    api.bossArrow = true;
+  }
+
+  function paintLevel(head) {
+    if (!mock) return;
+    levelEl.style.left = head.x + 'px';
+    levelEl.style.top = (head.y - 6) + 'px';
+  }
+
+  function paintHud(now) {
+    for (let i = 0; i < sim.count; i++) {
+      const dead = sim.state[i] === ANIM.DEAD ? 1 : 0;
+      if (dead && !wasDead[i]) kills += 1;
+      wasDead[i] = dead;
+    }
+    if (bare || mock) return;
+    const sec = Math.max(0, (now - stats.start) / 1000);
+    const m = (sec / 60) | 0;
+    const s = sec % 60 | 0;
+    document.getElementById('tm').textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    document.getElementById('kk').textContent = String(kills);
+    document.getElementById('gd').textContent = String(128 + kills * 3);
+  }
+
+  const pauseBtn = document.getElementById('pause');
+  let userPause = false;
+  pauseBtn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+  pauseBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    userPause = !userPause;
+    sim.setFrozen(userPause || glance || !!stand || mock);
+    pauseBtn.classList.toggle('paused', userPause);
+  });
 
   resize();
   window.addEventListener('resize', resize);
@@ -822,48 +881,27 @@ function boot() {
     tex.colorSpace = LinearSRGBColorSpace;
     tex.needsUpdate = true;
 
-    const built = buildLootAtlas();
-    lootRects = built.rects;
-    drops = built.drops;
-    const lootTex = built.texture;
+    drops = createDrops();
 
     const enemyMat = makeMat(tex, true, true, true);
     const corpseMat = makeMat(tex, false, true, false);
     const heroMat = makeMat(tex, true, false, false);
-    const lootMat = makeMat(lootTex, false, false, false);
-    const sparkMat = makeMat(lootTex, false, false, false, AdditiveBlending);
-    rainMat = new ShaderMaterial({
-      uniforms: {
-        uRight: { value: right },
-        uUp: { value: up },
-        uTime: { value: 0 },
-      },
-      vertexShader: BILL_VERT,
-      fragmentShader: RAIN_FRAG,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-    });
-    rainMat.toneMapped = false;
 
     enemies = makeBatch(1000, enemyMat);
     corpses = makeBatch(1000, corpseMat);
     heroBatch = makeBatch(48, heroMat);
-    loot = makeBatch(48, lootMat);
-    sparks = makeBatch(8, sparkMat);
-    rainbow = makeSizeBatch(8, rainMat);
-    ui = makeBatch(8, lootMat);
 
     enemyScene.add(enemies.mesh);
     corpseScene.add(corpses.mesh);
     heroScene.add(heroBatch.mesh);
-    lootScene.add(loot.mesh);
-    sparkScene.add(sparks.mesh);
-    rainScene.add(rainbow.mesh);
-    uiScene.add(ui.mesh);
 
     const now = performance.now();
-    if (showChat) {
+    if (mock) {
+      chatEls[0].textContent = 'You pick up a Tidesteel helm.';
+      chatEls[1].textContent = 'You gain a level!';
+      chatEls[0].style.opacity = '1';
+      chatEls[1].style.opacity = '1';
+    } else if (showChat) {
       say('The sand path is pale.', now);
       say('Corpses fade grey. The hero bobs.', now);
       chatUntil[0] = now + 3000;
@@ -878,18 +916,9 @@ function boot() {
   let enemies;
   let corpses;
   let heroBatch;
-  let loot;
-  let sparks;
-  let rainbow;
-  let ui;
-  let rainMat;
   const enemyScene = new Scene();
   const corpseScene = new Scene();
   const heroScene = new Scene();
-  const lootScene = new Scene();
-  const sparkScene = new Scene();
-  const rainScene = new Scene();
-  const uiScene = new Scene();
 }
 
 function ringTexture() {
@@ -939,128 +968,6 @@ function ringMaterial(tex) {
   return mat;
 }
 
-function buildLootAtlas() {
-  const atlasW = 512;
-  const atlasH = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = atlasW;
-  canvas.height = atlasH;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, atlasW, atlasH);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, 4, 4);
-  drawStar(ctx, 8, 0, 32);
-  drawGem(ctx, 48, 0, '#7eb6ff');
-  drawGem(ctx, 88, 0, '#d0b4ff');
-  drawGem(ctx, 128, 0, '#f4f7ff');
-
-  const names = [
-    ['Ash Band', 'rare', '#7eb6ff'],
-    ['Fern Clasp', 'rare', '#7eb6ff'],
-    ['River Nail', 'rare', '#7eb6ff'],
-    ['Moss Idol', 'epic', '#d0b4ff'],
-    ['Dusk Thread', 'epic', '#d0b4ff'],
-    ['Night Opal', 'epic', '#d0b4ff'],
-    ['Pale Crown', 'legendary', '#f4f7ff'],
-    ['Glass Heart', 'legendary', '#f4f7ff'],
-    ['Star Salt', 'legendary', '#f4f7ff'],
-  ];
-  ctx.font = '8px Silkscreen';
-  ctx.textBaseline = 'middle';
-  const plates = [];
-  let x = 4;
-  let y = 40;
-  for (let i = 0; i < names.length; i++) {
-    const plateH = names[i][1] === 'legendary' ? 18 : 12;
-    const tw = Math.ceil(ctx.measureText(names[i][0]).width);
-    const plateW = Math.max(plateH, tw + 8);
-    if (x + plateW > atlasW - 4) {
-      x = 4;
-      y += 24;
-    }
-    ctx.fillStyle = '#12100e';
-    ctx.fillRect(x, y, plateW, plateH);
-    ctx.fillStyle = names[i][2];
-    ctx.fillText(names[i][0], x + 4, y + plateH * 0.55);
-    plates.push(rect(x, y, plateW, plateH, atlasW, atlasH));
-    x += plateW + 6;
-  }
-  const nameW = Math.ceil(ctx.measureText('Grave Warden').width) + 8;
-  ctx.fillStyle = '#12100e';
-  ctx.fillRect(4, 210, nameW, 16);
-  ctx.fillStyle = '#e6dcc8';
-  ctx.fillText('Grave Warden', 8, 218);
-  const rects = {
-    white: rect(0, 0, 4, 4, atlasW, atlasH),
-    star: rect(8, 0, 32, 32, atlasW, atlasH),
-    rare: rect(48, 0, 32, 32, atlasW, atlasH),
-    epic: rect(88, 0, 32, 32, atlasW, atlasH),
-    legendary: rect(128, 0, 32, 32, atlasW, atlasH),
-    name: rect(4, 210, nameW, 16, atlasW, atlasH),
-  };
-  const iconFor = { rare: rects.rare, epic: rects.epic, legendary: rects.legendary };
-  const colorFor = {
-    rare: [0.494, 0.714, 1],
-    epic: [0.816, 0.706, 1],
-    legendary: [0.957, 0.969, 1],
-  };
-  const drops = [];
-  for (let i = 0; i < names.length; i++) {
-    const rarity = names[i][1];
-    drops.push({
-      x: 0,
-      z: 0,
-      plate: plates[i],
-      icon: iconFor[rarity],
-      color: colorFor[rarity],
-      metrics: rarity === 'legendary'
-        ? { beamW: 4, beamH: 80, plateH: 18, rainbow: 1 }
-        : rarity === 'epic'
-          ? { beamW: 3, beamH: 40, plateH: 12, rainbow: 0 }
-          : { beamW: 2, beamH: 40, plateH: 12, rainbow: 0 },
-    });
-  }
-  const texture = new CanvasTexture(canvas);
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
-  texture.generateMipmaps = false;
-  texture.colorSpace = LinearSRGBColorSpace;
-  texture.needsUpdate = true;
-  return { rects, drops, texture };
-}
-
-function rect(x, y, w, h, atlasW, atlasH) {
-  return {
-    u: (x + 0.5) / atlasW,
-    v: (y + 0.5) / atlasH,
-    du: Math.max(1, w - 1) / atlasW,
-    dv: Math.max(1, h - 1) / atlasH,
-    w: w,
-    h: h,
-  };
-}
-
-function drawGem(ctx, x, y, color) {
-  ctx.fillStyle = '#14120e';
-  ctx.fillRect(x + 8, y + 4, 16, 24);
-  ctx.fillStyle = color;
-  ctx.fillRect(x + 12, y + 8, 8, 8);
-  ctx.fillRect(x + 10, y + 16, 12, 6);
-  ctx.fillStyle = '#f7f4ee';
-  ctx.fillRect(x + 13, y + 9, 2, 2);
-}
-
-function drawStar(ctx, x, y, size) {
-  ctx.fillStyle = '#ffffff';
-  const m = size / 2;
-  ctx.fillRect(x + m - 2, y + 2, 4, size - 4);
-  ctx.fillRect(x + 2, y + m - 2, size - 4, 4);
-  ctx.fillRect(x + 6, y + 6, 4, 4);
-  ctx.fillRect(x + size - 10, y + 6, 4, 4);
-  ctx.fillRect(x + 6, y + size - 10, 4, 4);
-  ctx.fillRect(x + size - 10, y + size - 10, 4, 4);
-}
-
 function wireUi() {
   window.addEventListener('keydown', (ev) => {
     const k = ev.key.toLowerCase();
@@ -1089,10 +996,20 @@ function wireUi() {
   });
   const joy = document.getElementById('joy');
   const knob = document.getElementById('knob');
+  let joyPointer = null;
+  let joyOriginX = 0;
+  let joyOriginY = 0;
+  function showJoy(clientX, clientY) {
+    mockStick = false;
+    joy.classList.add('on');
+    joy.style.left = clientX + 'px';
+    joy.style.top = clientY + 'px';
+    joyOriginX = clientX;
+    joyOriginY = clientY;
+  }
   function joyAt(clientX, clientY) {
-    const r = joy.getBoundingClientRect();
-    let dx = (clientX - (r.left + r.width / 2)) / (r.width * 0.34);
-    let dy = (clientY - (r.top + r.height / 2)) / (r.height * 0.34);
+    let dx = (clientX - joyOriginX) / 30;
+    let dy = (clientY - joyOriginY) / 30;
     const m = Math.hypot(dx, dy) || 1;
     if (m > 1) { dx /= m; dy /= m; }
     joyX = dx;
@@ -1101,20 +1018,140 @@ function wireUi() {
     knob.style.transform = 'translate(' + (dx * 22) + 'px,' + (dy * 22) + 'px)';
   }
   function joyEnd() {
+    joyPointer = null;
     joyOn = false;
     joyX = 0;
     joyY = 0;
+    mockStick = false;
+    joy.classList.remove('on');
     knob.style.transform = 'none';
   }
-  joy.addEventListener('pointerdown', (ev) => {
-    joy.setPointerCapture(ev.pointerId);
+  window.addEventListener('pointerdown', (ev) => {
+    if (ev.target.closest('button, a, input, #bench')) return;
+    joyPointer = ev.pointerId;
+    showJoy(ev.clientX, ev.clientY);
     joyAt(ev.clientX, ev.clientY);
   });
-  joy.addEventListener('pointermove', (ev) => {
-    if (joyOn) joyAt(ev.clientX, ev.clientY);
+  window.addEventListener('pointermove', (ev) => {
+    if (joyPointer !== ev.pointerId) return;
+    joyAt(ev.clientX, ev.clientY);
   });
-  joy.addEventListener('pointerup', joyEnd);
-  joy.addEventListener('pointercancel', joyEnd);
+  window.addEventListener('pointerup', (ev) => {
+    if (joyPointer !== ev.pointerId) return;
+    joyEnd();
+  });
+  window.addEventListener('pointercancel', (ev) => {
+    if (joyPointer !== ev.pointerId) return;
+    joyEnd();
+  });
+  if (mock) placeMockJoy();
+}
+
+let mockStick = mock;
+
+const DROP_LIST = [
+  { rarity: 'material', name: 'Flax', showcase: [2.9, 1.5], scatter: [2.6, 1.1] },
+  { rarity: 'normal', name: 'Bones', showcase: [1.4, 1.9], scatter: [-2.2, 0.9] },
+  { rarity: 'rare', name: 'River Nail', showcase: [0.1, 2.5], scatter: [1.1, 3.1] },
+  { rarity: 'veryrare', name: 'Night Opal', showcase: [-1.4, 2.3], scatter: [-2.6, 2.8] },
+  { rarity: 'legendary', name: 'Pale Crown', showcase: [-0.2, 4.5], scatter: [0.4, 4.4] },
+  { rarity: 'chase', name: 'Star Salt', showcase: [-2.9, 5.6], scatter: [-2.8, 5.2] },
+];
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function createDrops() {
+  const fx = document.getElementById('fx');
+  const out = [];
+  for (let i = 0; i < DROP_LIST.length; i++) {
+    const def = DROP_LIST[i];
+    const spec = beamSpec(def.rarity);
+    const strips = beamStrips(def.rarity, heroPx);
+    let beam = null;
+    if (strips.length) {
+      beam = document.createElement('div');
+      beam.className = 'beam';
+      let width = 0;
+      for (let s = 0; s < strips.length; s++) {
+        const bar = document.createElement('i');
+        bar.style.width = strips[s].css + 'px';
+        bar.style.background = strips[s].background;
+        beam.appendChild(bar);
+        width += strips[s].css;
+      }
+      beam.dataset.width = String(width);
+      beam.style.width = width + 'px';
+      fx.appendChild(beam);
+    }
+    let ring = null;
+    let badge = null;
+    if (spec.ring) {
+      ring = document.createElement('div');
+      ring.className = 'mat-ring';
+      ring.style.width = spec.ring.diameter + 'px';
+      ring.style.height = Math.max(8, Math.round(spec.ring.diameter * 0.42)) + 'px';
+      ring.style.borderWidth = spec.ring.css + 'px';
+      ring.style.borderColor = spec.ring.color;
+      fx.appendChild(ring);
+      badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = String(spec.badge);
+      fx.appendChild(badge);
+    }
+    let gem = null;
+    if (spec.beam) {
+      gem = document.createElement('div');
+      gem.className = 'gem';
+      gem.style.background = spec.body;
+      fx.appendChild(gem);
+    }
+    const plate = document.createElement('div');
+    plate.className = 'plate';
+    plate.textContent = def.name;
+    plate.style.color = spec.name;
+    plate.style.background = spec.plate;
+    const shadow = plateShadow(def.rarity);
+    if (shadow) {
+      plate.style.boxShadow = shadow;
+      plate.style.border = 'none';
+    } else plate.style.borderColor = spec.border;
+    fx.appendChild(plate);
+    let flash = null;
+    if (spec.flash) {
+      flash = document.createElement('div');
+      flash.className = reduceMotion ? 'flash ring' : 'flash';
+      if (reduceMotion) flash.style.borderColor = 'rgba(255,255,255,' + spec.flash.alpha + ')';
+      else flash.style.background = 'rgba(255,255,255,' + spec.flash.alpha + ')';
+      fx.appendChild(flash);
+    }
+    out.push({
+      rarity: def.rarity,
+      showcase: def.showcase,
+      scatter: def.scatter,
+      x: 0,
+      z: 0,
+      beam: beam,
+      plate: plate,
+      ring: ring,
+      badge: badge,
+      gem: gem,
+      flash: flash,
+    });
+  }
+  return out;
+}
+
+function placeMockJoy() {
+  if (!mockStick) return;
+  const joy = document.getElementById('joy');
+  const knob = document.getElementById('knob');
+  joy.classList.add('on');
+  joy.style.left = '78px';
+  joy.style.top = Math.max(140, viewH - 110) + 'px';
+  knob.style.transform = 'translate(16px, -18px)';
+  joyX = 16 / 22;
+  joyY = -18 / 22;
+  joyOn = true;
 }
 
 function simTier() {

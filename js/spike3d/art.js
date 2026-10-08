@@ -125,19 +125,23 @@ function walkOf(anim, frame) {
 }
 
 function drawLegs(buf, d, lean, step, bob) {
-  const y = 21 + bob;
+  const y = 20 + bob;
+  const liftL = step > 0 ? 0 : 1;
+  const liftR = step < 0 ? 0 : 1;
   if (d === 2 || d === 3) {
-    box(buf, 10 + lean, y + (step > 0 ? 0 : 1), 3, 8, PANTS, INK);
-    box(buf, 12 + lean, y + 2, 3, 7, PANTS, INK);
-    fill(buf, 10 + lean, 29, 3, 2, BOOT);
-    fill(buf, 13 + lean, 30, 3, 1, BOOT);
+    fill(buf, 11 + lean, y + liftL, 3, 8, PANTS);
+    fill(buf, 13 + lean, y + 3, 2, 5, PANTS);
+    put(buf, 12 + lean, y + 4, INK);
+    fill(buf, 11 + lean, 29, 4, 2, BOOT);
     return;
   }
-  const spread = d === 4 ? 0 : 1;
-  box(buf, 7 + lean - spread, y + (step > 0 ? 0 : 1), 3, 8, PANTS, INK);
-  box(buf, 13 + lean + spread, y + (step < 0 ? 0 : 1), 3, 8, PANTS, INK);
-  fill(buf, 7 + lean - spread, 29, 3, 2, BOOT);
-  fill(buf, 13 + lean + spread, 29, 3, 2, BOOT);
+  const gap = d === 4 ? 1 : 2;
+  fill(buf, 7 + lean, y + liftL, 3, 8, PANTS);
+  fill(buf, 7 + gap + 7 + lean, y + liftR, 3, 8, PANTS);
+  put(buf, 8 + lean, y + 4, INK);
+  put(buf, 8 + gap + 7 + lean, y + 4, INK);
+  fill(buf, 6 + lean, 29, 4, 2, BOOT);
+  fill(buf, 6 + gap + 7 + lean, 29, 4, 2, BOOT);
 }
 
 function drawBody(buf, d, lean, bob) {
@@ -171,22 +175,29 @@ function drawPauldrons(buf, d, lean, bob, big) {
 }
 
 function drawHead(buf, d, lean, bob) {
-  const y = 6 + bob;
+  const y = 4 + bob;
   if (d === 4) {
-    box(buf, 8 + lean, y, 8, 8, METAL, INK);
-    fill(buf, 10 + lean, y + 1, 4, 2, METALD);
+    fill(buf, 9 + lean, y, 6, 2, METALD);
+    fill(buf, 8 + lean, y + 2, 8, 5, METAL);
+    fill(buf, 7 + lean, y + 7, 10, 2, METAL);
     return;
   }
   if (d === 2 || d === 3) {
-    box(buf, 10 + lean, y, 6, 8, METAL, INK);
-    fill(buf, 12 + lean, y + 3, 3, 3, SKIN);
+    fill(buf, 11 + lean, y, 4, 2, METALD);
+    fill(buf, 10 + lean, y + 2, 6, 5, METAL);
+    fill(buf, 13 + lean, y + 4, 2, 2, SKIN);
     put(buf, 14 + lean, y + 4, INK);
+    fill(buf, 9 + lean, y + 7, 8, 2, METAL);
     return;
   }
-  box(buf, 8 + lean, y, 8, 8, METAL, INK);
-  fill(buf, 10 + lean, y + 3, 4, 3, SKIN);
-  put(buf, 11 + lean, y + 4, INK);
-  put(buf, 13 + lean, y + 4, INK);
+  fill(buf, 9 + lean, y, 6, 2, METAL);
+  put(buf, 11 + lean, y, SHINE);
+  fill(buf, 8 + lean, y + 2, 8, 5, METAL);
+  fill(buf, 10 + lean, y + 4, 4, 3, SKIN);
+  put(buf, 11 + lean, y + 5, INK);
+  put(buf, 13 + lean, y + 5, INK);
+  fill(buf, 7 + lean, y + 7, 10, 2, METAL);
+  fill(buf, 8 + lean, y + 8, 8, 1, METALD);
 }
 
 function drawCrest(buf, d, lean, bob, tall) {
@@ -231,29 +242,29 @@ function drawShield(buf, d, lean, bob) {
 }
 
 function drawWeapon(buf, d, lean, bob, thrust, axe) {
-  const y = 8 + bob;
+  const y = 6 + bob;
   const reach = thrust;
   if (axe) {
-    if (d === 2 || d === 3) {
-      fill(buf, 14 + lean, y + 6, 2, 10, METALD);
-      box(buf, 14 + lean + reach, y + 1, 5, 5, METAL, INK);
-      return;
-    }
-    const x = (d === 4 ? 4 : 17) + lean + (d === 4 ? -reach : reach);
-    fill(buf, x, y + 6, 2, 12, METALD);
-    box(buf, x - 2, y, 6, 5, METAL, INK);
+    const x = (d === 4 ? 3 : d >= 2 ? 14 : 16) + lean + (d === 4 ? -reach : reach);
+    fill(buf, x + 1, y + 8, 2, 12, METALD);
+    fill(buf, x - 1, y + 1, 6, 4, METAL);
+    fill(buf, x, y + 5, 4, 2, METALD);
+    put(buf, x + 1, y + 2, SHINE);
     return;
   }
   if (d === 2 || d === 3) {
-    fill(buf, 15 + lean, y + 8, 2 + reach, 2, METAL);
-    fill(buf, 14 + lean, y + 7, 2, 4, METALD);
-    box(buf, 16 + lean + reach, y + 6, 3, 4, METAL, INK);
+    fill(buf, 15 + lean, y + 10, 2, 8, METALD);
+    fill(buf, 14 + lean, y + 8, 4, 2, METAL);
+    fill(buf, 16 + lean + reach, y + 1, 2, 8, METAL);
+    put(buf, 16 + lean + reach, y + 2, SHINE);
     return;
   }
-  const x = (d === 4 ? 5 : 18) + lean;
-  box(buf, x, y - reach, 2, 14, METAL, INK);
-  fill(buf, x - 1, y + 6, 4, 2, METALD);
-  put(buf, x, y + 1, SHINE);
+  const x = (d === 4 ? 4 : 17) + lean;
+  const tip = d === 4 ? -1 : 1;
+  fill(buf, x, y + 12, 2, 7, METALD);
+  fill(buf, x - 2, y + 11, 6, 2, METAL);
+  fill(buf, x + (tip < 0 ? -1 : 0), y + 1 - reach, 2, 11, METAL);
+  put(buf, x + (tip < 0 ? -1 : 0), y + 2, SHINE);
 }
 
 function drawGoblin(buf, d, lean, step, bob) {
@@ -277,73 +288,107 @@ function drawGoblin(buf, d, lean, step, bob) {
 }
 
 function drawRat(buf, d, lean, step, bob) {
-  const y = 10 + bob;
-  box(buf, 9 + lean, y, 6, 8, RAT);
-  fill(buf, 8 + lean, y, 2, 3, PINK);
-  fill(buf, 14 + lean, y, 2, 3, PINK);
-  if (d < 2) {
-    put(buf, 10 + lean, y + 3, INK);
-    put(buf, 13 + lean, y + 3, INK);
-  } else if (d !== 4) {
-    put(buf, 13 + lean, y + 3, INK);
-  }
+  const y = 12 + bob;
   const foot = step > 0 ? 0 : 1;
-  fill(buf, 9 + lean, 20 + foot, 2, 10, RATD);
-  fill(buf, 13 + lean, 20 + (1 - foot), 2, 10, RATD);
+  fill(buf, 8 + lean, y, 3, 4, PINK);
+  fill(buf, 14 + lean, y, 3, 4, PINK);
+  fill(buf, 9 + lean, y + 2, 7, 6, RAT);
+  fill(buf, 10 + lean, y + 5, 3, 2, PINK);
+  if (d < 2) {
+    put(buf, 10 + lean, y + 4, INK);
+    put(buf, 13 + lean, y + 4, INK);
+  } else if (d !== 4) {
+    put(buf, 13 + lean, y + 4, INK);
+  }
+  fill(buf, 9 + lean, y + 8, 6, 5, RAT);
+  fill(buf, 4 + lean, y + 9, 4, 2, RATD);
+  fill(buf, 8 + lean, y + 13 + foot, 2, 5, RATD);
+  fill(buf, 14 + lean, y + 13 + (1 - foot), 2, 5, RATD);
+  if (d !== 4) fill(buf, 16 + lean, y + 10, 4, 1, RATD);
 }
 
-function drawSkeleton(buf, d, lean, step, bob, trim) {
-  const y = 6 + bob;
-  box(buf, 8 + lean, y, 8, 7, BONE, INK);
-  if (d < 2) {
-    put(buf, 10 + lean, y + 3, INK);
-    put(buf, 13 + lean, y + 3, INK);
-    fill(buf, 11 + lean, y + 5, 2, 1, INK);
-  } else if (d === 4) {
-    fill(buf, 10 + lean, y + 2, 4, 3, BONED);
-  } else {
-    put(buf, 13 + lean, y + 3, INK);
+function drawSkeleton(buf, d, lean, step, bob, trim, horns) {
+  const y = 4 + bob;
+  if (horns) {
+    fill(buf, 7 + lean, y - 1, 2, 3, BONE);
+    fill(buf, 15 + lean, y - 1, 2, 3, BONE);
+    put(buf, 6 + lean, y - 2, BONE);
+    put(buf, 17 + lean, y - 2, BONE);
   }
-  box(buf, 9 + lean, y + 8, 6, 7, BONE, INK);
-  put(buf, 11 + lean, y + 10, INK);
-  put(buf, 11 + lean, y + 12, INK);
-  const ly = 22 + (step > 0 ? 0 : 1);
-  box(buf, 8 + lean, ly, 2, 8, BONE, INK);
-  box(buf, 14 + lean, ly + (step !== 0 ? 1 : 0), 2, 8, BONE, INK);
-  if (d !== 4) box(buf, 17 + lean, y + 8, 2, 8, BONED, INK);
+  fill(buf, 9 + lean, y + 1, 6, 2, BONE);
+  fill(buf, 8 + lean, y + 3, 8, 5, BONE);
+  if (d < 2) {
+    put(buf, 10 + lean, y + 4, INK);
+    put(buf, 13 + lean, y + 4, INK);
+    fill(buf, 11 + lean, y + 6, 2, 1, INK);
+  } else if (d === 4) {
+    fill(buf, 10 + lean, y + 4, 4, 2, BONED);
+  } else {
+    put(buf, 13 + lean, y + 4, INK);
+  }
+  fill(buf, 10 + lean, y + 8, 4, 2, BONE);
+  fill(buf, 8 + lean, y + 10, 8, 1, BONE);
+  fill(buf, 9 + lean, y + 12, 6, 1, BONE);
+  fill(buf, 10 + lean, y + 14, 4, 1, BONE);
+  const ly = 20 + (step > 0 ? 0 : 1);
+  fill(buf, 8 + lean, ly, 2, 9, BONE);
+  fill(buf, 14 + lean, ly + (step !== 0 ? 1 : 0), 2, 9, BONE);
+  if (d !== 4) {
+    fill(buf, 16 + lean, y + 9, 2, 8, BONED);
+    fill(buf, 17 + lean, y + 8, 3, 2, BONE);
+  }
   if (trim) {
-    fill(buf, 6 + lean, y + 7, 3, 2, VIOLET);
-    fill(buf, 15 + lean, y + 7, 3, 2, VIOLET);
-    fill(buf, 10 + lean, y + 9, 4, 1, VIOLET);
+    fill(buf, 6 + lean, y + 8, 3, 2, VIOLET);
+    fill(buf, 15 + lean, y + 8, 3, 2, VIOLET);
+    fill(buf, 10 + lean, y + 11, 4, 1, VIOLET);
   }
 }
 
 function drawWolf(buf, d, lean, step, bob) {
-  const y = 18 + bob;
-  box(buf, 3 + lean, y, 16, 5, WOLF);
-  if (d === 4) box(buf, 5 + lean, y - 2, 5, 4, WOLFD);
-  else box(buf, 15 + lean, y - 3, 6, 5, WOLF);
-  if (d < 2) put(buf, 18 + lean, y - 1, EYE);
+  const y = 16 + bob;
   const s = step > 0 ? 1 : 0;
-  fill(buf, 4 + lean, y + 5, 2, 4 + s, WOLFD);
-  fill(buf, 8 + lean, y + 5, 2, 5 - s, WOLFD);
-  fill(buf, 13 + lean, y + 5, 2, 4 + s, WOLFD);
-  fill(buf, 17 + lean, y + 5, 2, 5 - s, WOLFD);
+  if (d === 4) {
+    fill(buf, 6 + lean, y + 2, 10, 5, WOLF);
+    fill(buf, 4 + lean, y + 3, 4, 4, WOLFD);
+    fill(buf, 14 + lean, y + 4, 4, 2, WOLFD);
+  } else if (d >= 2) {
+    fill(buf, 4 + lean, y + 3, 12, 5, WOLF);
+    fill(buf, 14 + lean, y, 6, 5, WOLF);
+    fill(buf, 18 + lean, y + 2, 3, 2, WOLFD);
+    put(buf, 17 + lean, y + 2, EYE);
+    put(buf, 15 + lean, y - 1, WOLF);
+  } else {
+    fill(buf, 3 + lean, y + 4, 18, 5, WOLF);
+    fill(buf, 8 + lean, y + 1, 8, 5, WOLF);
+    fill(buf, 10 + lean, y + 5, 4, 2, WOLFD);
+    put(buf, 10 + lean, y + 3, EYE);
+    put(buf, 13 + lean, y + 3, EYE);
+    put(buf, 7 + lean, y, WOLF);
+    put(buf, 16 + lean, y, WOLF);
+  }
+  fill(buf, 4 + lean, y + 9, 2, 4 + s, WOLFD);
+  fill(buf, 8 + lean, y + 9, 2, 5 - s, WOLFD);
+  fill(buf, 13 + lean, y + 9, 2, 4 + s, WOLFD);
+  fill(buf, 17 + lean, y + 9, 2, 5 - s, WOLFD);
 }
 
 function drawCaster(buf, d, lean, step, bob) {
-  const y = 5 + bob;
-  box(buf, 8 + lean, y, 8, 6, ROBED);
-  if (d < 2) fill(buf, 10 + lean, y + 3, 4, 2, INK);
-  else if (d !== 4) put(buf, 13 + lean, y + 3, INK);
-  box(buf, 7 + lean, y + 6, 10, 14, ROBE);
-  fill(buf, 8 + lean, y + 8, 2, 10, ROBED);
-  const sx = d === 4 ? 4 : 18;
-  fill(buf, sx + lean, y + 1, 2, 20, ROBED);
-  put(buf, sx + lean, y, SHINE);
+  const y = 3 + bob;
   const foot = step > 0 ? 0 : 1;
-  fill(buf, 8 + lean, 26, 3, 4, ROBED);
-  fill(buf, 13 + lean, 26 + foot, 3, 4, ROBED);
+  fill(buf, 11 + lean, y, 2, 2, ROBED);
+  fill(buf, 8 + lean, y + 2, 8, 5, ROBED);
+  if (d < 2) fill(buf, 10 + lean, y + 4, 4, 2, INK);
+  else if (d !== 4) put(buf, 13 + lean, y + 4, INK);
+  fill(buf, 8 + lean, y + 7, 8, 3, ROBE);
+  fill(buf, 6 + lean, y + 10, 12, 8, ROBE);
+  fill(buf, 5 + lean, y + 18, 14, 6, ROBE);
+  fill(buf, 9 + lean, y + 12, 2, 8, ROBED);
+  const sx = d === 4 ? 3 : 18;
+  fill(buf, sx + lean, y + 4, 2, 18, ROBED);
+  fill(buf, sx + lean, y + 1, 2, 3, SHINE);
+  put(buf, sx + lean, y, SHINE);
+  fill(buf, 8 + lean, 28, 3, 3, ROBED);
+  fill(buf, 13 + lean, 28 + foot, 3, 3, ROBED);
 }
 
 function drawSpider(buf, d, lean, step, bob) {
@@ -388,7 +433,7 @@ function renderLogical(sheetId, dir, anim, frame) {
   else if (sheetId === 'rat/body/base') drawRat(buf, d, lean, step, bob);
   else if (sheetId === 'skeleton/body/base') drawSkeleton(buf, d, lean, step, bob, false);
   else if (sheetId === 'skeleton/body/elite') drawSkeleton(buf, d, lean, step, bob, true);
-  else if (sheetId === 'skeleton/body/boss') drawSkeleton(buf, d, lean, step, bob, false);
+  else if (sheetId === 'skeleton/body/boss') drawSkeleton(buf, d, lean, step, bob, false, true);
   else if (sheetId === 'wolf/body/base') drawWolf(buf, d, lean, step, bob);
   let out = pose.mirror ? mirror(buf) : buf;
   if (anim === 'death') {
