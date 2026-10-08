@@ -871,7 +871,7 @@ keepOut = [];
   const hit = bare.RPG.combat.maxHit();
   assert(hit >= 1, 'bare-handed maxHit is at least 1, got ' + hit);
   assert(bare.RPG.combat.hitChance(3) > 0, 'bare-handed swings can connect on a goblin');
-  assert(bare.RPG.combat.attack({}).reason === 'not_in_d1', 'core attack stays the D1 stub');
+  assert(bare.RPG.combat.attack({}).ok === false, 'core attack ignores a non-mob target');
   const [fist] = RPG.ai.spawnPack('goblin', 40, 40, 1, 4);
   const hp0 = fist.hp;
   let swings = 0;

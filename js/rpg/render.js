@@ -215,6 +215,13 @@
     }
     const set = (!this._armed && Sheet.has('hero_bare_idle')) ? 'hero_bare' : 'hero_rustbound';
     hero.spriteSet = set;
+    if (hero.swingT > 0 && !hero.moving && Sheet.has(set + '_attack')) {
+      const ak = set + '_attack';
+      const n = (Sheet.size(ak) || {}).frames || 4;
+      const fr = Math.min(n - 1, Math.floor((1 - hero.swingT / 0.35) * n));
+      Sheet.drawFoot(ctx, ak, x, y, s, fr, hero.facing > 0);
+      return;
+    }
     const key = set + (hero.moving ? '_walk' : '_idle');
     if (Sheet.has(key)) {
       const fr = hero.moving

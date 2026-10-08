@@ -70,6 +70,7 @@
     const ty = w.y / TH;
     const now = performance.now();
     const hit = this.resolve(tx, ty);
+    if (RPG.combat && !(hit && hit.e === RPG.combat.target)) RPG.combat.target = null; // any other tap breaks off
     let res;
     if (hit) {
       const e = hit.e;

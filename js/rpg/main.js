@@ -60,6 +60,8 @@
         RPG.bus.emit('talk', { npcId: e.id });
       } else if (e.kind === 'mob' && e.corePlaceholder) {
         RPG.ui.toast(e.name + ': combat arrives in D3');
+      } else if (e.kind === 'mob') {
+        RPG.combat.attack(e);
       }
     },
   });
