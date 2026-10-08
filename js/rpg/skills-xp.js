@@ -80,6 +80,7 @@
     RPG.skills.level = level;
     // Works whether core passes RPG.skills.levels or RPG.skills.levels(): the function also
     // carries live getters (levels.mining === level('mining')) for createWorld's getLevels.
+    levels.toJSON = function () { return levels(); };   // items' op log clones payloads via JSON
     SQ.ALL_SKILLS.forEach(function (sk) { Object.defineProperty(levels, sk, { get: function () { return level(sk); }, enumerable: true, configurable: true }); });
     RPG.skills.levels = levels;
     RPG.skills.rng = rng;
