@@ -59,8 +59,8 @@
   const LOOT_FLIGHT = 0.4;
   const VOW_LATE_AT = 300;
   const VOW_LATE_RAMP = 120;
-  const VOW_LATE_HP_MULT = 1.75;
-  const VOW_LATE_DMG_MULT = 1.55;
+  const VOW_LATE_HP_MULT = 3;
+  const VOW_LATE_DMG_MULT = 2.2;
   const RELIEF_AT = 300;
   const RELIEF_GAP = 38;
   const RELIEF_NEAR = 11;
