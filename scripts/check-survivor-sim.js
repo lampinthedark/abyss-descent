@@ -234,6 +234,45 @@ function lootCadence() {
   console.log('loot every 15–25s, first rare by 1:17, both toasts named');
 }
 
+function rarePull() {
+  const far = boot(1, '?headless=1&debug=1');
+  far.__svStart();
+  const id = far.__svSeedItem('rare', 6, 0);
+  const stepFar = () => {
+    let snap = far.__svStep(0.05);
+    if (snap.state === 'levelup') snap = far.__svChoose(0);
+    if (snap.state === 'hermit') snap = far.__svDecline();
+    return snap;
+  };
+  for (let i = 0; i < 20; i++) stepFar();
+  if (!far.__svGround().some((g) => g.id === id)) fail('rare pulled from 6 tiles before 10s');
+  for (let i = 0; i < 200; i++) stepFar();
+  if (far.__svGround().some((g) => g.id === id)) fail('rare still on the ground after 10s');
+  const bag = far.__svBag();
+  if (!bag.some((it) => it.id === id)) fail('flown rare was not picked up');
+
+  const near = boot(2, '?headless=1&debug=1');
+  near.__svStart();
+  near.__svSeedItem('rare', 2.4, 0);
+  let pulled = false;
+  for (let i = 0; i < 12; i++) {
+    const snap = near.__svStep(0.05);
+    if (snap.state === 'levelup') near.__svChoose(0);
+    if (!near.__svGround().length) { pulled = true; break; }
+  }
+  if (!pulled) fail('rare within 3 tiles did not pull');
+
+  const common = boot(3, '?headless=1&debug=1');
+  common.__svStart();
+  common.__svSeedItem('common', 2.4, 0);
+  for (let i = 0; i < 30; i++) {
+    const snap = common.__svStep(0.05);
+    if (snap.state === 'levelup') common.__svChoose(0);
+  }
+  if (!common.__svGround().length) fail('common inside 3 tiles was pulled');
+  console.log('rare+ pulls from 3 tiles and flies home after 10s');
+}
+
 function rareBeside() {
   const rates = [1 / 60, 0.05];
   rates.forEach((dt) => {
@@ -465,9 +504,9 @@ function levelTimeline(seed) {
     if (gap > worst) worst = gap;
   }
   if (late < 6) fail('expected the climb to keep going after 2:00, got ' + late);
-  // The 1:15 beside-hero rare is an extra pickup. One late gap grew by
-  // about a second on the threat bot; a real stall is still much longer.
-  if (worst > 45) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
+  // Beside-hero rares and the 10s rare pull move one mid-run gap. The
+  // climb still continues; a real stall is a minute or more.
+  if (worst > 50) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
   return times;
 }
 
@@ -1326,10 +1365,10 @@ function chestAtCap() {
   if (!live.has(String(rares[0].id))) fail('rare has no beam');
   game.__svPan(rares[0].x, rares[0].y);
   let toast = '';
-  for (let n = 0; n < 8; n++) {
+  for (let n = 0; n < 40; n++) {
     const snap = game.__svStep(0.05);
-    if (snap.toast) toast = snap.toast;
-    if (!game.__svGround().some((g) => g.id === rares[0].id)) break;
+    if (snap.toast && snap.toast.indexOf('Rare:') === 0) toast = snap.toast;
+    if (!game.__svGround().some((g) => g.id === rares[0].id) && toast.indexOf('Rare:') === 0) break;
   }
   if (live.has(String(rares[0].id))) fail('beamOff did not run on pickup');
   if (toast.indexOf('Rare:') !== 0) fail('toast ' + toast);
@@ -1672,6 +1711,7 @@ wardenHitFloor();
 earlyCrowd();
 lootCadence();
 rareBeside();
+rarePull();
 idleDeath();
 groundCap();
 chestAtCap();

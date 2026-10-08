@@ -726,6 +726,8 @@
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
+    g.pull = 0;
+    g.pullT = 0;
     g.age = 0;
     g.big = false;
     g.shower = 0;
@@ -801,18 +803,15 @@
   let fxUpdateMs = 0;
   let fxDrawMs = 0;
 
-  function fxCall(name, a, b, c, d) {
+  function fxCall(name) {
     const box = typeof FX !== 'undefined' ? FX : null;
     const fn = box && box[name];
     if (typeof fn !== 'function') return;
     if (name === 'secondChance') secondChanceFx += 1;
     const t0 = nowMs();
-    const n = arguments.length;
-    if (n <= 1) fn.call(box);
-    else if (n === 2) fn.call(box, a);
-    else if (n === 3) fn.call(box, a, b);
-    else if (n === 4) fn.call(box, a, b, c);
-    else fn.call(box, a, b, c, d);
+    const args = [];
+    for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    fn.apply(box, args);
     const spent = nowMs() - t0;
     if (name === 'draw' || name === 'drawUnder') fxDrawMs += spent;
     else fxUpdateMs += spent;
@@ -2344,6 +2343,8 @@
     const last = gems.pop();
     if (i < gems.length) gems[i] = last;
     g.fly = 0;
+    g.pull = 0;
+    g.pullT = 0;
     g.vx = 0;
     g.vy = 0;
     g.item = null;
@@ -2427,6 +2428,23 @@
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
+      const rareGround = kind === 'item' && g.item && rareBeam(g.item.rarity);
+      if (rareGround) {
+        if (!g.pull && ((g.age || 0) >= 10 || dist <= 3)) {
+          g.pull = 1;
+          g.pullT = 0;
+          fxCall('lootPull', g.item.id, g.x, g.y, player.x, player.y, 300);
+        }
+        if (g.pull) {
+          const leftT = Math.max(dt, 0.3 - (g.pullT || 0));
+          const step = dist * Math.min(1, dt / leftT);
+          if (dist > 0) {
+            g.x += (dx / dist) * step;
+            g.y += (dy / dist) * step;
+          }
+          g.pullT = (g.pullT || 0) + dt;
+        }
+      }
       if (!walked) {
         if (g.shower && time < (g.showerAt || 0)) {
           /* stagger the vacuum */
@@ -2439,7 +2457,8 @@
         }
       }
       const left = len2(player.x - g.x, player.y - g.y);
-      const taken = walked ? left <= grab : (left <= grab || (g.fly && left < 0.08));
+      const pullDone = !!(rareGround && g.pull && g.pullT >= 0.3);
+      const taken = walked ? (left <= grab || pullDone) : (left <= grab || (g.fly && left < 0.08));
       if (taken) {
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
@@ -5143,19 +5162,21 @@
       }
       return bands;
     };
-    window.__svSeedItem = (rarity) => {
+    window.__svSeedItem = (rarity, x, y) => {
       let item = null;
       try { item = SurvivorSave.createItem('iron-blade', rarity || 'common'); } catch (e) { item = null; }
       if (!item) item = { id: 'item-' + gems.length, rarity: rarity || 'common', name: rarity || 'common' };
       const g = gemPool.pop() || {};
-      g.x = player.x;
-      g.y = player.y;
+      g.x = x == null ? player.x : player.x + x;
+      g.y = y == null ? player.y : player.y + y;
       g.kind = 'item';
       g.item = item;
       g.value = 0;
       g.vx = 0;
       g.vy = 0;
       g.fly = 0;
+      g.pull = 0;
+      g.pullT = 0;
       g.age = 0;
       g.big = false;
       g.shower = 0;
