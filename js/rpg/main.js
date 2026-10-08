@@ -110,7 +110,13 @@
     return !RPG.ai && !RPG.hasSystem('ai-monsters'); // Dungeon & Bosses (RPG.ai.spawnPack) takes over
   }
   RPG.bus.on('enter', function (ev) {
-    if (!coreMobs()) return;
+    if (!coreMobs()) {
+      // Dungeon & Bosses' AI owns mobs. Town spawns come from zone data here;
+      // RPG.dungeon.load spawns its own packs, so only the town is handed over.
+      const z = (ev && ev.zone && ev.zone.id) ? ev.zone : World.zone;
+      if (z && z.id === 'town' && RPG.ai && RPG.ai.spawnZone) RPG.ai.spawnZone(World.zone);
+      return;
+    }
     const rng = RPG.rng('ai');
     (World.zone.spawns || []).forEach(function (sp) {
       const def = World.MOBS[sp.monsterId];

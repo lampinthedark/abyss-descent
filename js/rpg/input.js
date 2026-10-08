@@ -74,7 +74,7 @@
     if (hit) {
       const e = hit.e;
       const range = e.range != null ? e.range : hit.t.range != null ? hit.t.range : 1.5;
-      const arrive = function () {
+      let arrive = function () {
         if (Math.hypot(e.x - hero.x, e.y - hero.y) <= range + 0.75 && typeof hit.t.onArrive === 'function') {
           try { hit.t.onArrive(e); } catch (err) { if (root.console) console.error('[tappable ' + hit.t.id + ' onArrive]', err); }
         }
@@ -86,7 +86,24 @@
         arrive();
         res = { kind: e.kind, target: e, tappable: hit.t.id, walked: false };
       } else {
-        const cells = hero.walkTo(Math.floor(e.x), Math.floor(e.y));
+        // NPCs: stop one tile short, beside them on the hero's side (then the
+        // other side, front, back), so neither sprite hides the other or her '!'.
+        let gx0 = Math.floor(e.x);
+        let gy0 = Math.floor(e.y);
+        if (e.kind === 'npc') {
+          const side = hero.x < e.x ? -1 : 1;
+          const opts = [[side, 0], [-side, 0], [0, 1], [side, 1], [-side, 1], [0, -1]];
+          const W = RPG.world;
+          for (let k = 0; k < opts.length; k++) {
+            const cx = gx0 + opts[k][0];
+            const cy = gy0 + opts[k][1];
+            if (W.walkable(cx, cy) && W.path({ x: hero.x, y: hero.y }, { x: cx, y: cy }).length) { gx0 = cx; gy0 = cy; break; }
+          }
+          const face = function () { if (Math.abs(e.x - hero.x) > 0.2) hero.facing = e.x > hero.x ? 1 : -1; };
+          const arrive0 = arrive;
+          arrive = function () { face(); arrive0(); };
+        }
+        const cells = hero.walkTo(gx0, gy0);
         hero.onArrive = cells.length ? arrive : null;
         if (!cells.length) arrive();
         res = { kind: e.kind, target: e, tappable: hit.t.id, walked: cells.length > 0, cells: cells.length };
