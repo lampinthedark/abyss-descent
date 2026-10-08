@@ -176,6 +176,7 @@ body.sv-bench-run #sv-bench {
 }
 
 #sv-end #sv-restart { margin-top: 8px; }
+.sv-title-gold { color: #f4efe0; font-weight: 800; letter-spacing: 0.08em; margin: 0 0 12px; }
 #sv-revive.hidden, #sv-double.hidden, #sv-best.hidden, #sv-warn.hidden, #sv-boss.hidden { display: none; }
 #sv-double:disabled { opacity: 0.45; filter: grayscale(1); cursor: default; }
 

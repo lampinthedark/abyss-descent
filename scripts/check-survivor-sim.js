@@ -152,6 +152,20 @@ function saveOnQuit() {
   console.log('save on quit keeps ' + dead.prev);
 }
 
+function titleGold() {
+  const game = boot(1, '?headless=1');
+  if (game.__svTitleGold() !== '0 gold') fail('title gold ' + game.__svTitleGold());
+  game.__svBank(120);
+  if (game.__svTitleGold() !== '120 gold') fail('banked title gold ' + game.__svTitleGold());
+  game.__svStart();
+  game.__svAddGold(15);
+  game.confirm = () => true;
+  const quit = game.__svQuit();
+  if (quit.state !== 'title') fail('title gold quit ' + quit.state);
+  if (game.__svTitleGold() !== '135 gold') fail('quit title gold ' + game.__svTitleGold());
+  console.log('title screen shows ' + game.__svTitleGold());
+}
+
 function wardenHitFloor() {
   const game = boot(1);
   game.__svStart();
@@ -1866,6 +1880,7 @@ evolvedOffers();
 freshAndFlags();
 bossLook();
 saveOnQuit();
+titleGold();
 wardenHitFloor();
 earlyCrowd();
 lootCadence();

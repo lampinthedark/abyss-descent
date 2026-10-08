@@ -3547,7 +3547,10 @@
     if (shopReturn === 'end') {
       paintNextOffer();
       show('sv-end');
-    } else show('sv-title');
+    } else {
+      paintTitleGold();
+      show('sv-title');
+    }
   }
 
   function openLevel() {
@@ -4061,6 +4064,15 @@
     if (state === 'playing') openPause();
   }
 
+  function paintTitleGold() {
+    let gold = 0;
+    try { gold = SurvivorSave.gold(); } catch (e) {}
+    const text = Math.max(0, Math.round(gold)) + ' gold';
+    const el = $('sv-title-gold');
+    if (el) el.textContent = text;
+    return text;
+  }
+
   function abandonToTitle() {
     state = 'title';
     joy.on = false;
@@ -4069,6 +4081,7 @@
     hide('sv-pause');
     hide('sv-hud');
     hide('sv-end');
+    paintTitleGold();
     show('sv-title');
   }
 
@@ -4788,6 +4801,7 @@
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 80));
+    paintTitleGold();
     $('sv-play').addEventListener('click', () => startRun());
     $('sv-resume').addEventListener('click', () => resumePlay());
     $('sv-pause-btn').addEventListener('click', () => openPause());
@@ -5423,6 +5437,7 @@
       return item ? cardTag(item) : '';
     };
     window.__svOpenHermit = () => { openHermit(); return snapRun(); };
+    window.__svTitleGold = () => paintTitleGold();
     window.__svPurse = () => {
       try { return SurvivorSave.gold(); } catch (e) { return -1; }
     };
