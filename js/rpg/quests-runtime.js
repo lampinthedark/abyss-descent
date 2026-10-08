@@ -227,6 +227,7 @@
     function marker(npcId) { return C().giverMarker(SQ.npcKey(npcId), log()); }
     function wantRecipe() { var st = step(); return st && st.done.type === 'craft' ? st.done.target : null; }
     /** Item base the current quest step wants worn (Q1: 'rustbound_sword'), else null. For core's Wield prompt. */
+    function wantKill() { var st = step(); return st && st.done.type === 'kill' ? st.done.target : null; }
     function wantEquip() { var st = step(); return st && st.done.type === 'equip' ? st.done.target : null; }
 
     /**
@@ -285,7 +286,7 @@
     RPG.registerSystem({ id: 'sq-quests', update: update, draw: function () {} });
 
     RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh, arrowPoint: function () { return arrowPoint(); },
-      marker: marker, wantRecipe: wantRecipe, wantEquip: wantEquip, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
+      marker: marker, wantRecipe: wantRecipe, wantEquip: wantEquip, wantKill: wantKill, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
     refresh();
     return RPG.quests;
   };
