@@ -49,3 +49,10 @@ D&B: `Loot.rollDrop(id, rng, x, y, { questFinish: !!(RPG.quests && RPG.quests.co
 ## Wield prompt
 `RPG.quests.wantEquip()` returns the item base the current step wants worn (Q1: `'rustbound_sword'`), else null.
 Equip steps also poll `Equipment` every 0.25 s, so they complete with or without a bus `equip` event.
+
+## Kill-step arrow
+On a `kill` step (Q2 "Defeat goblins") the tracker arrow points at the nearest live monster whose `monsterId`
+(or object `def.id`) matches the step target, measured from the hero, re-aimed every 0.25 s. Live = not `dead`,
+not `alive:false`, not a corpse / `state:'dead'`, and `hp > 0`. Entities come from `RPG.world.entities()`
+(else `forEach`, else `near(..., 'mob')`). With none alive, or no entity API, it falls back to the step's
+`arrowTo` marker (`goblin_field`, 13,34). Other step types are unchanged. `RPG.quests.arrowPoint()` returns the point.
