@@ -137,7 +137,7 @@
       ctx.globalAlpha = Math.min(1, (0.9 - f.t) / 0.3);
       ctx.strokeStyle = '#14120f';
       ctx.strokeText(f.text, p.x, y);
-      ctx.fillStyle = f.hit ? '#ff5a3c' : '#7fb4ff';
+      ctx.fillStyle = f.hit ? '#ffffff' : '#9a9a9a'; // house rule: white hit, grey 0
       ctx.fillText(f.text, p.x, y);
     }
     ctx.globalAlpha = 1;

@@ -1,0 +1,443 @@
+{
+ "meta": {
+  "image": "sheet.png",
+  "image_3x": "sheet_3x.png",
+  "art_px": 1,
+  "tile_w": 32,
+  "tile_h": 18,
+  "facing": "skeleton / imp / brute: front view (sword or lead fist in the viewer's-left hand); ashmaw: side view, head to the viewer's LEFT. Mirror horizontally for the other side",
+  "anchor": "draw at (feetX - footX, feetY - footY); frames side by side (frame i at x + i*w)",
+  "hover": "mob_imp floats ~4 art px above footY; draw its shadow at footY",
+  "attack": "windup_frame 0 = the tell pose (hold it for the live telegraph time; ms[0] is the floor: 400 mobs, 600+ boss); hit_frame 1 = impact / projectile release; frame 2 = recover",
+  "hurt": "hurt: 2 frames (recoil, settle), then back to idle; flash/tint stays FX-side",
+  "death": "death: 4 frames (recoil, sink, crumple, remains); hold the last frame as the corpse, fade it engine-side",
+  "charge": "charge frame 1 is the dash pose: hold it for the whole dash, then play frame 2",
+  "slam": "mob_ashmaw_slam: 0 rear up (pair with FX telegraph ring), 1 stomp = hit, 2 recover. mob_ashmaw_charge / mob_brute_charge: 0 crouch (pair with telegraphLine), 1 lunge, 2 recover"
+ },
+ "frames": {
+  "mob_skeleton_idle": {
+   "x": 0,
+   "y": 0,
+   "w": 26,
+   "h": 40,
+   "frames": 2,
+   "footY": 38,
+   "footX": 14,
+   "ms": [
+    400,
+    400
+   ]
+  },
+  "mob_skeleton_walk": {
+   "x": 0,
+   "y": 40,
+   "w": 26,
+   "h": 40,
+   "frames": 4,
+   "footY": 38,
+   "footX": 14,
+   "ms": [
+    110,
+    110,
+    110,
+    110
+   ]
+  },
+  "mob_skeleton_attack": {
+   "x": 0,
+   "y": 80,
+   "w": 26,
+   "h": 40,
+   "frames": 3,
+   "footY": 38,
+   "footX": 14,
+   "ms": [
+    400,
+    90,
+    160
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_skeleton_hurt": {
+   "x": 0,
+   "y": 120,
+   "w": 26,
+   "h": 40,
+   "frames": 2,
+   "footY": 38,
+   "footX": 14,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_skeleton_death": {
+   "x": 0,
+   "y": 160,
+   "w": 26,
+   "h": 40,
+   "frames": 4,
+   "footY": 38,
+   "footX": 14,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_imp_idle": {
+   "x": 0,
+   "y": 200,
+   "w": 32,
+   "h": 30,
+   "frames": 2,
+   "footY": 29,
+   "footX": 16,
+   "ms": [
+    400,
+    400
+   ]
+  },
+  "mob_imp_walk": {
+   "x": 0,
+   "y": 230,
+   "w": 32,
+   "h": 30,
+   "frames": 4,
+   "footY": 29,
+   "footX": 16,
+   "ms": [
+    110,
+    110,
+    110,
+    110
+   ]
+  },
+  "mob_imp_attack": {
+   "x": 0,
+   "y": 260,
+   "w": 32,
+   "h": 30,
+   "frames": 3,
+   "footY": 29,
+   "footX": 16,
+   "ms": [
+    400,
+    90,
+    160
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_imp_hurt": {
+   "x": 0,
+   "y": 290,
+   "w": 32,
+   "h": 30,
+   "frames": 2,
+   "footY": 29,
+   "footX": 16,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_imp_death": {
+   "x": 0,
+   "y": 320,
+   "w": 32,
+   "h": 30,
+   "frames": 4,
+   "footY": 29,
+   "footX": 16,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_brute_idle": {
+   "x": 0,
+   "y": 350,
+   "w": 46,
+   "h": 50,
+   "frames": 2,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    400,
+    400
+   ]
+  },
+  "mob_brute_walk": {
+   "x": 0,
+   "y": 400,
+   "w": 46,
+   "h": 50,
+   "frames": 4,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    110,
+    110,
+    110,
+    110
+   ]
+  },
+  "mob_brute_attack": {
+   "x": 0,
+   "y": 450,
+   "w": 46,
+   "h": 50,
+   "frames": 3,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    450,
+    90,
+    180
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_brute_slam": {
+   "x": 0,
+   "y": 500,
+   "w": 46,
+   "h": 50,
+   "frames": 3,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    450,
+    100,
+    220
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_brute_charge": {
+   "x": 0,
+   "y": 550,
+   "w": 46,
+   "h": 50,
+   "frames": 3,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    400,
+    120,
+    220
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_brute_hurt": {
+   "x": 0,
+   "y": 600,
+   "w": 46,
+   "h": 50,
+   "frames": 2,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_brute_death": {
+   "x": 0,
+   "y": 650,
+   "w": 46,
+   "h": 50,
+   "frames": 4,
+   "footY": 47,
+   "footX": 23,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_ashmaw_idle": {
+   "x": 0,
+   "y": 700,
+   "w": 76,
+   "h": 58,
+   "frames": 2,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    500,
+    500
+   ]
+  },
+  "mob_ashmaw_walk": {
+   "x": 0,
+   "y": 758,
+   "w": 76,
+   "h": 58,
+   "frames": 4,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    140,
+    140,
+    140,
+    140
+   ]
+  },
+  "mob_ashmaw_attack": {
+   "x": 0,
+   "y": 816,
+   "w": 76,
+   "h": 58,
+   "frames": 3,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    600,
+    100,
+    220
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_ashmaw_slam": {
+   "x": 0,
+   "y": 874,
+   "w": 76,
+   "h": 58,
+   "frames": 3,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    650,
+    110,
+    260
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_ashmaw_charge": {
+   "x": 0,
+   "y": 932,
+   "w": 76,
+   "h": 58,
+   "frames": 3,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    600,
+    160,
+    260
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  },
+  "mob_ashmaw_hurt": {
+   "x": 0,
+   "y": 990,
+   "w": 76,
+   "h": 58,
+   "frames": 2,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_ashmaw_death": {
+   "x": 0,
+   "y": 1048,
+   "w": 76,
+   "h": 58,
+   "frames": 4,
+   "footY": 55,
+   "footX": 36,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_rat_hurt": {
+   "x": 0,
+   "y": 1106,
+   "w": 34,
+   "h": 15,
+   "frames": 2,
+   "footY": 13,
+   "footX": 15,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_rat_death": {
+   "x": 0,
+   "y": 1121,
+   "w": 34,
+   "h": 15,
+   "frames": 4,
+   "footY": 13,
+   "footX": 15,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_goblin_hurt": {
+   "x": 0,
+   "y": 1136,
+   "w": 32,
+   "h": 36,
+   "frames": 2,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    90,
+    110
+   ]
+  },
+  "mob_goblin_death": {
+   "x": 0,
+   "y": 1172,
+   "w": 32,
+   "h": 36,
+   "frames": 4,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    90,
+    120,
+    140,
+    1000
+   ]
+  },
+  "mob_goblin_throw": {
+   "x": 0,
+   "y": 1208,
+   "w": 32,
+   "h": 36,
+   "frames": 3,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    400,
+    90,
+    160
+   ],
+   "hit_frame": 1,
+   "windup_frame": 0
+  }
+ }
+}

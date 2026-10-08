@@ -30,6 +30,13 @@
       "grade": false
     },
     {
+      "id": "mobs2",
+      "image": "mobs2_sheet_3x.png",
+      "json": "mobs2_sheet.json",
+      "scale": 3,
+      "grade": false
+    },
+    {
       "id": "icons",
       "image": "icons_sheet_3x.png",
       "json": "icons_sheet.json",
