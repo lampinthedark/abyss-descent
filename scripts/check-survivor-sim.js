@@ -2434,10 +2434,14 @@ function circleProbe() {
   });
 }
 
-function watchRun(game, limit, kite) {
+function watchRun(game, limit, opts) {
+  const kite = opts === true || !!(opts && opts.kite);
+  const vow = !!(opts && opts.vow);
+  const dt = (opts && opts.dt) || (1 / 60);
   game.__svStart();
   game.__svView(390, 844, 3);
   let snap = game.__svSnap();
+  let prevLife = snap.life;
   let evo = null;
   let wardenSpawn = null;
   let wardenKill = null;
@@ -2451,13 +2455,24 @@ function watchRun(game, limit, kite) {
   let on360 = null;
   let death = null;
   let lastHit = '';
+  let min180 = 1;
+  let min270 = 1;
+  let at270 = null;
+  let hurt180 = false;
   let minLate = 1;
   let rareAt = null;
   let rarePickupAt = null;
-  const steps = Math.ceil(limit / 0.05) + 40;
+  let gap = 0;
+  let emptyAt = 300;
+  let eliteAt = null;
+  let eliteTtk = null;
+  const steps = Math.ceil(limit / dt) + 40;
   for (let n = 0; n < steps; n++) {
-    snap = game.__svStep(0.05);
-    if (!kite && snap.state === 'hermit') snap = game.__svDecline();
+    snap = game.__svStep(dt);
+    if (snap.state === 'hermit') {
+      if (vow) snap = game.__svAccept();
+      else if (!kite) snap = game.__svDecline();
+    }
     if (!kite && snap.state === 'levelup') {
       if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
       snap = pickCard(game, snap);
@@ -2467,12 +2482,14 @@ function watchRun(game, limit, kite) {
       sawWarden = true;
       wardenSpawn = snap.time;
     }
-    if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden') wardenKill = snap.time;
+    if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden' && snap.state === 'playing') wardenKill = snap.time;
     if (!sawDemon && snap.boss === 'Risen Demon') {
       sawDemon = true;
       demonSpawn = snap.time;
     }
-    if (sawDemon && demonKill == null && snap.boss !== 'Risen Demon') demonKill = snap.time;
+    if (sawDemon && demonKill == null && snap.boss !== 'Risen Demon' && snap.state === 'playing') demonKill = snap.time;
+    if (eliteAt == null && snap.elites > 0) eliteAt = snap.time;
+    if (eliteAt != null && eliteTtk == null && game.__svEliteLeft().n === 0) eliteTtk = snap.time - eliteAt;
     if (snap.time >= 45 && snap.time <= 75) {
       onSum += game.__svOnScreen();
       onN += 1;
@@ -2481,9 +2498,21 @@ function watchRun(game, limit, kite) {
     if (on360 == null && snap.time >= 360) on360 = game.__svOnScreen();
     if (rareAt == null && snap.rareAt >= 0) rareAt = snap.rareAt;
     if (rarePickupAt == null && snap.rarePickupAt >= 0) rarePickupAt = snap.rarePickupAt;
-    if (snap.time >= 420 && snap.maxLife > 0) {
+    if (snap.maxLife > 0) {
       const ratio = snap.life / snap.maxLife;
-      if (ratio < minLate) minLate = ratio;
+      if (snap.time < 180) {
+        if (snap.life < prevLife - 0.4) hurt180 = true;
+        if (ratio < min180) min180 = ratio;
+      }
+      if (snap.time <= 270 && ratio < min270) min270 = ratio;
+      if (at270 == null && snap.time >= 270) at270 = ratio;
+      if (snap.time >= 420 && ratio < minLate) minLate = ratio;
+    }
+    prevLife = snap.life;
+    if (snap.time >= 300) {
+      const near = snap.boss ? 4 : game.__svNear(11);
+      if (near >= 4) emptyAt = snap.time;
+      else if (snap.time - emptyAt > gap) gap = snap.time - emptyAt;
     }
     if (snap.state === 'dead' || snap.state === 'won') {
       death = snap.time;
@@ -2492,21 +2521,30 @@ function watchRun(game, limit, kite) {
     }
     if (snap.time > limit) break;
   }
+  const pct = (v) => v == null ? null : Math.round(v * 100);
   return {
-    end: death == null ? ('alive@' + snap.time.toFixed(1)) : death.toFixed(1),
+    end: death == null ? ('alive@' + snap.time.toFixed(1)) : Number(death.toFixed(1)),
     state: snap.state,
-    hit: lastHit,
+    hit: lastHit || snap.lastHit,
     evo: evo == null ? null : evo,
     wardenSpawn: wardenSpawn,
     wardenKill: wardenKill,
     demonSpawn: demonSpawn,
     demonKill: demonKill,
+    beatWarden: wardenKill != null,
     avgOn: onN ? onSum / onN : null,
     on60: on60,
     on360: on360,
-    minLate: minLate,
+    hurt180: hurt180,
+    min180: pct(min180),
+    min270: pct(min270),
+    at270: pct(at270),
+    minLate: snap.time < 420 ? null : pct(minLate),
+    gap: Math.max(gap, snap.threatGap || 0),
+    eliteTtk: eliteTtk,
     life: Math.round(snap.life),
     max: snap.maxLife,
+    vow: snap.vowCount || 0,
     rareAt: rareAt,
     rarePickupAt: rarePickupAt,
   };
@@ -2514,47 +2552,60 @@ function watchRun(game, limit, kite) {
 
 function balanceTable() {
   const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
-  const idle = {};
-  want.forEach((seed) => {
-    const game = boot(seed);
-    game.__svStart();
-    let deadAt = null;
-    for (let i = 0; i < 1600; i++) {
-      const snap = game.__svIdleStep(0.05);
-      if (snap.state === 'dead') { deadAt = snap.time; break; }
-    }
-    idle[seed] = deadAt == null ? 'alive' : deadAt.toFixed(1);
-  });
+  const fps = 1 / 60;
   const rows = [];
   want.forEach((seed) => {
-    const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 560, false);
-    const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, true);
-    const ttk = (a, b) => (a != null && b != null) ? (b - a).toFixed(1) : '-';
+    const idleGame = boot(seed);
+    idleGame.__svStart();
+    idleGame.__svView(390, 844, 3);
+    let idleAt = null;
+    for (let i = 0; i < 6000; i++) {
+      const snap = idleGame.__svIdleStep(fps);
+      if (snap.state === 'dead') { idleAt = snap.time; break; }
+      if (snap.time > 90) break;
+    }
+    const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps });
+    const vowed = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps, vow: true });
+    const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, { dt: fps, kite: true });
+    const kite20 = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed + '&fps=20'), 610, { dt: 0.05, kite: true });
+    const ttk = (a, b) => (a != null && b != null) ? Number((b - a).toFixed(1)) : null;
     const row = {
       seed: seed,
-      idle: idle[seed],
+      idle: idleAt == null ? null : Number(idleAt.toFixed(1)),
       circle: circle.end,
+      circleState: circle.state,
+      hurt180: circle.hurt180,
+      min180: circle.min180,
+      min270: circle.min270,
+      at270: circle.at270,
       circleHit: circle.hit,
-      kite: kite.end,
-      kiteState: kite.state,
-      kiteHit: kite.hit,
-      kiteHp: kite.life + '/' + kite.max,
-      kiteMin: kite.minLate == null ? '-' : Math.round(kite.minLate * 100) + '%',
-      evo: circle.evo == null ? '-' : circle.evo.toFixed(1),
+      beatWarden: circle.beatWarden,
       wardenTtk: ttk(circle.wardenSpawn, circle.wardenKill),
       demonTtk: ttk(circle.demonSpawn, circle.demonKill),
-      avgOn: circle.avgOn == null ? '-' : circle.avgOn.toFixed(1),
-      on60: circle.on60 == null ? '-' : String(circle.on60),
-      on360: circle.on360 == null ? '-' : String(circle.on360),
-      rareDrop: circle.rareAt == null ? '-' : circle.rareAt.toFixed(1),
-      rarePickup: circle.rarePickupAt == null ? '-' : circle.rarePickupAt.toFixed(1),
+      eliteTtk: circle.eliteTtk == null ? null : Number(circle.eliteTtk.toFixed(2)),
+      gap: Number(circle.gap.toFixed(1)),
+      vowEnd: vowed.end,
+      vowState: vowed.state,
+      vowGap: Number(vowed.gap.toFixed(1)),
+      kite: kite.end,
+      kiteState: kite.state,
+      kiteMin: kite.minLate,
+      kiteHp: kite.life + '/' + kite.max,
+      kiteHit: kite.hit,
+      kite20: kite20.end,
+      kite20State: kite20.state,
+      kite20Min: kite20.minLate,
     };
     rows.push(row);
     console.log(JSON.stringify(row));
   });
-  console.log('seed idle circle hit kite kiteHit kiteMin kiteHp evo wardenTtk demonTtk avgOn on60 on360 rareDrop rarePickup');
+  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonTtk eliteTtk gap vowEnd kite kiteMin kite20');
   rows.forEach((r) => {
-    console.log([r.seed, r.idle, r.circle, r.circleHit, r.kite, r.kiteHit, r.kiteMin, r.kiteHp, r.evo, r.wardenTtk, r.demonTtk, r.avgOn, r.on60, r.on360, r.rareDrop, r.rarePickup].join(' '));
+    console.log([
+      r.seed, r.idle, r.circle, r.hurt180 ? 'hit' : 'safe', r.min180, r.at270,
+      r.beatWarden ? 'warden' : 'no', r.wardenTtk, r.demonTtk, r.eliteTtk, r.gap,
+      r.vowEnd, r.kite, r.kiteMin, r.kite20,
+    ].join(' '));
   });
 }
 
