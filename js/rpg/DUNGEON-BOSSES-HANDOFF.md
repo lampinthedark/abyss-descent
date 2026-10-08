@@ -103,3 +103,10 @@ node scripts/check-rpg-ai.js
 `npm test` runs that script after the existing checks. The headless stub covers pack aggro, leash return, every melee windup ≥ 400ms, and Ashmaw slam/charge windups ≥ 600ms, plus kill/beam and the 3-hit recap.
 
 In the browser, after the scripts are pasted: load Ash Stair with `RPG.dungeon.load(RPG.dungeon.sample())` and paint the Ashmaw can-drop list with `RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'))` (same call as the rumour screen). Kill a rat and confirm it stays belly-up on the last frame of `mob_rat_death`. Stand in a goblin's bow range and confirm `mob_goblin_throw` (the rock spawns on `hit_frame`) even though content anim is still `mob_goblin_attack`. Also call `spawnPack` for a goblin pack, walk one member into sight (the others should chase on `world.path`), kite past the leash and they walk home, and stand in melee so frame 0 of the club holds for the whole windup. On the stair, check a brute jab (`mob_brute_attack`) against its ring slam (`mob_brute_slam`) and line charge (`mob_brute_charge`), then Ashmaw's claw (`mob_ashmaw_attack`), slam (`mob_ashmaw_slam`), and charge (`mob_ashmaw_charge` frame 0, then frame 1 for the dash). Missing mobs2 keys stay labelled boxes.
+
+## Per-spawn tuning (town spawn entries, read by `RPG.ai.spawnZone`)
+
+- `aggro: false`: the entry never aggroes on proximity, only when hit, and a hit wakes only that mob (implies `pull: 'self'`).
+- `aggroRadius: <tiles>`: overrides the zone's proximity radius (town default 2) for that entry.
+- `pull: 'self'`: a hit wakes only the mob that was hit, not its pair. The 2-chaser cap still applies.
+- All three survive the respawn.

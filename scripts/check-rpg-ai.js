@@ -882,6 +882,33 @@ keepOut = [];
   assert(fist.dead && swings === Math.ceil(hp0 / hit), 'field goblin dies to bare-handed core hits, swings ' + swings);
 }
 
+// Per-entry tuning: aggro:false = only when hit; pull:'self' = a hit wakes only that mob.
+{
+  hero.x = 120; hero.y = 120;
+  const tuned = RPG.ai.spawnZone({
+    id: 'town',
+    spawns: [
+      { monsterId: 'rat', x: 120, y: 121, n: 2, leash: 4, aggro: false },
+      { monsterId: 'goblin', x: 126, y: 120, n: 2, leash: 4, area: { x0: 124, y0: 118, x1: 130, y1: 122 }, respawn: 10, pull: 'self' },
+    ],
+  });
+  const calmRats = tuned.filter((m) => m.monsterId === 'rat');
+  const soloGobs = tuned.filter((m) => m.monsterId === 'goblin');
+  RPG.ai.tick(0.05);
+  assert(calmRats.every((m) => !m.aggro), 'aggro:false rats ignore a hero on their tile');
+  calmRats[0].takeHit(1, { srcId: 'hero' });
+  assert(calmRats[0].aggro && !calmRats[1].aggro, 'a hit rat fights back; its packmate stays calm');
+  hero.x = 200; hero.y = 200;
+  for (const m of calmRats) { m.aggro = false; m.state = 'wander'; }
+  soloGobs[0].takeHit(1, { srcId: 'hero' });
+  assert(soloGobs[0].aggro && !soloGobs[1].aggro, "pull:'self' wakes only the hit goblin");
+  soloGobs[0].takeHit(9999, { srcId: 'hero' });
+  RPG.ai.tick(10.1);
+  const back = entities.filter((m) => m.monsterId === 'goblin' && !m.dead && m.pullSelf && m.area && m.area.x0 === 124);
+  assert(back.length === 2, "pull:'self' survives the 10 s respawn, got " + back.length);
+  for (const m of tuned) { m.aggro = false; m.state = 'wander'; }
+}
+
 // Core's renderer draws e.sprite (full sheet key) at e.frame or every e.anim ms,
 // flipped by e.flip. Keys come from window.Sheet (assets/rpg/mobs_sheet.json).
 {

@@ -431,6 +431,13 @@
   }
 
   function alertPack(mob) {
+    if (mob.pullSelf) {
+      // Spawn entry pull:'self': a hit wakes only this mob, never its partner.
+      if (!mob.aggro && mob.scope === 'pair' && pairChasers() >= FIELD_CAP) return;
+      mob.aggro = true;
+      if (mob.state !== 'windup' && mob.state !== 'slam' && mob.state !== 'charge' && mob.state !== 'dash' && mob.state !== 'claw') mob.state = 'chase';
+      return;
+    }
     let slots = mob.scope === 'pair' ? Math.max(0, FIELD_CAP - pairChasers()) : 99;
     for (let i = 0; i < mobs.length; i++) {
       const other = mobs[i];
@@ -671,6 +678,7 @@
     mob.scope = field ? 'pair' : (opts.scope || 'pack');
     mob.respawnSec = typeof opts.respawn === 'number' ? opts.respawn : 0;
     if (typeof opts.aggroRadius === 'number') mob.townAggro = opts.aggroRadius;
+    mob.pullSelf = opts.pull === 'self';
     if (field) {
       mob.spawnX = x;
       mob.spawnY = y;
@@ -737,7 +745,10 @@
         area: sp.area || null,
         respawn: sp.respawn,
         scope: sp.area ? 'pair' : 'pack',
-        aggroRadius: aggroRadius,
+        // Per-entry override: a number of tiles, or false = only when hit.
+        aggroRadius: sp.aggro === false ? -1 : (typeof sp.aggroRadius === 'number' ? sp.aggroRadius : aggroRadius),
+        // aggro:false implies pull:'self' (a passive mob only answers its own hit).
+        pull: (sp.pull === 'self' || (sp.aggro === false && sp.pull == null)) ? 'self' : null,
       });
       for (let j = 0; j < pack.length; j++) spawned.push(pack[j]);
     }
@@ -928,6 +939,7 @@
       scope: mob.scope || 'pack',
       packId: mob.packId,
       aggroRadius: typeof mob.townAggro === 'number' ? mob.townAggro : null,
+      pull: mob.pullSelf ? 'self' : null,
     });
   }
 
@@ -946,6 +958,7 @@
         scope: job.scope,
         respawn: job.respawn,
         aggroRadius: job.aggroRadius,
+        pull: job.pull,
       });
       mobs.push(mob);
       addToWorld(mob);
