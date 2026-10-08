@@ -76,7 +76,7 @@
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
   const demonHpFrac = demonHpMatch ? Math.max(0, Math.min(1, Number(demonHpMatch[1]))) : -1;
-  const forceVow = toolDebug && /(?:^|[?&])vow=1(?:&|$)/.test(search);
+  const forceVow = /(?:^|[?&])vow=1(?:&|$)/.test(search);
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
     Math.random = () => {
@@ -930,6 +930,7 @@
   const TOAST_STALE = 4.05;
   function rarityRank(rarity) {
     const key = String(rarity || 'common').toLowerCase();
+    if (key.indexOf('note:') === 0) return 5;
     if (key === 'legendary') return 4;
     if (key === 'epic') return 3;
     if (key === 'rare') return 2;
@@ -937,6 +938,7 @@
     return 0;
   }
   function toastTitle(entry) {
+    if (entry.note) return entry.text;
     const base = (entry.rarityName || 'Common') + ': ' + (entry.name || 'Item');
     if ((entry.count || 1) > 1) return base + ' +' + (entry.count - 1) + ' more';
     return base;
@@ -1022,6 +1024,24 @@
       count: 1,
       at: time,
       text: line.text,
+    };
+    if (bossBannerOn() || toastT > 0) {
+      queueToast(entry);
+      return;
+    }
+    presentToast(entry);
+  }
+  function showNote(text, color) {
+    if (!text) return;
+    const entry = {
+      note: true,
+      rarity: 'note:' + text,
+      rarityName: '',
+      name: text,
+      text: text,
+      color: color || '#d0b4ff',
+      count: 1,
+      at: time,
     };
     if (bossBannerOn() || toastT > 0) {
       queueToast(entry);
@@ -3959,6 +3979,7 @@
     try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
     fxCall('vow', vowCount);
     syncVowChrome();
+    showNote('Vow accepted', '#d0b4ff');
   }
 
   let vowSecShown = -1;

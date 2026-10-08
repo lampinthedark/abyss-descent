@@ -873,7 +873,24 @@ function forcedVow() {
   if (!(snap.curse > 0)) fail('forced vow has no curse');
   if (snap.time < 90 || snap.time > 90.2) fail('forced vow time ' + snap.time);
   if (!snap.vowBadge) fail('forced vow badge missing');
+  if (snap.toast !== 'Vow accepted') fail('vow toast ' + snap.toast);
   console.log('forced vow accepted at ' + snap.time.toFixed(2));
+}
+
+function vowFlagAlone() {
+  const game = boot(4, '?headless=1&vow=1');
+  game.__svStart();
+  game.__svInvuln(120);
+  let snap = game.__svSnap();
+  for (let i = 0; i < 2200 && snap.vowCount < 1 && snap.state !== 'dead'; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+  }
+  if (snap.vowCount < 1) fail('vow=1 without debug missed at ' + snap.time + ' ' + snap.state);
+  if (snap.state === 'hermit') fail('vow=1 opened the card');
+  if (snap.toast !== 'Vow accepted') fail('vow=1 toast ' + snap.toast);
+  if (!snap.vowBadge) fail('vow=1 badge missing');
+  console.log('vow=1 without debug accepted at ' + snap.time.toFixed(2));
 }
 
 function bossWarning() {
@@ -1899,6 +1916,7 @@ bannerToastCap('warden', '?headless=1&debug=1&t=148', 'Grave Warden');
 bannerToastCap('demon', '?headless=1&debug=1&t=295', 'Risen Demon');
 vows();
 forcedVow();
+vowFlagAlone();
 hermitTwice();
 vowRevive();
 twoEvos();
