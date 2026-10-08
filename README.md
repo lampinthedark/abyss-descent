@@ -6,6 +6,20 @@ Sound is synthesized in the browser (no audio files). It starts after the first 
 
 Play it here: https://lampinthedark.github.io/abyss-descent/
 
+Survivor mode is a separate page: https://lampinthedark.github.io/abyss-descent/survivor.html?v=1
+
+## Survivor mode
+
+One open arena, about ten minutes. The hero is the **sorcerer** because that class already fights with a ranged bolt, so the staff fires on its own and a thumb only steers. Warrior and rogue stay melee in the descent.
+
+Drag anywhere (or use WASD / the arrow keys) to move. There is no attack button and no click-to-move. XP gems pull in. A level-up pauses the fight and offers three large choices. At five minutes a Risen Brute joins the crowd. At ten minutes the run ends with **You survived**. Dying shows time, kills, level, and gold, and Restart is one tap. Once a run, the Hermit can offer a vow: enemies gain half again as much life for a minute, then you pick two upgrades.
+
+Revive, reroll, and double gold call the same ad hooks as the descent. They stay off unless `?adtest=1` is set, and a placeholder opens only from the death screen or when Reroll is tapped on the level-up screen. Nothing is requested from a network. `?debug=1` shows a small frames-per-second readout. `?bench=1` fills the arena with 300 demons so that readout can be checked.
+
+Weapons and passives are data in `js/survivor-data.js`, each with a level cap and an `evolvesWith` field (empty for now). Run gold amounts live in one `REWARDS` table. A versioned local save (`abyss-survivor-meta`) keeps banked gold, a slot for future permanent upgrades, and a cosmetics slot for a skin or effect. There is no shop yet.
+
+The descent at `index.html` is unchanged except for a link to this mode.
+
 ## Android and iOS
 
 Capacitor 7 wraps this same site in a WebView. The GitHub Pages build is still the repository root (`index.html`, `css/`, `js/`). `npm run cap:sync` copies those files into `www/` and into the native projects, then links `mobile/shell.css` and `mobile/shell.js` in the copy only. The Pages `index.html` stays as it is.
@@ -124,6 +138,13 @@ Events:
 | `vow-offered-silence`, `vow-offered-embers`, `vow-offered-oath` | The Hermit offers that vow |
 | `vow-accepted-silence`, `vow-accepted-embers`, `vow-accepted-oath` | That vow is accepted |
 | `vow-completed-silence`, `vow-completed-embers`, `vow-completed-oath` | That vow is turned in |
+| `survivor-run-started` | Survivor play begins |
+| `survivor-minute-1` … `survivor-minute-10` | That minute of the run is reached |
+| `survivor-died-minute-0` … `survivor-died-minute-10` | The run ends in death during that minute (`0` is the opening minute) |
+| `survivor-won` | The ten minutes are survived |
+| `survivor-restart` | Restart is pressed |
+| `survivor-level-1-5`, `survivor-level-6-10`, `survivor-level-11-20`, `survivor-level-21-plus` | Level at the end of the run |
+| `survivor-levelups-0`, `survivor-levelups-1-3`, `survivor-levelups-4-7`, `survivor-levelups-8-plus` | How many level-ups the run had |
 
 ## Ad test
 

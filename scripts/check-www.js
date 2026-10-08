@@ -23,6 +23,13 @@ const wwwHtml = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
 if (rootHtml.includes('mobile/shell')) {
   fail('root index.html links the native shell');
 }
+const rootSurvivor = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
+const wwwSurvivor = fs.readFileSync(path.join(www, 'survivor.html'), 'utf8');
+if (rootSurvivor.includes('mobile/shell')) fail('root survivor.html links the native shell');
+if (!wwwSurvivor.includes('mobile/shell.css') || !wwwSurvivor.includes('mobile/shell.js')) {
+  fail('www/survivor.html is missing the Capacitor shell');
+}
+if (!rootSurvivor.includes('survivor.js?v=1')) fail('survivor.html is missing its cache bust');
 if (!wwwHtml.includes('mobile/shell.css') || !wwwHtml.includes('mobile/shell.js')) {
   fail('www/index.html is missing the Capacitor shell');
 }

@@ -17,6 +17,8 @@ const Ads = (() => {
   let combatFn = function () { return false; };
   const queue = [];
   let showing = null;
+  let flushQueue = true;
+  let resultFn = null;
 
   function inCombat() {
     try { return !!combatFn(); } catch (e) { return false; }
@@ -72,10 +74,12 @@ const Ads = (() => {
     return 'shown';
   }
 
-  function closePrompt() {
+  function closePrompt(reason) {
+    const kind = showing;
     showing = null;
     hidePrompt();
-    if (inCombat()) {
+    try { if (resultFn && kind) resultFn(kind, reason || 'dismiss'); } catch (e) {}
+    if (inCombat() || !flushQueue) {
       setHeld(queue.length > 0);
       return;
     }
@@ -127,10 +131,11 @@ const Ads = (() => {
     const prompt = promptEl();
     if (!prompt) return;
     prompt.addEventListener('click', (e) => {
-      if (e.target.closest('[data-ad-accept], [data-ad-dismiss]')) {
+      const accepted = e.target.closest('[data-ad-accept]');
+      if (accepted || e.target.closest('[data-ad-dismiss]')) {
         e.preventDefault();
         e.stopPropagation();
-        closePrompt();
+        closePrompt(accepted ? 'accept' : 'dismiss');
       }
     });
   }
@@ -142,6 +147,8 @@ const Ads = (() => {
     offerReroll() { try { return offer('reroll'); } catch (e) { return 'unavailable'; } },
     offerDoubleGold() { try { return offer('gold'); } catch (e) { return 'unavailable'; } },
     setCombat,
+    setFlush(on) { flushQueue = on !== false; },
+    onResult(fn) { resultFn = typeof fn === 'function' ? fn : null; },
     tick() { try { tick(); } catch (e) {} },
   };
 })();
