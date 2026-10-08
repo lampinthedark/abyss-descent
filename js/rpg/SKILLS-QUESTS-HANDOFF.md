@@ -13,13 +13,13 @@ Five files in `js/rpg/`, no core edits. Tests: `npm run test:sq` (fake core per 
 Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests` exist after these load, which switches off core's placeholders.
 
 ## What I need from core (all already in HOOKS unless marked)
-- `RPGItems.createWorld({ getLevels: RPG.skills.levels, ... })` so Crafting sees real levels. If createWorld runs before my files load, pass `() => RPG.skills ? RPG.skills.levels() : {}`.
+- `RPGItems.createWorld({ getLevels: RPG.skills.levels, ... })` so Crafting sees real levels. `RPG.skills.levels` works called or uncalled (it carries live per-skill getters).
 - Item globals: I read `RPG.items` if set, else `window.Crafting / Inventory / Equipment / Loot`. Content: `RPG.content` if set, else `window.RPGContent`.
 - `RPG.world.zone.markers` = `ore[{x,y,tier}]`, `tree[{x,y,kind}]`, `fish[{x,y}]`, `furnace`, `anvil`, `range`, `fire` (object or array). I spawn on `enter {zone:'town'}`, and also at load if the zone is already town.
 - `talk {npcId}`: `npc_questgiver` is fine; I strip `npc_` to match content ids. I only handle quest givers. Bank and shops stay yours.
 - `equip {slot, itemId}`: I look up the base via `Equipment.list()[slot].base`; passing `base` in the event is welcome.
-- **Ask:** `Store.get(slice)` (or `getState()`) so I read the restored `quests` slice after a load. Until then I keep a mirror that the reducer updates.
-- **Ask:** `cam.toScreen(x, y) -> {x, y, scale}` for the `!` and `?` markers. Fallback is `(x - cam.x) * 32 * scale`, `(y - cam.y) * 18 * scale`.
+- `Store.get('quests')` is read first (GD confirmed for D1); the mirror is only a fallback.
+- Markers use `RPG.camera.toScreen(x, y)` (GD confirmed for D1).
 - `RPG.ui.dialog(npcId, lines, choices)` should resolve to the chosen `id` (or the choice object). `null` for a closed dialog means decline.
 
 ## What I emit / call

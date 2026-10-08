@@ -1,7 +1,7 @@
 /**
  * Skills & Quests: in-world quest markers. Draws a bobbing '!' (offerable) or
  * '?' (ready to hand in) above quest-giver NPCs on the 'ui' layer.
- * Screen mapping: cam.toScreen(x, y) / cam.worldToScreen(x, y) if core has it,
+ * Screen mapping: RPG.camera.toScreen(x, y) (core, D1), else cam.toScreen(x, y) / cam.worldToScreen(x, y) if core has it,
  * else (x - cam.x) * TILE_W * scale, (y - cam.y) * TILE_H * scale.
  */
 (function (root) {
@@ -11,6 +11,8 @@
   SQ.MARK_COLOR = { '!': '#ffd23f', '?': '#9fd8ff' };
 
   SQ.toScreen = function (cam, x, y) {
+    var RC = root.RPG && root.RPG.camera;
+    if (RC && typeof RC.toScreen === 'function') return RC.toScreen(x, y);   // core: tile coords -> ui-layer px
     if (cam && typeof cam.toScreen === 'function') return cam.toScreen(x, y);
     if (cam && typeof cam.worldToScreen === 'function') return cam.worldToScreen(x, y);
     var s = (cam && (cam.scale || cam.zoom)) || 1;

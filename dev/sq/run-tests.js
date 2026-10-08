@@ -207,6 +207,17 @@ async function playQ1(seed) {
     eq(files.length, 6);
     for (const f of files) { const r = Banned.scanFile(f, fs); ok(r.fails === 0 && r.warns === 0, f + '\n' + r.lines.join('\n')); }
   });
+  test('getLevels works with RPG.skills.levels uncalled (GD D1 wiring) and called', () => {
+    const s = makeCore(5); s.xp.mining = SQ.xpForLevel(10);
+    eq(s.RPG.skills.levels.mining, 10); eq(s.RPG.skills.levels().mining, 10);
+    const w = R.createWorld({ deviceId: 'lv', lootSeed: 1, storage: null, getLevels: () => s.RPG.skills ? s.RPG.skills.levels : {} });
+    w.Inventory.grant({ src: 'quest', ref: 't', items: [{ base: 'rustbound_pickaxe', qty: 1 }] });
+    const r = w.Crafting.gather('node_ore_cinderiron'); ok(r.reason !== 'level_too_low', JSON.stringify(r));
+  });
+  test('markers use RPG.camera.toScreen when core has it', () => {
+    const prev = globalThis.RPG; globalThis.RPG = { camera: { toScreen: (x, y) => ({ x: x * 10, y: y * 10 }) } };
+    const p = SQ.toScreen({}, 2, 3); globalThis.RPG = prev; eq(p.x, 20); eq(p.y, 30);
+  });
   test('no Math.random in S&Q files', () => {
     for (const f of fs.readdirSync(path.join(ROOT, 'js/rpg')).filter(f => /^(skills|quests)-.*\.js$/.test(f)))
       ok(!/Math\.random\(/.test(fs.readFileSync(path.join(ROOT, 'js/rpg', f), 'utf8')), f);

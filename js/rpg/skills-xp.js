@@ -78,7 +78,10 @@
     RPG.skills.SKILLS = SQ.SKILLS;
     RPG.skills.grant = grant;
     RPG.skills.level = level;
-    RPG.skills.levels = levels;   // GD: pass as RPGItems createWorld({ getLevels: RPG.skills.levels })
+    // Works whether core passes RPG.skills.levels or RPG.skills.levels(): the function also
+    // carries live getters (levels.mining === level('mining')) for createWorld's getLevels.
+    SQ.ALL_SKILLS.forEach(function (sk) { Object.defineProperty(levels, sk, { get: function () { return level(sk); }, enumerable: true, configurable: true }); });
+    RPG.skills.levels = levels;
     RPG.skills.rng = rng;
     RPG.skills.items = items;
     RPG.skills.content = content;
