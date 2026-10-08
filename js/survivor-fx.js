@@ -5,13 +5,13 @@
  *
  * Boss / elite hit silhouettes share one photosensitivity budget with the
  * evolution flash and with boss death silhouettes (at most 3 per second,
- * never closer than 0.34s, full-screen white never above 60%). The hit
- * payload has no stable enemy id today, so those hit silhouettes also share
- * a single 0.35s cooldown. If `id` or `fid` is present, the 0.35s wait is
- * per id (fixed 24-slot table). Sparks still spawn on every hit.
- * Death silhouettes are capped at 3 per 0.1s, drawn at 60% white, and
- * skipped entirely when reduced motion is on. Shards still play. A boss
- * death (`vis.boss` or type `'boss'`) also spends the shared flash budget.
+ * never closer than 0.34s). Every silhouette, hit or death, draws at most
+ * 60% white. Hit silhouettes also wait 0.35s per `id` or `fid` (one global
+ * timer when neither is set; fixed 24-slot table). Sparks still spawn on
+ * every hit. Death silhouettes are capped at 3 per 0.1s and skipped entirely
+ * when reduced motion is on. Shards still play. A boss death (`vis.boss` or
+ * type `'boss'`) also spends the shared flash budget. Gem pickups
+ * (`FX.pickup(x, y, 'gem', {chain})`) scale a cyan sparkle up to chain 12.
  * A second full-screen evolve within 1s of the last one is a hero ring.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
@@ -34,7 +34,7 @@ const FX = (function () {
 
   const parts = new Array(CAP);
   for (let i = 0; i < CAP; i++) {
-    parts[i] = { life: 0, max: 1, x: 0, y: 0, vx: 0, vy: 0, w: 2, h: 2, tone: 0 };
+    parts[i] = { life: 0, max: 1, x: 0, y: 0, vx: 0, vy: 0, w: 2, h: 2, tone: 0, peak: 1 };
   }
   let partCursor = 0;
 
@@ -71,7 +71,7 @@ const FX = (function () {
   const flashStamp = [-10, -10, -10];
   const deathSilStamp = [-10, -10, -10];
   const trailAlpha = [0.55, 0.34, 0.2, 0.1];
-  const toneColor = ['#ffffff', '#c8cdd4', '#9aa3ad'];
+  const toneColor = ['#ffffff', '#c8cdd4', '#9aa3ad', '#5fd8ff'];
 
   let clock = 0;
   let vows = 0;
@@ -256,8 +256,9 @@ const FX = (function () {
     return sils[best];
   }
 
-  function spray(x, y, n, life, speed, w, h, whiteOnly) {
+  function spray(x, y, n, life, speed, w, h, whiteOnly, peak, gem) {
     const base = rand() * TAU;
+    const bright = peak > 0 ? (peak > 1 ? 1 : peak) : 1;
     for (let i = 0; i < n; i++) {
       const p = takePart();
       const a = base + i * 2.399963229728653;
@@ -271,7 +272,8 @@ const FX = (function () {
       p.vy = Math.sin(a) * sp;
       p.w = w;
       p.h = (i % 2 === 0) ? h : Math.max(2, h - 1);
-      p.tone = whiteOnly ? 0 : (i % 3);
+      p.tone = gem ? 3 : (whiteOnly ? 0 : (i % 3));
+      p.peak = bright;
     }
   }
 
@@ -304,7 +306,9 @@ const FX = (function () {
     s.scale = vis.scale > 0 ? vis.scale : 1;
     s.flip = vis.flip ? 1 : 0;
     s.pad = framePad(fr);
-    s.a = alpha > 0 ? alpha : 1;
+    let a = alpha > 0 ? alpha : 0.6;
+    if (a > 0.6) a = 0.6;
+    s.a = a;
   }
 
   function deathWindowOpen() {
@@ -581,7 +585,7 @@ const FX = (function () {
         const sy = s.y * tile + camY;
         const dx = Math.round(sx - dw / 2);
         const dy = Math.round(sy - foot);
-        ctx.globalAlpha = s.a > 0 ? s.a : 1;
+        ctx.globalAlpha = Math.min(0.6, s.a > 0 ? s.a : 0.6);
         if (s.flip) ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx + dw, dy, -dw, dh);
         else ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx, dy, dw, dh);
       }
@@ -594,13 +598,21 @@ const FX = (function () {
       const sx = Math.round(p.x * tile + camX);
       const sy = Math.round(p.y * tile + camY);
       if (sx < -20 || sy < -20 || sx > viewW + 20 || sy > viewH + 20) continue;
-      const a = p.max > 0 ? p.life / p.max : 0;
+      let a = p.max > 0 ? p.life / p.max : 0;
+      if (p.peak > 0 && p.peak < 1) a *= p.peak;
+      if (a > 1) a = 1;
       if (a <= 0.02) continue;
       ctx.globalAlpha = a;
       ctx.fillStyle = '#14120f';
       ctx.fillRect(sx - 1, sy - 1, p.w + 2, p.h + 2);
       ctx.fillStyle = toneColor[p.tone] || '#ffffff';
       ctx.fillRect(sx, sy, p.w, p.h);
+      if (p.tone === 3 && p.w > 1 && p.h > 1) {
+        ctx.fillStyle = '#ffffff';
+        const cw = p.w > 2 ? 2 : 1;
+        const ch = p.h > 2 ? 2 : 1;
+        ctx.fillRect(sx + ((p.w - cw) >> 1), sy + ((p.h - ch) >> 1), cw, ch);
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -675,7 +687,7 @@ const FX = (function () {
       const heavy = !!(vis && (vis.boss || vis.elite));
       if (heavy) spray(x, y, 6, 0.16, 5.6, 5, 5, true);
       else spray(x, y, 4, 0.12, 4.4, 3, 3, true);
-      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 1);
+      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 0.6);
     },
 
     death: function (x, y, type, vis) {
@@ -703,9 +715,22 @@ const FX = (function () {
       }
     },
 
-    pickup: function (x, y) {
+    pickup: function (x, y, kind, info) {
       if (!ok(x) || !ok(y)) return;
-      spray(x, y, 4, 0.14, 3.4, 2, 2, true);
+      if (kind === 'gem') {
+        let c = (info && info.chain) || 1;
+        if (c < 1) c = 1;
+        if (c > 12) c = 12;
+        if (reducedNow()) c = 1;
+        const t = (c - 1) / 11;
+        const n = 4 + Math.round(t * 4);
+        const size = Math.round(2 + t);
+        const spread = 3.4 * (1 + t * 0.35);
+        const peak = 0.7 + t * 0.3;
+        spray(x, y, n, 0.14, spread, size, size, true, peak, true);
+      } else {
+        spray(x, y, 4, 0.14, 3.4, 2, 2, true);
+      }
       addRing({ space: 0, x: x, y: y, r0: 0.06, r1: 0.4, thick: 2, dur: 0.16, tone: 0 });
     },
 
