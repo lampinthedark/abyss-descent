@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1b2416" />
+  <title>Abyss Descent: Town (RPG D1)</title>
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1b2416;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #rpg {
+      position: fixed;
+      left: 0;
+      top: 0;
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: pointer;
+    }
+    #bench {
+      position: fixed;
+      left: 6px;
+      top: calc(52px + env(safe-area-inset-top, 0px)); /* below the quest tip */
+      padding: 4px 6px;
+      background: rgba(10, 8, 10, 0.72);
+      color: #f4efe0;
+      font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
+      white-space: pre;
+      pointer-events: none;
+      z-index: 6;
+    }
+    #boot {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #f4efe0;
+      font: 14px ui-monospace, Menlo, Consolas, monospace;
+      pointer-events: none;
+    }
+    /* RPG.ui (core): toasts, quest tip, bottom-sheet dialogs. Warm, never blue. */
+    .rpg-ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; font: 15px/1.35 ui-sans-serif, system-ui, sans-serif; }
+    .rpg-toast { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 56px); transform: translateX(-50%);
+      background: rgba(20, 18, 15, 0.88); color: #f4efe0; padding: 8px 14px; border-radius: 10px; border: 1px solid #6b4a22;
+      white-space: nowrap; transition: opacity 0.4s; }
+    .rpg-toast.out { opacity: 0; }
+    #quest-tip { position: absolute; left: 12px; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 10px); text-align: center;
+      color: #ffd28a; background: rgba(20, 18, 15, 0.78); border: 1px solid #6b4a22; border-radius: 10px; padding: 7px 10px; }
+    .rpg-sheet { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: auto; background: rgba(24, 20, 16, 0.96);
+      color: #f4efe0; border-top: 2px solid #8a5a26; border-radius: 14px 14px 0 0;
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateY(100%); transition: transform 0.18s ease-out; }
+    .rpg-sheet.open { transform: none; }
+    .rpg-name { color: #ffb43c; font-weight: 700; margin-bottom: 6px; }
+    .rpg-text { min-height: 3em; margin-bottom: 12px; }
+    .rpg-drops { display: block; margin: -4px 0 12px; }
+    .rpg-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    .rpg-btn { flex: 1 1 40%; min-height: 48px; font: inherit; color: #f4efe0; background: #3a2c1e; border: 1px solid #8a5a26; border-radius: 10px; }
+    .rpg-btn.primary { background: #8a4f1c; border-color: #ffb43c; }
+    @media (prefers-reduced-motion: reduce) { .rpg-sheet, .rpg-toast { transition: none; } }
+  </style>
+</head>
+<body>
+  <canvas id="rpg"></canvas>
+  <div id="bench" hidden></div>
+  <div id="boot">Loading town...</div>
+
+  <!-- FX (UI specialist's file, read-only for us). Defines the global FX. -->
+  <script src="js/survivor-fx.js?v=6.1.1"></script>
+
+  <script src="js/rpg/items-stub.js?v=d1"></script>
+  <script src="js/rpg/store.js?v=d1"></script>
+  <script src="js/rpg/save.js?v=d1"></script>
+  <script src="js/rpg/fx-adapter.js?v=d1"></script>
+  <script src="js/rpg/sheet.js?v=d1"></script>
+  <script src="js/rpg/path.js?v=d1"></script>
+  <script src="js/rpg/world.js?v=d1"></script>
+  <script src="js/rpg/camera.js?v=d1"></script>
+  <script src="js/rpg/hero.js?v=d1"></script>
+  <script src="js/rpg/combat.js?v=d1"></script>
+  <script src="js/rpg/ui.js?v=d1"></script>
+  <script src="js/rpg/render.js?v=d1"></script>
+  <script src="js/rpg/input.js?v=d1"></script>
+  <!-- Owners' files (Skills & Quests, Dungeon & Bosses, Items) load here, before main.js. -->
+  <script src="js/rpg/main.js?v=d1"></script>
+</body>
+</html>

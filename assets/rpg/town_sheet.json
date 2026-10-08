@@ -1,0 +1,693 @@
+{
+ "meta": {
+  "image": "sheet.png",
+  "image_3x": "sheet_3x.png",
+  "art_px": 1,
+  "tile_w": 32,
+  "tile_h": 18,
+  "module_px": 16,
+  "footY": "row of the ground-contact line inside one frame (null for tiles/edges); *_top = rows 0..h of the same frame for depth sorting; frames sit side by side (w = one frame)"
+ },
+ "frames": {
+  "tile_town_path_0": {
+   "x": 0,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_town_path_1": {
+   "x": 34,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_cobble_0": {
+   "x": 68,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_cobble_1": {
+   "x": 102,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_cobble_2": {
+   "x": 136,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_plaza_0": {
+   "x": 170,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_plaza_1": {
+   "x": 204,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_water_0": {
+   "x": 238,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_water_1": {
+   "x": 272,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_n": {
+   "x": 306,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_s": {
+   "x": 340,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_e": {
+   "x": 374,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_w": {
+   "x": 408,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_ne": {
+   "x": 442,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_nw": {
+   "x": 476,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_se": {
+   "x": 0,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_sw": {
+   "x": 34,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_inner_ne": {
+   "x": 68,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_inner_nw": {
+   "x": 102,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_inner_se": {
+   "x": 136,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_cobble_inner_sw": {
+   "x": 170,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_n": {
+   "x": 204,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_s": {
+   "x": 238,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_e": {
+   "x": 272,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_w": {
+   "x": 306,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_ne": {
+   "x": 340,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_nw": {
+   "x": 374,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_se": {
+   "x": 408,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_sw": {
+   "x": 442,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_inner_ne": {
+   "x": 476,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_inner_nw": {
+   "x": 0,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_inner_se": {
+   "x": 34,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_water_inner_sw": {
+   "x": 68,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "prop_bank_0": {
+   "x": 102,
+   "y": 40,
+   "w": 98,
+   "h": 88,
+   "frames": 1,
+   "footY": 86
+  },
+  "prop_bank_0_top": {
+   "x": 102,
+   "y": 40,
+   "w": 98,
+   "h": 77,
+   "frames": 1,
+   "footY": 86
+  },
+  "prop_shop_0": {
+   "x": 202,
+   "y": 40,
+   "w": 66,
+   "h": 80,
+   "frames": 1,
+   "footY": 78
+  },
+  "prop_shop_0_top": {
+   "x": 202,
+   "y": 40,
+   "w": 66,
+   "h": 69,
+   "frames": 1,
+   "footY": 78
+  },
+  "bldg_wall_stone_0": {
+   "x": 270,
+   "y": 40,
+   "w": 34,
+   "h": 42,
+   "frames": 1,
+   "footY": 40
+  },
+  "bldg_wall_plaster_0": {
+   "x": 306,
+   "y": 40,
+   "w": 34,
+   "h": 42,
+   "frames": 1,
+   "footY": 40
+  },
+  "bldg_roof_slate_0": {
+   "x": 342,
+   "y": 40,
+   "w": 34,
+   "h": 30,
+   "frames": 1,
+   "footY": 28
+  },
+  "bldg_roof_shingle_0": {
+   "x": 378,
+   "y": 40,
+   "w": 34,
+   "h": 30,
+   "frames": 1,
+   "footY": 28
+  },
+  "bldg_door_0": {
+   "x": 414,
+   "y": 40,
+   "w": 18,
+   "h": 28,
+   "frames": 1,
+   "footY": 26
+  },
+  "bldg_window_0": {
+   "x": 434,
+   "y": 40,
+   "w": 18,
+   "h": 18,
+   "frames": 1,
+   "footY": 16
+  },
+  "prop_bank_booth_0": {
+   "x": 454,
+   "y": 40,
+   "w": 34,
+   "h": 32,
+   "frames": 1,
+   "footY": 30
+  },
+  "prop_bank_booth_0_top": {
+   "x": 454,
+   "y": 40,
+   "w": 34,
+   "h": 21,
+   "frames": 1,
+   "footY": 30
+  },
+  "prop_shop_counter_0": {
+   "x": 0,
+   "y": 130,
+   "w": 34,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "prop_shop_shelves_0": {
+   "x": 36,
+   "y": 130,
+   "w": 32,
+   "h": 38,
+   "frames": 1,
+   "footY": 36
+  },
+  "prop_shop_shelves_0_top": {
+   "x": 36,
+   "y": 130,
+   "w": 32,
+   "h": 27,
+   "frames": 1,
+   "footY": 36
+  },
+  "prop_furnace_0": {
+   "x": 70,
+   "y": 130,
+   "w": 36,
+   "h": 46,
+   "frames": 2,
+   "footY": 44
+  },
+  "prop_furnace_0_top": {
+   "x": 70,
+   "y": 130,
+   "w": 36,
+   "h": 35,
+   "frames": 2,
+   "footY": 44
+  },
+  "prop_anvil_0": {
+   "x": 144,
+   "y": 130,
+   "w": 26,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "prop_range_0": {
+   "x": 172,
+   "y": 130,
+   "w": 34,
+   "h": 28,
+   "frames": 2,
+   "footY": 26
+  },
+  "prop_fire_0": {
+   "x": 242,
+   "y": 130,
+   "w": 20,
+   "h": 18,
+   "frames": 3,
+   "footY": 16
+  },
+  "prop_crate_0": {
+   "x": 304,
+   "y": 130,
+   "w": 18,
+   "h": 18,
+   "frames": 1,
+   "footY": 16
+  },
+  "prop_barrel_0": {
+   "x": 324,
+   "y": 130,
+   "w": 16,
+   "h": 20,
+   "frames": 1,
+   "footY": 18
+  },
+  "node_ore_rustbound_full": {
+   "x": 342,
+   "y": 130,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_rustbound_empty": {
+   "x": 372,
+   "y": 130,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_cinderiron_full": {
+   "x": 402,
+   "y": 130,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_cinderiron_empty": {
+   "x": 432,
+   "y": 130,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_verdite_full": {
+   "x": 462,
+   "y": 130,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_verdite_empty": {
+   "x": 0,
+   "y": 178,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_tidesteel_full": {
+   "x": 30,
+   "y": 178,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_tidesteel_empty": {
+   "x": 60,
+   "y": 178,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_sunforged_full": {
+   "x": 90,
+   "y": 178,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_ore_sunforged_empty": {
+   "x": 120,
+   "y": 178,
+   "w": 28,
+   "h": 22,
+   "frames": 1,
+   "footY": 20
+  },
+  "node_tree_ash_full": {
+   "x": 150,
+   "y": 178,
+   "w": 42,
+   "h": 54,
+   "frames": 1,
+   "footY": 52
+  },
+  "node_tree_ash_full_top": {
+   "x": 150,
+   "y": 178,
+   "w": 42,
+   "h": 43,
+   "frames": 1,
+   "footY": 52
+  },
+  "node_tree_ash_stump": {
+   "x": 194,
+   "y": 178,
+   "w": 20,
+   "h": 14,
+   "frames": 1,
+   "footY": 12
+  },
+  "node_tree_pine_full": {
+   "x": 216,
+   "y": 178,
+   "w": 30,
+   "h": 52,
+   "frames": 1,
+   "footY": 50
+  },
+  "node_tree_pine_full_top": {
+   "x": 216,
+   "y": 178,
+   "w": 30,
+   "h": 41,
+   "frames": 1,
+   "footY": 50
+  },
+  "node_tree_pine_stump": {
+   "x": 248,
+   "y": 178,
+   "w": 16,
+   "h": 12,
+   "frames": 1,
+   "footY": 10
+  },
+  "node_fish_0": {
+   "x": 266,
+   "y": 178,
+   "w": 32,
+   "h": 18,
+   "frames": 3,
+   "footY": 17
+  },
+  "npc_banker": {
+   "x": 364,
+   "y": 178,
+   "w": 30,
+   "h": 40,
+   "frames": 2,
+   "footY": 39
+  },
+  "npc_shopkeep": {
+   "x": 426,
+   "y": 178,
+   "w": 30,
+   "h": 40,
+   "frames": 2,
+   "footY": 39
+  },
+  "npc_questgiver": {
+   "x": 0,
+   "y": 234,
+   "w": 30,
+   "h": 40,
+   "frames": 2,
+   "footY": 39
+  },
+  "npc_smith": {
+   "x": 62,
+   "y": 234,
+   "w": 30,
+   "h": 40,
+   "frames": 2,
+   "footY": 39
+  },
+  "tile_town_grass_0": {
+   "x": 124,
+   "y": 234,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_town_grass_1": {
+   "x": 158,
+   "y": 234,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_town_grass_2": {
+   "x": 192,
+   "y": 234,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_town_grass_3": {
+   "x": 226,
+   "y": 234,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "prop_market_stall_0": {
+   "x": 260,
+   "y": 234,
+   "w": 50,
+   "h": 42,
+   "frames": 1,
+   "footY": 40
+  },
+  "prop_market_stall_0_top": {
+   "x": 260,
+   "y": 234,
+   "w": 50,
+   "h": 31,
+   "frames": 1,
+   "footY": 40
+  },
+  "prop_lantern_0": {
+   "x": 312,
+   "y": 234,
+   "w": 14,
+   "h": 34,
+   "frames": 2,
+   "footY": 32
+  },
+  "prop_lantern_0_top": {
+   "x": 312,
+   "y": 234,
+   "w": 14,
+   "h": 23,
+   "frames": 2,
+   "footY": 32
+  },
+  "prop_flowerbed_0": {
+   "x": 342,
+   "y": 234,
+   "w": 34,
+   "h": 14,
+   "frames": 1,
+   "footY": 12
+  }
+ }
+}
