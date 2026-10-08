@@ -142,18 +142,25 @@ assert(typeof RPG.ai.spawnPack === 'function', 'RPG.ai.spawnPack exists');
 assert(RPG._system && RPG._system.name === 'ai', 'AI system registered');
 assert(RPG.ai.spawnPack('nope', 0, 0, 1, 4).length === 0, 'unknown id spawns nothing');
 
-// Sheet timing: a short clip is floored at 400; a long clip is kept.
-RPG.sheet = { anims: { mob_rat_attack: { duration: 120 } } };
-assert(RPG.ai.meleeWindupMs('rat') === 400, 'short rat clip floors at 400, got ' + RPG.ai.meleeWindupMs('rat'));
-RPG.sheet = { anims: { mob_goblin_attack: { duration: 860 } } };
-assert(RPG.ai.meleeWindupMs('goblin') === 860, 'long goblin clip is used');
-RPG.sheet = {
-  frames: {
-    mob_imp_attack_0: { duration: 200 },
-    mob_imp_attack_1: { duration: 220 },
-  },
-};
-assert(RPG.ai.meleeWindupMs('imp') === 420, 'imp frame sum is used when it clears 400');
+// Live windup is content. A short or long sheet clip does not replace it.
+// sheet ms[0] can only raise the windup, and content is authored to be >= that frame.
+assert(RPG.ai.attacks.animKeyFor('rat', 'melee') === 'mob_rat_attack', 'rat attack key');
+assert(RPG.ai.attacks.animKeyFor('goblin', 'melee') === 'mob_goblin_attack', 'goblin attack key');
+assert(RPG.ai.attacks.animKeyFor('brute', 'melee') === 'mob_brute_attack', 'brute jab key');
+assert(RPG.ai.attacks.animKeyFor('brute', 'slam') === 'mob_brute_slam', 'brute slam key');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'claw') === 'mob_ashmaw_attack', 'ashmaw claw key');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'slam') === 'mob_ashmaw_slam', 'ashmaw slam key');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'charge') === 'mob_ashmaw_charge', 'ashmaw charge key');
+assert(RPG.ai.meleeWindupMs('rat') === 450, 'rat windup stays on content');
+RPG.sheet = { anims: { mob_rat_attack: { duration: 120, ms: [120, 80] } } };
+assert(RPG.ai.meleeWindupMs('rat') === 450, 'sheet ms[0] below content does not shorten the tell');
+RPG.sheet = { anims: { mob_goblin_attack: { duration: 860, ms: [200, 660] } } };
+assert(RPG.ai.meleeWindupMs('goblin') === 480, 'full clip length is not the windup');
+RPG.sheet = { mobs2: { anims: { mob_imp_attack: { ms: [500, 80] } } } };
+assert(RPG.ai.meleeWindupMs('imp') === 500, 'ms[0] raises imp windup when it beats content');
+RPG.content = { monsters: { brute: { attacks: { slam: { windupMs: 710 } } } } };
+assert(RPG.ai.attacks.windupFor('brute', 'slam') === 710, 'content slam windup is live');
+RPG.content = null;
 RPG.sheet = null;
 
 for (const id of ['rat', 'goblin', 'skeleton', 'imp', 'brute']) {
@@ -180,13 +187,19 @@ for (const id of ['rat', 'goblin', 'skeleton', 'imp', 'brute']) {
   const ms = RPG.ai.meleeWindupMs(id);
   hero.x = mob.x + 0.2;
   hero.y = mob.y;
+  const packName = id === 'rat' || id === 'goblin' ? 'mobs' : 'mobs2';
+  assert(mob.sheetPack === packName, id + ' sheet pack ' + mob.sheetPack);
+  assert(mob.animKey === 'mob_' + id + '_attack' || mob.sheet.attack === 'mob_' + id + '_attack', id + ' attack clip');
   RPG.ai.tick(0.016);
   assert(mob.state === 'windup', id + ' enters windup, state=' + mob.state);
   assert(mob.windupMs >= 400, id + ' swing stores windupMs ' + mob.windupMs);
+  assert(mob.animKey === 'mob_' + id + '_attack', id + ' melee uses _attack, got ' + mob.animKey);
+  assert(mob.animFrame === 0, id + ' holds frame 0 at windup start');
   const hp = hero.hp;
   RPG.ai.tick((ms - 50) / 1000);
   assert(hero.hp === hp, id + ' deals no damage before the windup ends');
   assert(mob.state === 'windup', id + ' still winding before the tell ends');
+  assert(mob.animFrame === 0 && mob.animKey === 'mob_' + id + '_attack', id + ' still holds frame 0');
   RPG.ai.tick(0.08);
   assert(hero.hp < hp, id + ' damages after the windup');
   mob.takeHit(9999, { srcId: 'hero' });
@@ -236,7 +249,8 @@ assert(leashed, 'rat returns inside leash and drops aggro at ' + rat.x.toFixed(2
 rat.takeHit(9999, {});
 
 // Ashmaw slam and charge each wait out a >=600ms tell.
-resetHero(1.2, 0);
+// Stand outside claw range so rng picks slam or charge, not the jab.
+resetHero(2, 0);
 rngValue = 0;
 fxLog.length = 0;
 const boss = RPG.ai.boss.spawn(0, 0, { leash: 20 });
@@ -245,11 +259,13 @@ const slamMs = RPG.ai.bossWindupMs('slam');
 RPG.ai.tick(0.016);
 assert(boss.state === 'slam', 'opens with slam when rng < 0.5, state=' + boss.state);
 assert(boss.windupMs >= 600, 'slam stores windup ' + boss.windupMs);
+assert(boss.animKey === 'mob_ashmaw_slam' && boss.animFrame === 0, 'slam holds mob_ashmaw_slam frame 0');
 assert(fxLog.some((e) => e.name === 'telegraph'), 'slam calls telegraph');
 const hpSlam = hero.hp;
 RPG.ai.tick((slamMs - 40) / 1000);
 assert(hero.hp === hpSlam, 'slam does not hit before 600ms');
 assert(boss.state === 'slam', 'slam still winding');
+assert(boss.animFrame === 0, 'slam frame stays 0 for the whole tell');
 RPG.ai.tick(0.08);
 assert(hero.hp < hpSlam, 'slam hits after the tell');
 assert(fxLog.some((e) => e.name === 'telegraphOff'), 'slam clears with telegraphOff');
@@ -262,6 +278,7 @@ const chargeMs = RPG.ai.bossWindupMs('charge');
 RPG.ai.tick(0.016);
 assert(boss.state === 'charge', 'second attack is charge, state=' + boss.state);
 assert(boss.windupMs >= 600, 'charge stores windup ' + boss.windupMs);
+assert(boss.animKey === 'mob_ashmaw_charge' && boss.animFrame === 0, 'charge tell holds frame 0');
 assert(fxLog.some((e) => e.name === 'telegraphLine'), 'charge calls telegraphLine');
 const hpCharge = hero.hp;
 RPG.ai.tick((chargeMs - 40) / 1000);
@@ -269,6 +286,74 @@ assert(hero.hp === hpCharge, 'charge does not hit before 600ms');
 RPG.ai.tick(0.08);
 assert(hero.hp < hpCharge, 'charge hits after the tell');
 assert(fxLog.some((e) => e.name === 'telegraphOff'), 'charge clears with telegraphOff');
+assert(boss.state === 'dash' && boss.animFrame === 1 && boss.animKey === 'mob_ashmaw_charge', 'charge holds frame 1 for the dash');
+
+// Ashmaw claw is the melee clip, still frame 0 for the whole windup.
+rngValue = 0;
+fxLog.length = 0;
+const claw = RPG.ai.boss.spawn(50, 50, { leash: 20 });
+hero.x = claw.x + 0.4;
+hero.y = claw.y;
+hero.hp = 100;
+const clawMs = RPG.ai.attacks.windupFor('ashmaw', 'melee');
+assert(clawMs >= 400, 'claw windup >= 400');
+RPG.ai.tick(0.016);
+assert(claw.state === 'claw', 'close Ashmaw opens with claw, state=' + claw.state);
+assert(claw.animKey === 'mob_ashmaw_attack' && claw.animFrame === 0, 'claw uses _attack frame 0');
+const hpClaw = hero.hp;
+RPG.ai.tick((clawMs - 50) / 1000);
+assert(hero.hp === hpClaw && claw.animFrame === 0, 'claw holds frame 0 and does not hit early');
+RPG.ai.tick(0.08);
+assert(hero.hp < hpClaw, 'claw hits after the windup');
+claw.takeHit(99999, {});
+
+// Brute jab was _attack above. Ring slam is _slam outside jab range.
+fxLog.length = 0;
+resetHero(0, 0);
+const [slamBrute] = RPG.ai.spawnPack('brute', 80, 0, 1, 20);
+hero.x = slamBrute.x + 1.7;
+hero.y = slamBrute.y;
+const bruteSlam = RPG.ai.attacks.windupFor('brute', 'slam');
+assert(bruteSlam >= 600, 'brute slam windup >= 600');
+RPG.ai.tick(0.016);
+assert(slamBrute.state === 'slam', 'brute ring slam, state=' + slamBrute.state);
+assert(slamBrute.animKey === 'mob_brute_slam' && slamBrute.animFrame === 0, 'brute slam clip frame 0');
+assert(fxLog.some((e) => e.name === 'telegraph'), 'brute slam telegraphs');
+const hpBrute = hero.hp;
+RPG.ai.tick((bruteSlam - 50) / 1000);
+assert(hero.hp === hpBrute && slamBrute.animFrame === 0 && slamBrute.animKey === 'mob_brute_slam', 'brute slam holds frame 0');
+RPG.ai.tick(0.08);
+assert(hero.hp < hpBrute, 'brute slam hits after the tell');
+slamBrute.takeHit(99999, {});
+
+// Field stays on mobs/. Dungeon ids use mobs2 when that key exists, else a labelled box.
+RPG.sheet = {
+  mobs: { anims: { mob_rat_attack: { ms: [200, 80] }, mob_goblin_attack: { ms: [180, 90] } } },
+  mobs2: {
+    anims: {
+      mob_skeleton_attack: { ms: [200, 80] },
+      mob_brute_attack: { ms: [220, 80] },
+      mob_brute_slam: { ms: [400, 120] },
+      mob_ashmaw_attack: { ms: [300, 100] },
+      mob_ashmaw_slam: { ms: [500, 120] },
+      mob_ashmaw_charge: { ms: [500, 160] },
+    },
+  },
+};
+const [fieldRat] = RPG.ai.spawnPack('rat', 0, 40, 1, 4);
+const [boxImp] = RPG.ai.spawnPack('imp', 4, 40, 1, 4);
+const [sheetSkel] = RPG.ai.spawnPack('skeleton', 8, 40, 1, 4);
+assert(fieldRat.sheetPack === 'mobs' && fieldRat.placeholder === false, 'rat uses the mobs atlas');
+assert(boxImp.sheetPack === 'mobs2' && boxImp.placeholder === true && boxImp.render.mode === 'box', 'imp without a mobs2 key stays a box');
+assert(sheetSkel.sheetPack === 'mobs2' && sheetSkel.placeholder === false && sheetSkel.render.sheet === 'mobs2', 'skeleton uses mobs2');
+RPG.sheet = { mobs2: { anims: { mob_rat_attack: { ms: [100] } } } };
+const [boxedRat] = RPG.ai.spawnPack('rat', 12, 40, 1, 4);
+assert(boxedRat.sheetPack === 'mobs' && boxedRat.placeholder === true, 'field rat does not borrow mobs2');
+fieldRat.takeHit(9999, {});
+boxImp.takeHit(9999, {});
+sheetSkel.takeHit(9999, {});
+boxedRat.takeHit(9999, {});
+RPG.sheet = null;
 
 // Loot, beam, single kill.
 fxLog.length = 0;

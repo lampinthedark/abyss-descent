@@ -1,8 +1,9 @@
 /**
- * Ashmaw, the crypt boss. Two warned attacks:
- *   slam  — RPG.fx('telegraph', x, y, radius) then a circle hit
- *   charge — RPG.fx('telegraphLine', x1, y1, x2, y2) then a line hit
- * Both windups are at least 600ms and clear with RPG.fx('telegraphOff', id).
+ * Ashmaw, the crypt boss.
+ *   claw   — mob_ashmaw_attack, frame 0 held for the melee windup
+ *   slam   — mob_ashmaw_slam, RPG.fx('telegraph') then a circle hit
+ *   charge — mob_ashmaw_charge, frame 0 through the tell, frame 1 for the dash
+ * Slam and charge windups are at least 600ms and clear with RPG.fx('telegraphOff', id).
  * Shield phase is cut. Do not add it.
  */
 (function (root) {
@@ -18,8 +19,28 @@
   const CHARGE_HIT = 0.85;
 
   function windupMs(kind) {
-    const ms = WIND[kind] || FLOOR;
-    return ms < FLOOR ? FLOOR : ms;
+    const atk = ai.attacks;
+    const mapped = kind === 'claw' ? 'melee' : kind;
+    if (atk && typeof atk.windupFor === 'function') return atk.windupFor('ashmaw', mapped);
+    const ms = WIND[kind] || (mapped === 'melee' ? 480 : FLOOR);
+    const floor = mapped === 'slam' || mapped === 'charge' ? FLOOR : 400;
+    return ms < floor ? floor : ms;
+  }
+
+  function pose(mob, kind, frame) {
+    const atk = ai.attacks;
+    if (atk && typeof atk.pose === 'function') {
+      atk.pose(mob, kind, frame);
+      return;
+    }
+    mob.animFrame = frame;
+    mob.holdFrame = frame;
+  }
+
+  function poseIdle(mob) {
+    const atk = ai.attacks;
+    if (atk && typeof atk.poseIdle === 'function') atk.poseIdle(mob);
+    else mob.attacking = false;
   }
 
   function roll() {
@@ -84,19 +105,19 @@
 
   function begin(mob, kind) {
     const ms = windupMs(kind);
-    mob.state = kind;
+    mob.state = kind === 'claw' ? 'claw' : kind;
     mob.attackName = kind;
     mob.windupMs = ms;
     mob.windupElapsed = 0;
     mob.attacking = true;
-    mob.anim = kind;
     mob.serial = (mob.serial || 0) + 1;
     mob.tellId = mob.id + '-' + kind + '-' + mob.serial;
+    pose(mob, kind === 'claw' ? 'melee' : kind, 0);
     if (kind === 'slam') {
       mob.slam = { x: mob.x, y: mob.y, r: SLAM_R };
       mob.line = null;
       fx('telegraph', mob.x, mob.y, SLAM_R, { id: mob.tellId, ms: ms, kind: 'slam' });
-    } else {
+    } else if (kind === 'charge') {
       const hero = heroOf() || { x: mob.x + 1, y: mob.y };
       const dx = hero.x - mob.x;
       const dy = hero.y - mob.y;
@@ -113,54 +134,15 @@
         ms: ms,
         kind: 'charge',
       });
+    } else {
+      mob.slam = null;
+      mob.line = null;
+      mob.tellId = null;
     }
   }
 
-  function lunge(mob) {
-    const line = mob.line;
-    if (!line) return;
-    const world = RPG.world;
-    let x = line.x2;
-    let y = line.y2;
-    if (world && typeof world.isBlocked === 'function') {
-      const steps = 8;
-      let lastX = line.x1;
-      let lastY = line.y1;
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const nx = line.x1 + (line.x2 - line.x1) * t;
-        const ny = line.y1 + (line.y2 - line.y1) * t;
-        let blocked = false;
-        try { blocked = !!world.isBlocked(nx, ny); } catch (err) { blocked = false; }
-        if (blocked) break;
-        lastX = nx;
-        lastY = ny;
-      }
-      x = lastX;
-      y = lastY;
-    }
-    mob.x = x;
-    mob.y = y;
-  }
-
-  function resolve(mob) {
-    const kind = mob.state;
-    const tell = mob.tellId;
-    const hero = heroOf();
-    if (kind === 'slam' && mob.slam && hero && !hero.dead) {
-      const pad = typeof hero.radius === 'number' ? hero.radius : 0;
-      if (dist(hero.x, hero.y, mob.slam.x, mob.slam.y) <= mob.slam.r + pad) hurt(mob);
-    } else if (kind === 'charge') {
-      lunge(mob);
-      if (mob.line && hero && !hero.dead) {
-        const pad = typeof hero.radius === 'number' ? hero.radius : 0;
-        if (distToSegment(hero.x, hero.y, mob.line) <= CHARGE_HIT + pad) hurt(mob);
-      }
-    }
-    clearTell(tell);
+  function endAttack(mob) {
     mob.tellId = null;
-    mob.attacking = false;
-    mob.anim = 'idle';
     mob.slam = null;
     mob.line = null;
     mob.state = 'chase';
@@ -168,6 +150,72 @@
     mob.cdMs = 800;
     mob.path = null;
     mob._repath = 0;
+    poseIdle(mob);
+  }
+
+  function beginDash(mob) {
+    const line = mob.line;
+    const tell = mob.tellId;
+    const hero = heroOf();
+    if (line && hero && !hero.dead) {
+      const pad = typeof hero.radius === 'number' ? hero.radius : 0;
+      if (distToSegment(hero.x, hero.y, line) <= CHARGE_HIT + pad) hurt(mob);
+    }
+    clearTell(tell);
+    mob.tellId = null;
+    mob.slam = null;
+    const row = ai.attacks && ai.attacks.attacksOf ? ai.attacks.attacksOf('ashmaw').charge : null;
+    mob.dashMs = row && typeof row.dashMs === 'number' ? row.dashMs : 240;
+    mob.dashT = 0;
+    mob.dashFrom = { x: mob.x, y: mob.y };
+    mob.dashTo = line ? { x: line.x2, y: line.y2 } : { x: mob.x, y: mob.y };
+    mob.line = null;
+    mob.state = 'dash';
+    mob.aggro = true;
+    pose(mob, 'charge', 1);
+  }
+
+  function advanceDash(mob, dt) {
+    pose(mob, 'charge', 1);
+    const ms = mob.dashMs > 0 ? mob.dashMs : 240;
+    mob.dashT = (mob.dashT || 0) + (dt > 0 ? dt : 0) * 1000;
+    const t = mob.dashT >= ms ? 1 : mob.dashT / ms;
+    const from = mob.dashFrom || { x: mob.x, y: mob.y };
+    const to = mob.dashTo || from;
+    const nx = from.x + (to.x - from.x) * t;
+    const ny = from.y + (to.y - from.y) * t;
+    let blocked = false;
+    const world = RPG.world;
+    if (world && typeof world.isBlocked === 'function') {
+      try { blocked = !!world.isBlocked(nx, ny); } catch (err) { blocked = false; }
+    }
+    if (!blocked) {
+      mob.x = nx;
+      mob.y = ny;
+    }
+    if (t >= 1 || blocked) endAttack(mob);
+  }
+
+  function resolve(mob) {
+    const kind = mob.state;
+    const hero = heroOf();
+    if (kind === 'slam' && mob.slam && hero && !hero.dead) {
+      const pad = typeof hero.radius === 'number' ? hero.radius : 0;
+      if (dist(hero.x, hero.y, mob.slam.x, mob.slam.y) <= mob.slam.r + pad) hurt(mob);
+      clearTell(mob.tellId);
+      endAttack(mob);
+      return;
+    }
+    if (kind === 'charge') {
+      beginDash(mob);
+      return;
+    }
+    if (kind === 'claw') {
+      const pad = hero && typeof hero.radius === 'number' ? hero.radius : 0;
+      const reach = (mob.melee || 1.2) + pad;
+      if (hero && !hero.dead && dist(hero.x, hero.y, mob.x, mob.y) <= reach) hurt(mob);
+      endAttack(mob);
+    }
   }
 
   function moveToward(mob, dt, tx, ty) {
@@ -186,7 +234,11 @@
     if (!blocked) {
       mob.x = nx;
       mob.y = ny;
-      mob.anim = 'walk';
+      if (!mob.attacking) {
+        mob.anim = 'walk';
+        mob.animKey = mob.sheet && mob.sheet.walk;
+        mob.animFrame = 0;
+      }
     }
   }
 
@@ -197,18 +249,26 @@
   function startReturn(mob) {
     if (mob.tellId) clearTell(mob.tellId);
     mob.tellId = null;
-    mob.attacking = false;
     mob.slam = null;
     mob.line = null;
+    mob.dashFrom = null;
+    mob.dashTo = null;
     mob.state = 'return';
     mob.aggro = false;
+    poseIdle(mob);
     mob.anim = 'walk';
+    mob.animKey = mob.sheet && mob.sheet.walk;
   }
 
   function tick(mob, dt) {
     if (!mob || mob.dead) return;
-    if (mob.state === 'slam' || mob.state === 'charge') {
+    if (mob.state === 'dash') {
+      advanceDash(mob, dt);
+      return;
+    }
+    if (mob.state === 'slam' || mob.state === 'charge' || mob.state === 'claw') {
       mob.windupElapsed += (dt > 0 ? dt : 0) * 1000;
+      pose(mob, mob.state === 'claw' ? 'melee' : mob.state, 0);
       if (mob.windupElapsed >= mob.windupMs) resolve(mob);
       return;
     }
@@ -241,7 +301,13 @@
       if (d > 1.6) moveToward(mob, dt, hero.x, hero.y);
       return;
     }
-    const kind = roll() < 0.5 ? 'slam' : 'charge';
+    const pad = typeof hero.radius === 'number' ? hero.radius : 0;
+    const clawReach = (mob.melee || 1.2) + pad;
+    const r = roll();
+    let kind = 'charge';
+    if (d > clawReach) kind = r < 0.5 ? 'slam' : 'charge';
+    else if (r < 0.5) kind = 'claw';
+    else if (r < 0.75) kind = 'slam';
     begin(mob, kind);
     mob.windupElapsed += (dt > 0 ? dt : 0) * 1000;
     if (mob.windupElapsed >= mob.windupMs) resolve(mob);
