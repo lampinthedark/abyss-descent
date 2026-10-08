@@ -52,9 +52,9 @@
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
-  // FX.lootPull allocates every frame. Hold the call until that is fixed.
+  // Trail only. The lerp still lands the gem, and banking stays here.
   // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
-  const LOOTPULL_FX = false;
+  const LOOTPULL_FX = true;
   const LOOT_FLIGHT = 0.4;
   const VOW_LATE_AT = 300;
   const VOW_LATE_RAMP = 120;
@@ -853,10 +853,12 @@
     box.lootPull(g.item.id, g.x, g.y, player.x, player.y, 400, g.item.rarity);
   }
 
-  function lootPullOff(id) {
+  function lootPullOff(id, pop) {
     if (!LOOTPULL_FX || id == null || id === '') return;
     const box = fxBox();
-    if (box && typeof box.lootPullOff === 'function') box.lootPullOff(id);
+    if (!box || typeof box.lootPullOff !== 'function') return;
+    if (pop) box.lootPullOff(id, true);
+    else box.lootPullOff(id);
   }
 
   function bankGroundItem(g) {
@@ -2669,10 +2671,10 @@
     }
   }
 
-  function releaseGemAt(i) {
+  function releaseGemAt(i, pop) {
     const g = gems[i];
     if (g && g.kind === 'item' && g.item) {
-      if (g.pull) lootPullOff(g.item.id);
+      if (g.pull) lootPullOff(g.item.id, pop ? true : undefined);
       beamOff(g.item.id);
     }
     if (g && g.shower) {
@@ -2814,12 +2816,20 @@
           const box = fxBox();
           if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
+          const arrived = !!(g.pull && !g.banked);
           if (rarePickupAt < 0 && rareBeam(g.item.rarity)) rarePickupAt = time;
           if (bankGroundItem(g)) announceFind(g.item);
           requestEvolution();
           const info = chainInfo;
           info.rarity = g.item.rarity;
           fxCall('pickup', g.x, g.y, 'item', info);
+          spark(player.x, player.y, '#ffffff', 3, 2.6);
+          releaseGemAt(i, arrived);
+          if (time - lootSnd > 0.07) {
+            lootSnd = time;
+            sfx('loot');
+          }
+          continue;
         } else {
           grantXp(g.value || 0);
         }

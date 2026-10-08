@@ -478,23 +478,88 @@ function rareFlightBank() {
 
 function lootPullHeld() {
   const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
-  if (!/const LOOTPULL_FX = false;/.test(src)) fail('LOOTPULL_FX is not held');
+  if (!/const LOOTPULL_FX = true;/.test(src)) fail('LOOTPULL_FX is not on');
+  function watch(game) {
+    const pulls = [];
+    const offs = [];
+    game.FX.lootPull = function (id, x, y, hx, hy, ms, rarity) {
+      pulls.push({ id: id, ms: ms, rarity: rarity, n: arguments.length });
+    };
+    game.FX.lootPullOff = function (id, pop) {
+      offs.push({ id: id, pop: pop, n: arguments.length });
+    };
+    return { pulls: pulls, offs: offs };
+  }
+  function pullFor(log, id) {
+    return log.pulls.filter((row) => row.id === id);
+  }
+  function offFor(log, id) {
+    return log.offs.filter((row) => row.id === id);
+  }
   const game = boot(1, '?headless=1&debug=1');
-  const calls = [];
-  if (!game.FX) fail('FX missing');
-  game.FX.lootPull = function () { calls.push('lootPull'); };
-  game.FX.lootPullOff = function () { calls.push('lootPullOff'); };
+  const log = watch(game);
   quietArena(game);
+  const commonId = game.__svSeedItem('common', 2.4, 0);
+  for (let i = 0; i < 12; i++) stepLive(game);
+  if (pullFor(log, commonId).length || offFor(log, commonId).length) fail('common called loot pull');
+
   const nearId = game.__svSeedItem('rare', 2.4, 0);
   for (let i = 0; i < 20 && groundRow(game, nearId); i++) stepLive(game);
-  const farId = game.__svSeedItem('rare', 6, 0);
-  for (let i = 0; i < 230 && groundRow(game, farId); i++) stepLive(game);
-  game.__svSeedItem('rare', 2.2, 0.2);
-  stepLive(game);
-  game.__svRestart();
-  if (calls.indexOf('lootPull') >= 0) fail('FX.lootPull ran while LOOTPULL_FX is false');
-  if (calls.indexOf('lootPullOff') >= 0) fail('FX.lootPullOff ran while LOOTPULL_FX is false');
-  console.log('FX.lootPull stayed off');
+  if (groundRow(game, nearId)) fail('3-tile rare did not bank');
+  const near = pullFor(log, nearId);
+  if (near.length !== 1 || near[0].ms !== 400 || near[0].rarity !== 'rare' || near[0].n !== 7) {
+    fail('3-tile lootPull ' + JSON.stringify(near));
+  }
+  const nearOff = offFor(log, nearId);
+  if (nearOff.length !== 1 || nearOff[0].pop !== true || nearOff[0].n !== 2) fail('3-tile bank off ' + JSON.stringify(nearOff));
+
+  const farId = game.__svSeedItem('epic', 6, 0);
+  for (let i = 0; i < 240 && groundRow(game, farId); i++) stepLive(game);
+  if (groundRow(game, farId)) fail('10s epic did not bank');
+  const far = pullFor(log, farId);
+  if (far.length !== 1 || far[0].ms !== 400 || far[0].rarity !== 'epic' || far[0].n !== 7) {
+    fail('10s lootPull ' + JSON.stringify(far));
+  }
+  const farOff = offFor(log, farId);
+  if (farOff.length !== 1 || farOff[0].pop !== true || farOff[0].n !== 2) fail('10s bank off ' + JSON.stringify(farOff));
+  if (bagHits(game, commonId) > 0 && offFor(log, commonId).length) fail('banked common called lootPullOff');
+
+  const dead = boot(2, '?headless=1&debug=1');
+  const deadLog = watch(dead);
+  quietArena(dead);
+  dead.__svInvuln(0);
+  const deadId = dead.__svSeedItem('rare', 2.4, 0);
+  stepLive(dead);
+  if (!groundRow(dead, deadId) || !groundRow(dead, deadId).pull) fail('death setup was not mid-flight');
+  const fell = dead.__svHurt(9999);
+  if (fell.state !== 'dead') fail('mid-flight death ' + fell.state);
+  if (bagHits(dead, deadId) !== 1) fail('death banked ' + bagHits(dead, deadId));
+  const deathOff = offFor(deadLog, deadId);
+  const deathPull = pullFor(deadLog, deadId);
+  if (deathPull.length !== 1 || deathPull[0].ms !== 400 || deathPull[0].rarity !== 'rare') {
+    fail('death lootPull ' + JSON.stringify(deathPull));
+  }
+  if (deathOff.length !== 1 || deathOff[0].n !== 1 || deathOff[0].pop !== undefined) {
+    fail('death lootPullOff ' + JSON.stringify(deathOff));
+  }
+
+  const restart = boot(3, '?headless=1&debug=1');
+  const restartLog = watch(restart);
+  quietArena(restart);
+  const restartId = restart.__svSeedItem('rare', 2.4, 0);
+  stepLive(restart);
+  if (!groundRow(restart, restartId) || !groundRow(restart, restartId).pull) fail('restart setup was not mid-flight');
+  restart.__svRestart();
+  if (bagHits(restart, restartId) !== 0) fail('restart banked the flight');
+  const restartOff = offFor(restartLog, restartId);
+  const restartPull = pullFor(restartLog, restartId);
+  if (restartPull.length !== 1 || restartPull[0].ms !== 400 || restartPull[0].rarity !== 'rare') {
+    fail('restart lootPull ' + JSON.stringify(restartPull));
+  }
+  if (restartOff.length !== 1 || restartOff[0].n !== 1 || restartOff[0].pop !== undefined) {
+    fail('restart lootPullOff ' + JSON.stringify(restartOff));
+  }
+  console.log('lootPull once at 400ms, pop on bank, silent on death and restart');
 }
 
 function rareBeside() {
