@@ -3379,7 +3379,10 @@
         const hintText = evoHint(item);
         const showEvo = !!hintText;
         btn.className = 'sv-card' + (showEvo ? ' evolves' : '');
-        const tag = showEvo ? '<em class="sv-tag">Evolves</em>' : (!have && item.kind !== 'reward' ? '<em class="sv-tag new">New</em>' : '');
+        const tagName = cardTag(item);
+        const tag = tagName === 'Evolves'
+          ? '<em class="sv-tag">Evolves</em>'
+          : (tagName === 'New' ? '<em class="sv-tag new">New</em>' : '');
         const hint = showEvo ? '<small class="sv-evo">' + hintText + '</small>' : '';
         const blurb = item.kind === 'reward' ? item.blurb : SurvivorData.rankText(item, next);
         const rank = item.maxLevel && item.kind !== 'reward' ? pipHtml(Math.min(next, item.maxLevel), item.maxLevel) : '';
@@ -3496,9 +3499,21 @@
     const weaponReady = (owned[weaponId] || 0) >= (weapon ? weapon.maxLevel : 5);
     const partnerReady = !!(partnerId && (owned[partnerId] || 0) > 0);
     if (weaponReady && partnerReady) return 'Ready';
+    // The partner card is the missing half. Never tell Battle Tempo it needs itself.
+    if (item.id === partnerId) {
+      if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
+      return 'Ready';
+    }
     if (!partnerReady && partner) return 'Needs: ' + partner.name;
     if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
     return 'Ready';
+  }
+
+  function cardTag(item) {
+    if (!item || item.kind === 'reward') return '';
+    if (evoHint(item)) return 'Evolves';
+    if ((owned[item.id] || 0) > 0) return '';
+    return 'New';
   }
 
   function chestItem() {
@@ -5156,6 +5171,10 @@
     window.__svHint = (id) => {
       const item = catalogItem(id);
       return item ? evoHint(item) : '';
+    };
+    window.__svCardTag = (id) => {
+      const item = catalogItem(id);
+      return item ? cardTag(item) : '';
     };
     window.__svOpenHermit = () => { openHermit(); return snapRun(); };
     window.__svPurse = () => {

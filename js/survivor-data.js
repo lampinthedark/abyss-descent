@@ -276,13 +276,32 @@ const SurvivorData = (() => {
         evolvesWith: null,
       });
     }
+    function stillRoom(item) {
+      if (!item || item.kind === 'reward') return true;
+      const lv = owned && owned[item.id] ? owned[item.id] : 0;
+      return lv < (item.maxLevel || 1);
+    }
     if (opts && opts.forcePartner) {
       let slot = out.length - 1;
       pulls.force.forEach((item) => {
+        if (!stillRoom(item)) return;
         if (out.some((o) => o.id === item.id)) return;
         if (slot < 0) return;
         out[slot] = item;
         slot -= 1;
+      });
+    }
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!stillRoom(out[i])) out.splice(i, 1);
+    }
+    while (out.length < 3) {
+      out.push({
+        id: out.length % 2 === 0 ? 'purse' : 'heal',
+        name: out.length % 2 === 0 ? 'Coin purse' : 'Second wind',
+        kind: 'reward',
+        blurb: out.length % 2 === 0 ? 'Take 15 gold.' : 'Heal 30% now, and +6 life a second for a moment.',
+        maxLevel: 99,
+        evolvesWith: null,
       });
     }
     const orbitItem = catalogItem('orbit');

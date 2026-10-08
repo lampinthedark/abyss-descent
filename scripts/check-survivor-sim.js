@@ -1028,6 +1028,14 @@ function evoNeeds() {
   game.__svGive('nova', 5);
   if (game.__svHint('nova') !== 'Ready') fail('nova ready ' + game.__svHint('nova'));
   if (game.__svHint('cinder') !== 'Ready') fail('cinder ready ' + game.__svHint('cinder'));
+  game.__svGive('orbit', 5);
+  if (game.__svHint('tempo') !== 'Ready') fail('tempo ready ' + game.__svHint('tempo'));
+  game.__svGive('orbit', 3);
+  if (game.__svHint('tempo') !== 'Needs: Orbiting Blade') fail('tempo hint ' + game.__svHint('tempo'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself');
+  game.__svGive('pierce', 2);
+  if (game.__svCardTag('pierce') !== '') fail('pierce tagged ' + game.__svCardTag('pierce') + ' while it is in the row');
+  if (game.__svCardTag('haste') !== 'New') fail('unowned haste tag ' + game.__svCardTag('haste'));
   console.log('evolution hints name the missing piece');
 }
 
