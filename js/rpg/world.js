@@ -177,10 +177,13 @@
     },
     // Field packs. Ids match the items owner's Loot.MONSTERS keys exactly
     // (rat, goblin, skeleton, imp, brute = elite, ashmaw = boss).
+    // No mob spawns or wanders within r tiles of the Ash Stair gate (UAT/PM rule).
+    keepOut: [{ x0: 11, y0: 26, x1: 13, y1: 27, r: 5 }],
     spawns: [
       { monsterId: 'rat', x: 9, y: 33, n: 3, leash: 4 },
       { monsterId: 'rat', x: 4, y: 35, n: 2, leash: 4 },
-      { monsterId: 'goblin', x: 6, y: 32, n: 2, leash: 4 },
+      { monsterId: 'goblin', x: 5, y: 31, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
+      { monsterId: 'goblin', x: 8, y: 32, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
     ],
   };
   // Forest ring so the town reads as a clearing (decor, blocks).
@@ -302,7 +305,7 @@
     }
     return {
       id: src.id, w: w, h: h, grid: g, edges: edges,
-      spawns: src.spawns || [], entry: src.entry, exit: src.exit || null, bossRoom: src.bossRoom || null,
+      spawns: src.spawns || [], keepOut: src.keepOut || [], entry: src.entry, exit: src.exit || null, bossRoom: src.bossRoom || null,
       markers: src.markers || {}, props: src.props || [], npcs: src.npcs || [],
     };
   }
@@ -459,6 +462,7 @@
       exit: z.exit || null,
       bossRoom: z.bossRoom || null,
       spawns: z.spawns || [],
+      keepOut: z.keepOut || [],
       markers: markers,
       data: z,
     };

@@ -92,6 +92,20 @@
   // ---- placeholder field mobs (until ai-monsters) ---------------------------
   const MOB_SPEED = 0.9; // tiles per second
   let mobSeq = 0;
+  // True if tile (cx,cy) is at least r from every keepOut rect (zone.keepOut).
+  // Dungeon & Bosses' AI should honour the same list when it takes over.
+  function clearOfKeepOut(cx, cy) {
+    const ko = World.zone.keepOut || [];
+    for (let i = 0; i < ko.length; i++) {
+      const k = ko[i];
+      const dx = Math.max(k.x0 - cx, 0, cx - k.x1);
+      const dy = Math.max(k.y0 - cy, 0, cy - k.y1);
+      if (Math.hypot(dx, dy) < k.r) return false;
+    }
+    return true;
+  }
+  function inArea(a, cx, cy) { return !a || (cx >= a.x0 && cx <= a.x1 && cy >= a.y0 && cy <= a.y1); }
+  World.clearOfKeepOut = clearOfKeepOut;
   function coreMobs() {
     return !RPG.ai && !RPG.hasSystem('ai-monsters'); // Dungeon & Bosses (RPG.ai.spawnPack) takes over
   }
@@ -107,12 +121,12 @@
         for (let tries = 0; tries < 12; tries++) {
           const cx = sp.x + Math.floor(rng() * 5) - 2;
           const cy = sp.y + Math.floor(rng() * 3) - 1;
-          if (World.walkable(cx, cy)) { x = cx; y = cy; break; }
+          if (World.walkable(cx, cy) && clearOfKeepOut(cx, cy) && inArea(sp.area, cx, cy)) { x = cx; y = cy; break; }
         }
         World.addEntity({
           id: 'mob_' + sp.monsterId + '_' + (++mobSeq),
           kind: 'mob', monsterId: sp.monsterId, name: def.name, corePlaceholder: true,
-          x: x + 0.5, y: y + 0.5, homeX: sp.x + 0.5, homeY: sp.y + 0.5, leash: sp.leash || 4,
+          x: x + 0.5, y: y + 0.5, homeX: sp.x + 0.5, homeY: sp.y + 0.5, leash: sp.leash || 4, area: sp.area || null,
           sprite: def.idle, anim: 360, frame: 0, flip: false, seed: 700 + mobSeq,
           hp: def.hp, maxHp: def.hp, wait: rng() * 2, path: [],
           takeHit: function () { return { dead: false }; }, // D3 (ai-monsters) replaces these
@@ -136,9 +150,10 @@
           e.wait = 1.5 + rng() * 3;
           const gx = Math.floor(e.homeX + (rng() * 2 - 1) * e.leash);
           const gy = Math.floor(e.homeY + (rng() * 2 - 1) * e.leash * 0.6);
-          if (!World.walkable(gx, gy)) return;
+          if (!World.walkable(gx, gy) || !clearOfKeepOut(gx, gy) || !inArea(e.area, gx, gy)) return;
           const cells = World.path({ x: e.x, y: e.y }, { x: gx, y: gy });
-          e.path = cells.slice(0, 6).map(function (c) { return { x: c.x + 0.5, y: c.y + 0.5 }; });
+          const bad = cells.findIndex(function (c) { return !clearOfKeepOut(c.x, c.y) || !inArea(e.area, c.x, c.y); });
+          e.path = (bad < 0 ? cells : cells.slice(0, bad)).slice(0, 6).map(function (c) { return { x: c.x + 0.5, y: c.y + 0.5 }; });
           return;
         }
         if (e.sprite !== def.walk) { e.sprite = def.walk; e.anim = 150; }
