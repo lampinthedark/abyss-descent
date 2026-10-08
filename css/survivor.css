@@ -324,7 +324,7 @@ body.survivor #sv-toast.hidden { display: none; }
 body.survivor #sv-chat {
   position: absolute;
   left: 12px;
-  bottom: 18px;
+  bottom: 56px;
   z-index: 6;
   width: min(280px, 46vw);
   pointer-events: none;

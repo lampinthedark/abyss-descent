@@ -223,15 +223,20 @@ function lootCadence() {
   const pair = boot(2);
   pair.__svStart();
   const shown = pair.__svPairToast();
-  if (shown.toast.indexOf('Rare:') !== 0) fail('first toast ' + shown.toast);
-  if (shown.toastQueued !== 1) fail('queued toasts ' + shown.toastQueued);
-  if (shown.chat.indexOf('You find: Rare Iron Blade') < 0) fail('chat rare ' + shown.chat);
-  if (shown.chat.indexOf('You find: Common Bone Charm') < 0) fail('chat common ' + shown.chat);
-  let next = shown;
+  if (shown.toast) fail('drop toasted ' + shown.toast);
+  if (shown.chat.indexOf('Iron Blade dropped nearby') < 0) fail('drop line ' + shown.chat);
+  if (shown.chat.indexOf('Bone Charm') >= 0) fail('common drop logged ' + shown.chat);
+  if (shown.chat.indexOf('You find') >= 0) fail('find fired on drop ' + shown.chat);
+  const found = pair.__svFind({ id: 'pair-a', name: 'Iron Blade', rarity: 'rare' });
+  if (found.toast.indexOf('Rare: Iron Blade') !== 0) fail('find toast ' + found.toast);
+  if (found.chat.indexOf('You find: Rare Iron Blade') < 0) fail('find line ' + found.chat);
+  const common = pair.__svFind({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' });
+  if (common.toastQueued !== 0) fail('common queued ' + common.toastQueued);
+  if (common.chat.indexOf('You find: Common Bone Charm') < 0) fail('common find ' + common.chat);
+  let next = common;
   for (let i = 0; i < 40; i++) next = pair.__svStep(0.05);
-  if (next.toast.indexOf('Common:') !== 0) fail('second toast ' + next.toast);
-  if (next.toastQueued !== 0) fail('queue left ' + next.toastQueued);
-  console.log('loot every 15–25s, first rare by 1:17, both toasts named');
+  if (next.toast.indexOf('Common:') === 0) fail('common toast ' + next.toast);
+  console.log('loot every 15–25s, first rare by 1:17, find on pickup');
 }
 
 function rarePull() {

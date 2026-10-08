@@ -1012,6 +1012,7 @@
   }
   function showToast(item) {
     if (!item) return;
+    if (String(item.rarity || 'common').toLowerCase() === 'common') return;
     const line = toastLine(item);
     const entry = {
       rarity: String(item.rarity || 'common').toLowerCase(),
@@ -2135,16 +2136,28 @@
     while (host.childNodes && host.childNodes.length > 6) host.removeChild(host.firstChild);
   }
 
-  function announceItem(item, x, y) {
-    if (!item) return;
+  function itemRarityName(item) {
     let rarity = 'Common';
     try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
       const raw = item.rarity || 'common';
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
-    showToast(item);
-    pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    return rarity;
+  }
+
+  function announceItem(item, x, y) {
+    if (!item) return;
+    const raw = String(item.rarity || 'common').toLowerCase();
+    if (raw !== 'common') {
+      pushChat((item.name || 'Item') + ' dropped nearby', RARITY_FILL[item.rarity] || '#f4efe0');
+    }
     if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
+  }
+
+  function announceFind(item) {
+    if (!item) return;
+    pushChat('You find: ' + itemRarityName(item) + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    showToast(item);
   }
 
   function sweptHit(x0, y0, x1, y1, tx, ty, rad) {
@@ -2611,7 +2624,7 @@
         } else if (kind === 'item' && g.item) {
           if (rarePickupAt < 0 && rareBeam(g.item.rarity)) rarePickupAt = time;
           try { SurvivorSave.addItem(g.item); } catch (e) {}
-          showToast(g.item);
+          announceFind(g.item);
           requestEvolution();
           const info = chainInfo;
           info.rarity = g.item.rarity;
@@ -5364,6 +5377,7 @@
       announceItem({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' }, player.x + 1, player.y);
       return snapRun();
     };
+    window.__svFind = (item) => { announceFind(item || { name: 'Iron Blade', rarity: 'rare' }); return snapRun(); };
     window.__svGround = () => {
       const out = [];
       for (let i = 0; i < gems.length; i++) {
@@ -5441,7 +5455,7 @@
     };
     window.__svToasts = (items) => {
       const list = items || [];
-      for (let i = 0; i < list.length; i++) announceItem(list[i], player.x, player.y);
+      for (let i = 0; i < list.length; i++) announceFind(list[i]);
       return snapRun();
     };
     window.__svSweepItems = () => {
