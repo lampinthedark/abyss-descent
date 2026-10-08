@@ -10,8 +10,9 @@ const SurvivorSprites = (() => {
   let ready = false;
   let atlas = null;
   let scaled = null;
-  let ground = null;
-  let groundZoom = 0;
+  let floorPattern = null;
+  let floorPatternZoom = 0;
+  const FLOOR_CHUNK = 16;
   let scratch = null;
   const clips = {};
 
@@ -33,6 +34,14 @@ const SurvivorSprites = (() => {
   function violet(r, g, b) {
     const l = (r + g + b) / 3 / 255;
     return [clamp(50 + l * 160), clamp(20 + l * 130), clamp(90 + l * 265)];
+  }
+
+  function skelInk(r, g, b) {
+    if (r < 70 && g < 70 && b < 70) return [18, 16, 14];
+    const l = (r + g + b) / 3;
+    const t = Math.min(1, Math.max(0, (l - 90) / 170));
+    const g0 = 78 + t * 42;
+    return [clamp(g0 * 1.04), clamp(g0), clamp(g0 * 0.94)];
   }
 
   function ogreInk(r, g, b) {
@@ -66,7 +75,7 @@ const SurvivorSprites = (() => {
       run: rects(432, 64, 16, 16, 4),
     },
     skel: {
-      mode: 'copy',
+      mode: 'skel',
       idle: rects(368, 88, 16, 16, 4),
       run: rects(432, 88, 16, 16, 4),
     },
@@ -88,7 +97,7 @@ const SurvivorSprites = (() => {
   };
 
   function paintSheetFrame(img, rect, mode) {
-    const pad = mode === 'hero' ? 1 : 0;
+    const pad = (mode === 'hero' || mode === 'skel') ? 1 : 0;
     const w = rect.w + pad * 2;
     const h = rect.h + pad * 2;
     const c = document.createElement('canvas');
@@ -111,6 +120,7 @@ const SurvivorSprites = (() => {
       if (mode === 'hero' && isRobe(r, gc, b)) next = ember(r, gc, b);
       else if (mode === 'imp' && isWarm(r, gc, b)) next = violet(r, gc, b);
       else if (mode === 'ogre') next = ogreInk(r, gc, b);
+      else if (mode === 'skel') next = skelInk(r, gc, b);
       if (next) {
         d[o] = next[0];
         d[o + 1] = next[1];
@@ -131,6 +141,24 @@ const SurvivorSprites = (() => {
           d[o] = 0xf4;
           d[o + 1] = 0xef;
           d[o + 2] = 0xe0;
+          d[o + 3] = 255;
+        }
+      }
+    }
+    if (mode === 'skel') {
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const p = y * w + x;
+          if (srcA[p] > 16) continue;
+          const touch = (x > 0 && srcA[p - 1] > 16)
+            || (x + 1 < w && srcA[p + 1] > 16)
+            || (y > 0 && srcA[p - w] > 16)
+            || (y + 1 < h && srcA[p + w] > 16);
+          if (!touch) continue;
+          const o = p * 4;
+          d[o] = 14;
+          d[o + 1] = 12;
+          d[o + 2] = 10;
           d[o + 3] = 255;
         }
       }
@@ -249,8 +277,8 @@ const SurvivorSprites = (() => {
     g.imageSmoothingEnabled = false;
     g.drawImage(atlas, 0, 0, c.width, c.height);
     scaled = c;
-    ground = null;
-    groundZoom = 0;
+    floorPattern = null;
+    floorPatternZoom = 0;
   }
 
   function build(img) {
@@ -317,44 +345,55 @@ const SurvivorSprites = (() => {
     return list[i];
   }
 
-  function blit(ctx, fr, dx, dy, flip, flash, alpha) {
+  function blit(ctx, fr, dx, dy, flip, flash, alpha, scale) {
     if (!fr || !scaled) return;
+    const k = scale || 1;
     const sw = fr.w * zoom;
     const sh = fr.h * zoom;
+    const dw = Math.max(1, Math.round(sw * k));
+    const dh = Math.max(1, Math.round(sh * k));
     const sx = fr.x * zoom;
     const sy = fr.y * zoom;
     ctx.globalAlpha = alpha == null ? 1 : alpha;
     if (flash) {
       if (!scratch) scratch = document.createElement('canvas');
-      if (scratch.width < sw || scratch.height < sh) {
-        scratch.width = Math.max(scratch.width, sw);
-        scratch.height = Math.max(scratch.height, sh);
+      if (scratch.width < dw || scratch.height < dh) {
+        scratch.width = Math.max(scratch.width, dw);
+        scratch.height = Math.max(scratch.height, dh);
       }
       const s = scratch.getContext('2d');
       s.imageSmoothingEnabled = false;
-      s.clearRect(0, 0, sw, sh);
+      s.clearRect(0, 0, dw, dh);
       s.globalCompositeOperation = 'source-over';
-      if (flip) s.drawImage(scaled, sx, sy, sw, sh, sw, 0, -sw, sh);
-      else s.drawImage(scaled, sx, sy, sw, sh, 0, 0, sw, sh);
+      if (flip) s.drawImage(scaled, sx, sy, sw, sh, dw, 0, -dw, dh);
+      else s.drawImage(scaled, sx, sy, sw, sh, 0, 0, dw, dh);
       s.globalCompositeOperation = 'source-atop';
       s.fillStyle = '#ffffff';
-      s.fillRect(0, 0, sw, sh);
+      s.fillRect(0, 0, dw, dh);
       s.globalCompositeOperation = 'source-over';
-      ctx.drawImage(scratch, 0, 0, sw, sh, dx, dy, sw, sh);
+      ctx.drawImage(scratch, 0, 0, dw, dh, dx, dy, dw, dh);
     } else if (flip) {
-      ctx.drawImage(scaled, sx, sy, sw, sh, dx + sw, dy, -sw, sh);
+      ctx.drawImage(scaled, sx, sy, sw, sh, dx + dw, dy, -dw, dh);
     } else {
-      ctx.drawImage(scaled, sx, sy, sw, sh, dx, dy, sw, sh);
+      ctx.drawImage(scaled, sx, sy, sw, sh, dx, dy, dw, dh);
     }
     ctx.globalAlpha = 1;
   }
 
   function drawHeroRing(ctx, x, y) {
+    const body = y - 10 * zoom;
+    const halo = 22 * zoom;
+    const glow = ctx.createRadialGradient(x, body, 3 * zoom, x, body, halo);
+    glow.addColorStop(0, 'rgba(6, 4, 6, 0.88)');
+    glow.addColorStop(0.38, 'rgba(6, 4, 6, 0.55)');
+    glow.addColorStop(1, 'rgba(6, 4, 6, 0)');
+    ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(x, y, 9 * zoom, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(244, 239, 224, 0.22)';
+    ctx.arc(x, body, halo, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = zoom;
+    ctx.beginPath();
+    ctx.arc(x, y - zoom, 12 * zoom, 0, Math.PI * 2);
+    ctx.lineWidth = zoom * 3;
     ctx.strokeStyle = CREAM;
     ctx.stroke();
   }
@@ -396,8 +435,10 @@ const SurvivorSprites = (() => {
     if (!fr) return;
     const fade = dying ? Math.max(0, o.dying / 0.22) : 1;
     const grow = dying ? Math.round((1 - fade) * zoom) : 0;
-    const foot = (fr.h - (fr.pad || 0)) * zoom;
-    const dw = fr.w * zoom + grow;
+    const scale = o.scale == null ? 1 : o.scale;
+    const foot = (fr.h - (fr.pad || 0)) * zoom * scale;
+    const dw = Math.max(1, Math.round(fr.w * zoom * scale)) + grow;
+    const dh = Math.max(1, Math.round(fr.h * zoom * scale)) + grow;
     const dx = Math.round(x - dw / 2);
     const dy = Math.round(y - foot - grow);
     const faceRight = (o.facing || 1) > 0;
@@ -408,12 +449,12 @@ const SurvivorSprites = (() => {
       ctx.globalAlpha = fade;
       const sx = fr.x * zoom;
       const sy = fr.y * zoom;
-      if (faceRight) ctx.drawImage(scaled, sx, sy, sw, sh, dx + dw, dy, -dw, sh + grow);
-      else ctx.drawImage(scaled, sx, sy, sw, sh, dx, dy, dw, sh + grow);
+      if (faceRight) ctx.drawImage(scaled, sx, sy, sw, sh, dx + dw, dy, -dw, dh);
+      else ctx.drawImage(scaled, sx, sy, sw, sh, dx, dy, dw, dh);
       ctx.globalAlpha = 1;
       return;
     }
-    blit(ctx, fr, dx, dy, faceRight, o.flash, fade);
+    blit(ctx, fr, dx, dy, faceRight, o.flash, fade, scale);
   }
 
   function drawGem(ctx, x, y) {
@@ -449,49 +490,59 @@ const SurvivorSprites = (() => {
     return ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
   }
 
-  function drawGround(ctx, camX, camY, arena) {
-    if (!ready || !scaled) return;
-    if (!ground || groundZoom !== zoom) {
-      const span = arena * 2 + 3;
-      const origin = arena + 1;
-      const px = FRAME * zoom;
-      const c = document.createElement('canvas');
-      c.width = span * px;
-      c.height = span * px;
-      const g = c.getContext('2d');
-      g.imageSmoothingEnabled = false;
-      const limit = (arena + 0.2) * (arena + 0.2);
-      for (let ty = -arena - 1; ty <= arena + 1; ty++) {
-        for (let tx = -arena - 1; tx <= arena + 1; tx++) {
-          const cx = tx + 0.5;
-          const cy = ty + 0.5;
-          if (cx * cx + cy * cy > limit) continue;
-          const h = tileHash(tx, ty);
-          const name = h % 9 === 0 ? 'floor4' : h % 5 === 0 ? 'floor2' : 'floor1';
-          const fr = frameAt(name, 0);
-          if (!fr) continue;
-          const dx = (tx + origin) * px;
-          const dy = (ty + origin) * px;
-          g.drawImage(scaled, fr.x * zoom, fr.y * zoom, fr.w * zoom, fr.h * zoom, dx, dy, px, px);
-          if (h % 37 === 0) {
-            const skull = frameAt('skull', 0);
-            if (skull) {
-              g.drawImage(
-                scaled,
-                skull.x * zoom, skull.y * zoom, skull.w * zoom, skull.h * zoom,
-                dx, dy, px, px
-              );
-            }
+  function mod(n, m) {
+    return ((n % m) + m) % m;
+  }
+
+  function ensureFloorPattern() {
+    if (floorPattern && floorPatternZoom === zoom) return floorPattern;
+    const px = FRAME * zoom;
+    const c = document.createElement('canvas');
+    c.width = FLOOR_CHUNK * px;
+    c.height = FLOOR_CHUNK * px;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    for (let ty = 0; ty < FLOOR_CHUNK; ty++) {
+      for (let tx = 0; tx < FLOOR_CHUNK; tx++) {
+        const h = tileHash(tx, ty);
+        const name = h % 9 === 0 ? 'floor4' : h % 5 === 0 ? 'floor2' : 'floor1';
+        const fr = frameAt(name, 0);
+        if (!fr) continue;
+        const dx = tx * px;
+        const dy = ty * px;
+        g.drawImage(scaled, fr.x * zoom, fr.y * zoom, fr.w * zoom, fr.h * zoom, dx, dy, px, px);
+        if (h % 37 === 0) {
+          const skull = frameAt('skull', 0);
+          if (skull) {
+            g.drawImage(
+              scaled,
+              skull.x * zoom, skull.y * zoom, skull.w * zoom, skull.h * zoom,
+              dx, dy, px, px
+            );
           }
         }
       }
-      ground = c;
-      groundZoom = zoom;
-      ground._origin = origin;
     }
-    const origin = ground._origin;
+    floorPattern = c;
+    floorPatternZoom = zoom;
+    return c;
+  }
+
+  function drawGround(ctx, camX, camY, viewW, viewH) {
+    if (!ready || !scaled) return;
+    const pat = ensureFloorPattern();
     const px = FRAME * zoom;
-    ctx.drawImage(ground, Math.round(camX - origin * px), Math.round(camY - origin * px));
+    const chunk = FLOOR_CHUNK * px;
+    const left = Math.floor(-camX / px);
+    const top = Math.floor(-camY / px);
+    let x = (left - mod(left, FLOOR_CHUNK)) * px + camX;
+    const y0 = (top - mod(top, FLOOR_CHUNK)) * px + camY;
+    const x0 = x;
+    for (let y = y0; y < viewH; y += chunk) {
+      for (x = x0; x < viewW; x += chunk) {
+        ctx.drawImage(pat, Math.round(x), Math.round(y));
+      }
+    }
   }
 
   function ring(ctx, x, y, radius, stroke, fill) {
@@ -521,7 +572,7 @@ const SurvivorSprites = (() => {
     const r = o.boss ? 16 : o.eid === 'brute' ? 13 : 10;
     ctx.beginPath();
     ctx.arc(x, y - r, r, 0, Math.PI * 2);
-    ctx.fillStyle = o.flash ? '#ffffff' : (o.eid === 'imp' ? '#7b4fd4' : o.boss ? '#da4e38' : '#d7dbe3');
+    ctx.fillStyle = o.flash ? '#ffffff' : (o.eid === 'imp' ? '#7b4fd4' : o.boss ? '#da4e38' : o.eid === 'brute' ? '#6d8a72' : '#8a847c');
     ctx.fill();
   }
 

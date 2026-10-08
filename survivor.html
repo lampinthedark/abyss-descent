@@ -4,6 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Abyss Descent — Survivor</title>
+  <script>
+    (function () {
+      var q = location.search || '';
+      if (/(?:^|[?&])bench=1(?:&|$)/.test(q)) document.documentElement.classList.add('sv-bench-boot');
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          for (var i = 0; i < regs.length; i++) regs[i].unregister();
+        }).catch(function () {});
+      }
+    })();
+  </script>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="css/style.css?v=3" />
@@ -77,8 +88,8 @@
         <h2 id="sv-end-title">You have fallen</h2>
         <p id="sv-end-stats" class="lore">Time 0:00</p>
         <button type="button" id="sv-restart" class="big-btn">Restart</button>
-        <button type="button" id="sv-revive" class="big-btn secondary">Revive</button>
-        <button type="button" id="sv-double" class="big-btn secondary">Double gold</button>
+        <button type="button" id="sv-revive" class="big-btn secondary hidden">Revive</button>
+        <button type="button" id="sv-double" class="big-btn secondary hidden">Double gold</button>
       </div>
     </div>
 

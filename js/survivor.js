@@ -2,17 +2,17 @@
 (() => {
   let TILE = 48;
   let zoom = 3;
-  const ARENA = 18;
   const CELL = 3;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
   const PARTICLE_CAP = 40;
-  const FLOAT_CAP = 24;
+  const FLOAT_CAP = 40;
   const GEM_CAP = 180;
 
   const search = (typeof location !== 'undefined' && location.search) || '';
   const debug = /(?:^|[?&])debug=1(?:&|$)/.test(search);
   const bench = /(?:^|[?&])bench=1(?:&|$)/.test(search);
+  const adsOn = /(?:^|[?&])adtest=1(?:&|$)/.test(search);
   const previewMatch = /(?:^|[?&])preview=([a-z]+)/.exec(search);
   let previewOnce = previewMatch ? previewMatch[1] : '';
 
@@ -52,6 +52,9 @@
   let boss5 = false;
   let curse = 0;
   let pickLeft = 0;
+  let vowPayout = false;
+  let rerollUsed = false;
+  let foeSeq = 1;
   let novaSeq = 0;
   let pierceSeq = 0;
   let hitSnd = 0;
@@ -131,14 +134,6 @@
     shakeMag = Math.min(5.5, shakeMag + amount);
   }
 
-  function clampArena(obj, limit) {
-    const d = Math.hypot(obj.x, obj.y);
-    if (d > limit) {
-      obj.x *= limit / d;
-      obj.y *= limit / d;
-    }
-  }
-
   function hpFor(id, bossFlag) {
     const wave = 1 + Math.floor(time / 60) * 0.18;
     let hp = id === 'imp' ? 14 : id === 'brute' ? 36 : T.earlyHp;
@@ -170,7 +165,8 @@
     en.ky = 0;
     en.touchCd = 0.3;
     en.facing = x < player.x ? 1 : -1;
-    en.scale = bossFlag ? 1.75 : (type.id === 'brute' ? 1.28 : type.id === 'imp' ? 0.95 : 1.05);
+    en.fid = ++foeSeq;
+    en.scale = bossFlag ? 1 : (type.id === 'brute' ? 0.625 : 1);
     en.gold = bossFlag ? SurvivorData.REWARDS.gold.mini : (SurvivorData.REWARDS.gold[type.id] || 1);
     en.xp = type.id === 'brute' ? 5 : T.gemXp;
     enemies.push(en);
@@ -214,7 +210,22 @@
     shots.push(s);
   }
 
-  function floatText(x, y, text, color, big) {
+  function floatText(x, y, text, color, big, merge) {
+    if (merge) {
+      for (let i = floats.length - 1; i >= 0; i--) {
+        const f = floats[i];
+        if (f.fid === merge.fid && time - f.stamp < 0.25) {
+          f.amount += merge.amount;
+          f.text = String(f.amount);
+          f.x = x;
+          f.y = y;
+          f.stamp = time;
+          f.life = 0.72;
+          f.big = !!big || f.amount >= 18;
+          return;
+        }
+      }
+    }
     let f;
     if (floats.length >= FLOAT_CAP) f = floats.shift();
     else f = floatPool.pop() || {};
@@ -225,6 +236,9 @@
     f.life = 0.72;
     f.max = 0.72;
     f.big = !!big;
+    f.fid = merge ? merge.fid : 0;
+    f.amount = merge ? merge.amount : 0;
+    f.stamp = time;
     floats.push(f);
   }
 
@@ -262,8 +276,15 @@
     const rank = Math.max(1, owned.bolt || 1);
     return T.boltDamage * (1 + (rank - 1) * 0.22) * power();
   }
+  function pxToWorld(px) {
+    return px / Math.max(1, TILE);
+  }
   function magnetR() {
-    return 5 + (owned.magnet || 0) * 0.7;
+    const fromPx = pxToWorld(120 + (owned.magnet || 0) * 48);
+    return Math.max(fromPx, 5 + (owned.magnet || 0) * 0.7);
+  }
+  function pickupR() {
+    return pxToWorld(36);
   }
 
   function hurt(amount, heavy) {
@@ -294,8 +315,9 @@
       sfx('hit');
     }
     if (!tick) {
-      const big = amount >= 18 || !!en.boss;
-      floatText(en.x, en.y - 0.15, String(Math.max(1, Math.round(amount))), '#ffffff', big);
+      const shown = Math.max(1, Math.round(amount));
+      const big = shown >= 18 || !!en.boss;
+      floatText(en.x, en.y - 0.15, String(shown), '#ffffff', big, { fid: en.fid, amount: shown });
       spark(en.x, en.y, '#ffffff', 3, 2.2);
       if (!en.boss && en.eid !== 'brute') {
         const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
@@ -365,20 +387,39 @@
     }
   }
 
+  function viewLimit() {
+    const halfW = canvas.width / (TILE * 2);
+    const halfH = canvas.height / (TILE * 2);
+    return Math.hypot(halfW, halfH) + 4;
+  }
+
+  function cullFarEnemies() {
+    const limit = viewLimit();
+    const limit2 = limit * limit;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (en.boss) continue;
+      const dx = en.x - player.x;
+      const dy = en.y - player.y;
+      if (dx * dx + dy * dy > limit2) releaseEnemy(i);
+    }
+  }
+
   function director(dt) {
     if (bench) return;
+    cullFarEnemies();
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
-      const ang = Math.random() * Math.PI * 2;
-      spawnEnemy('brute', player.x + Math.cos(ang) * 6.5, player.y + Math.sin(ang) * 6.5, {
+      const spot = spawnOffscreen(1.8);
+      spawnEnemy('brute', spot.x, spot.y, {
         boss: true, name: 'Risen Demon',
       });
       sfx('portal');
     }
     if (!hermit.used && !hermit.on && time >= 75) {
       hermit.on = true;
-      hermit.x = Utils.clamp(player.x + 2.6, -ARENA + 2, ARENA - 2);
-      hermit.y = Utils.clamp(player.y + 1.4, -ARENA + 2, ARENA - 2);
+      hermit.x = player.x + 2.6;
+      hermit.y = player.y + 1.4;
     }
     if (time >= RUN_SECONDS) {
       runGold += SurvivorData.REWARDS.gold.win;
@@ -395,17 +436,30 @@
       let id = 'skel';
       if (time > 35 && roll > 0.58) id = 'imp';
       if (time > 80 && roll > 0.84) id = 'brute';
-      const ang = Math.random() * Math.PI * 2;
-      const dist = 8.5 + Math.random() * 2.5;
-      spawnEnemy(id, player.x + Math.cos(ang) * dist, player.y + Math.sin(ang) * dist);
+      const spot = spawnOffscreen(1.15);
+      spawnEnemy(id, spot.x, spot.y);
     }
+  }
+
+  function spawnOffscreen(pad) {
+    const extra = pad || 1.15;
+    const halfW = canvas.width / (TILE * 2) + extra;
+    const halfH = canvas.height / (TILE * 2) + extra;
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) return { x: player.x - halfW, y: player.y + (Math.random() * 2 - 1) * halfH };
+    if (side === 1) return { x: player.x + halfW, y: player.y + (Math.random() * 2 - 1) * halfH };
+    if (side === 2) return { x: player.x + (Math.random() * 2 - 1) * halfW, y: player.y - halfH };
+    return { x: player.x + (Math.random() * 2 - 1) * halfW, y: player.y + halfH };
   }
 
   function tickWeapons(dt) {
     cds.bolt -= dt;
     cds.nova -= dt;
     cds.pierce -= dt;
-    const aim = nearestEnemy(player.x, player.y, 8.5);
+    const halfW = canvas.width / (TILE * 2);
+    const halfH = canvas.height / (TILE * 2);
+    const aimReach = Math.max(8.5, Math.min(halfW, halfH) * 0.92);
+    const aim = nearestEnemy(player.x, player.y, aimReach);
     if (owned.bolt && cds.bolt <= 0 && aim) {
       const dx = aim.x - player.x;
       const dy = aim.y - player.y;
@@ -521,28 +575,20 @@
 
   function tickGems(dt) {
     const pull = magnetR();
+    const grab = pickupR();
     for (let i = gems.length - 1; i >= 0; i--) {
       const g = gems[i];
       const dx = player.x - g.x;
       const dy = player.y - g.y;
-      const dist = Math.hypot(dx, dy) || 1;
+      const dist = Math.hypot(dx, dy);
       if (dist < pull) g.fly = 1;
-      if (g.fly) {
-        const accel = 42;
-        g.vx += (dx / dist) * accel * dt;
-        g.vy += (dy / dist) * accel * dt;
-        const sp = Math.hypot(g.vx, g.vy);
-        if (sp > 18) {
-          const k = 18 / sp;
-          g.vx *= k;
-          g.vy *= k;
-        }
-        g.x += g.vx * dt;
-        g.y += g.vy * dt;
+      if (g.fly && dist > 0) {
+        const step = Math.min(dist, (14 + (owned.magnet || 0) * 4) * dt);
+        g.x += (dx / dist) * step;
+        g.y += (dy / dist) * step;
       }
-      const ndx = player.x - g.x;
-      const ndy = player.y - g.y;
-      if (ndx * ndx + ndy * ndy < 0.18) {
+      const left = Math.hypot(player.x - g.x, player.y - g.y);
+      if (left <= grab || (g.fly && left < 0.08)) {
         player.xp += g.value;
         spark(player.x, player.y, '#ffffff', 3, 2.6);
         gems.splice(i, 1);
@@ -590,7 +636,15 @@
       shakeMag = Math.max(0, shakeMag - dt * 12);
       shakePhase += dt * 46;
     }
-    if (curse > 0) curse = Math.max(0, curse - dt);
+    if (curse > 0) {
+      curse = Math.max(0, curse - dt);
+      if (vowPayout && curse <= 0) {
+        vowPayout = false;
+        pickLeft = 2;
+        openLevel();
+        return;
+      }
+    }
     movePlayer(dt);
     director(dt);
     if (state !== 'playing') return;
@@ -653,7 +707,6 @@
     player.x += (sx / len) * sp * dt;
     player.y += (sy / len) * sp * dt;
     if (sx !== 0) player.facing = sx > 0 ? 1 : -1;
-    clampArena(player, ARENA - 1.2);
   }
 
   function clearPools() {
@@ -681,7 +734,9 @@
     spawnAcc = 0;
     boss5 = false;
     curse = 0;
+    vowPayout = false;
     pickLeft = 0;
+    rerollUsed = false;
     hits = 0;
     owned = { bolt: 1 };
     cds = { bolt: T.firstBolt, nova: 1.6, pierce: 1.2 };
@@ -711,10 +766,17 @@
         spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
       }
     } else if (preview === 'crowd') {
+      player.invuln = 3;
       openingPack();
-      for (let i = 0; i < 110; i++) {
+      for (let i = 0; i < 28; i++) {
+        const ang = (i / 28) * Math.PI * 2 + 0.2;
+        const dist = 0.48 + (i % 4) * 0.16;
+        const id = i % 7 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
+        spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
+      }
+      for (let i = 0; i < 90; i++) {
         const ang = Math.random() * Math.PI * 2;
-        const dist = 1.15 + Math.random() * 3.1;
+        const dist = 1.35 + Math.random() * 2.6;
         const id = i % 8 === 0 ? 'brute' : i % 2 === 0 ? 'imp' : 'skel';
         spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
       }
@@ -764,6 +826,8 @@
       runGold = 18;
       time = 48;
       finish('dead');
+    } else if (preview === 'hermit') {
+      openHermit();
     }
     sfx('ui');
   }
@@ -771,6 +835,7 @@
   function finish(kind) {
     if (ended) return;
     ended = true;
+    vowPayout = false;
     state = kind === 'won' ? 'won' : 'dead';
     joy.on = false;
     track(SurvivorData.levelReachedEvent(player.level));
@@ -789,7 +854,9 @@
       stats.textContent = 'Time ' + clock + '  ·  Kills ' + kills + '  ·  Level ' + player.level + '  ·  Gold ' + runGold;
     }
     const reviveBtn = $('sv-revive');
-    if (reviveBtn) reviveBtn.classList.toggle('hidden', kind !== 'dead' || revived);
+    if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived);
+    const goldBtn = $('sv-double');
+    if (goldBtn) goldBtn.classList.toggle('hidden', !adsOn || (kind !== 'dead' && kind !== 'won'));
     hide('sv-level');
     hide('sv-pause');
     hide('sv-hermit');
@@ -812,6 +879,12 @@
       btn.innerHTML = '<b>' + item.name + '</b>' + rank + '<small>' + item.blurb + '</small>';
       box.appendChild(btn);
     });
+    const reroll = $('sv-reroll');
+    if (reroll) {
+      const spent = rerollUsed && !adsOn;
+      reroll.disabled = spent;
+      reroll.textContent = spent ? 'used' : 'Reroll';
+    }
     show('sv-level');
     sfx('level');
   }
@@ -847,9 +920,21 @@
     sfx('ui');
   }
 
+  function differentOffers(prev) {
+    const before = prev.map((o) => o.id).sort().join(',');
+    let next = prev;
+    for (let n = 0; n < 8; n++) {
+      next = SurvivorData.pickOffers(owned);
+      const key = next.map((o) => o.id).sort().join(',');
+      if (key !== before) return next;
+    }
+    return next;
+  }
+
   function rerollOffers() {
-    if (state !== 'levelup') return;
-    offers = SurvivorData.pickOffers(owned);
+    if (state !== 'levelup' || rerollUsed) return;
+    offers = differentOffers(offers);
+    if (!adsOn) rerollUsed = true;
     openLevel();
   }
 
@@ -865,13 +950,18 @@
   function acceptHermit() {
     hide('sv-hermit');
     curse = 60;
+    vowPayout = true;
     for (let i = 0; i < enemies.length; i++) {
       const en = enemies[i];
       en.maxLife = Math.round(en.maxLife * 1.5);
       en.life = Math.round(en.life * 1.5);
     }
-    pickLeft = 2;
-    openLevel();
+    state = 'playing';
+    const vow = $('sv-vow');
+    if (vow) {
+      vow.classList.remove('hidden');
+      vow.textContent = 'Vow 60s';
+    }
   }
 
   function declineHermit() {
@@ -1001,7 +1091,7 @@
 
   function drawArena() {
     ctx.imageSmoothingEnabled = false;
-    SurvivorSprites.drawGround(ctx, camX, camY, ARENA);
+    SurvivorSprites.drawGround(ctx, camX, camY, canvas.width, canvas.height);
   }
 
   function heroOpts() {
@@ -1211,8 +1301,12 @@
       try { Ads.offerDoubleGold(); } catch (e) {}
     });
     $('sv-reroll').addEventListener('click', () => {
-      if (state !== 'levelup') return;
-      try { Ads.offerReroll(); } catch (e) {}
+      if (state !== 'levelup' || (rerollUsed && !adsOn)) return;
+      if (adsOn) {
+        try { Ads.offerReroll(); } catch (e) {}
+        return;
+      }
+      rerollOffers();
     });
     $('sv-cards').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-choice]');
@@ -1247,25 +1341,34 @@
       joy.id = e.pointerId;
       joy.ox = joy.x = e.clientX;
       joy.oy = joy.y = e.clientY;
+      if (e.cancelable) e.preventDefault();
+      const cap = e.target && e.target.setPointerCapture ? e.target : $('game-wrap');
+      try { if (cap && cap.setPointerCapture) cap.setPointerCapture(e.pointerId); } catch (err) {}
     }
     function move(e) {
-      if (!joy.on || (e.pointerId != null && e.pointerId !== joy.id)) return;
+      if (!joy.on || e.pointerId !== joy.id) return;
       joy.x = e.clientX;
       joy.y = e.clientY;
+      if (e.cancelable) e.preventDefault();
     }
     function up(e) {
-      if (e.pointerId != null && joy.id != null && e.pointerId !== joy.id) return;
+      if (e.pointerId !== joy.id) return;
       joy.on = false;
       joy.id = null;
     }
-    window.addEventListener('pointerdown', down);
-    window.addEventListener('pointermove', move);
+    const pointerOpts = { passive: false };
+    window.addEventListener('pointerdown', down, pointerOpts);
+    window.addEventListener('pointermove', move, pointerOpts);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
 
     try {
-      Ads.setFlush(false);
-      Ads.setCombat(() => state === 'playing' || state === 'paused' || state === 'hermit');
+      Ads.setAllow((kind) => {
+        if (kind === 'reroll') return state === 'levelup';
+        if (kind === 'revive') return state === 'dead';
+        if (kind === 'gold') return state === 'dead' || state === 'won';
+        return false;
+      });
       Ads.onResult((kind, reason) => {
         if (reason !== 'accept') return;
         if (kind === 'reroll' && state === 'levelup') rerollOffers();
@@ -1296,9 +1399,41 @@
       window.__sv = () => ({
         state, time, kills, level: player.level, levelUps, hits,
         enemies: enemies.length, gems: gems.length, floats: floats.length,
-        x: player.x, y: player.y, life: player.life,
+        x: player.x, y: player.y, life: player.life, xp: player.xp,
         art: SurvivorSprites.ready(),
+        vow: vowPayout, curse,
       });
+      window.__svPan = (x, y) => { player.x = x; player.y = y; };
+      window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
+      window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };
+      let gemToken = 1;
+      window.__svGem = (px) => {
+        const token = ++gemToken;
+        gems.length = 0;
+        const g = gemPool.pop() || {};
+        g.x = player.x + (px || 20) / TILE;
+        g.y = player.y;
+        g.value = 1;
+        g.vx = 0;
+        g.vy = 0;
+        g.fly = 0;
+        g.token = token;
+        gems.push(g);
+        return token;
+      };
+      window.__svGemGone = (token) => !gems.some((g) => g.token === token);
+      window.__svMagnet = (rank) => { owned.magnet = rank || 1; return magnetR() * TILE; };
+      window.__svMerge = () => {
+        let en = null;
+        for (let i = 0; i < enemies.length; i++) {
+          if (enemies[i].life > 0 && enemies[i].dying <= 0) { en = enemies[i]; break; }
+        }
+        if (!en) return null;
+        const before = floats.length;
+        for (let n = 0; n < 5; n++) damageEnemy(en, 3);
+        const last = floats[floats.length - 1];
+        return { added: floats.length - before, text: last ? last.text : '', floats: floats.length };
+      };
       if (/preview=juice/.test(search)) {
         window.__svFlash = () => {
           let n = 0;
@@ -1342,7 +1477,7 @@
     if (bench && state === 'playing') {
       if (!benchStart) benchStart = now;
       benchFrames.push(dt);
-      if (!benchDone && now - benchStart > 3000) {
+      if (!benchDone && now - benchStart > 10000) {
         benchDone = true;
         let sum = 0;
         let min = Infinity;
@@ -1352,11 +1487,18 @@
           if (f < min) min = f;
         }
         const avg = sum / benchFrames.length;
-        window.__fps = { avg, min, enemies: enemies.length, frames: benchFrames.length };
+        const sw = (window.screen && window.screen.width) || canvas.width;
+        const sh = (window.screen && window.screen.height) || canvas.height;
+        const dpr = window.devicePixelRatio || 1;
+        window.__fps = {
+          avg, min, enemies: enemies.length, frames: benchFrames.length,
+          screen: sw + 'x' + sh, dpr,
+        };
         const out = $('sv-bench');
         if (out) {
           out.classList.remove('hidden');
-          out.textContent = 'Bench ' + enemies.length + ' foes · avg ' + avg.toFixed(1) + ' fps · min ' + min.toFixed(1);
+          out.textContent = 'Bench ' + enemies.length + ' foes\navg ' + avg.toFixed(1) + ' fps · min ' + min.toFixed(1) + ' fps\n'
+            + sw + '×' + sh + ' · ' + dpr + ' dpr';
         }
       }
     }
@@ -1366,6 +1508,9 @@
   }
 
   bind();
+  if (bench) {
+    try { document.body.classList.add('sv-bench-run'); } catch (e) {}
+  }
   SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=3');
   if (bench || previewOnce) startRun();
   requestAnimationFrame(frame);

@@ -111,7 +111,16 @@ if (!src.includes('backButton') || !src.includes('holdMute')) fail('missing back
 if (!src.includes("offerRevive") || !src.includes("offerReroll") || !src.includes("offerDoubleGold")) {
   fail('missing ad hooks');
 }
-if (!src.includes('setFlush(false)')) fail('survivor should not auto-show held ads during play');
+if (!src.includes('setAllow')) fail('survivor should gate ad offers');
+if (src.includes('setFlush(false)') || src.includes('clampArena')) fail('survivor still holds ads or walls the floor');
+if (!src.includes('spawnOffscreen')) fail('enemies should spawn just off screen');
+if (!src.includes('setPointerCapture')) fail('pointer drag should capture the mouse');
+if (!src.includes('vowPayout')) fail('hermit cards should wait for the vow');
+if (!src.includes('FLOAT_CAP = 40')) fail('floating numbers should cap near 40');
+if (!src.includes('function pickupR')) fail('gem pickup radius missing');
+if (html.includes('id="title-screen"') || html.includes('Choose Your Fate')) fail('survivor boots the descent menu');
+if (!html.includes('sv-bench-boot')) fail('bench should skip the title flash');
+if (!html.includes('id="sv-revive" class="big-btn secondary hidden"')) fail('revive should be hidden until an ad test');
 if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
 if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
@@ -155,11 +164,54 @@ const ads = load(['js/ads.js'], { document: doc, location: { search: '?adtest=1'
 if (ads.Ads.offerRevive() !== 'shown') fail('direct revive should show when combat is clear');
 if (doc._nodes['adtest-prompt'].classList.contains('hidden')) fail('placeholder stayed hidden');
 
-const heldDoc = fakeDocument();
-const held = load(['js/ads.js'], { document: heldDoc, location: { search: '?adtest=1' } });
-held.Ads.setFlush(false);
-held.Ads.setCombat(() => true);
-if (held.Ads.offerReroll() !== 'held') fail('combat should hold reroll');
-if (!heldDoc._nodes['adtest-prompt'].classList.contains('hidden')) fail('held reroll opened a prompt');
+function survivorAllow(mode) {
+  return (kind) => {
+    if (kind === 'reroll') return mode === 'levelup';
+    if (kind === 'revive') return mode === 'dead';
+    if (kind === 'gold') return mode === 'dead' || mode === 'won';
+    return false;
+  };
+}
+
+const dropLogs = [];
+const lvlDoc = fakeDocument();
+const lvlAds = load(['js/ads.js'], {
+  document: lvlDoc,
+  location: { search: '?adtest=1&debug=1' },
+  console: { log: (...a) => dropLogs.push(a.join(' ')), error() {}, warn() {} },
+});
+lvlAds.Ads.setAllow(survivorAllow('levelup'));
+if (lvlAds.Ads.offerDoubleGold() !== 'dropped') fail('double gold during level-up should drop');
+if (!lvlDoc._nodes['adtest-prompt'].classList.contains('hidden')) fail('level-up gold opened a prompt');
+if (!dropLogs.some((line) => line.indexOf('ad dropped: gold') >= 0)) fail('drop was not logged');
+if (lvlAds.Ads.offerReroll() !== 'shown') fail('reroll from level-up should show');
+
+const fightDoc = fakeDocument();
+const fightAds = load(['js/ads.js'], { document: fightDoc, location: { search: '?adtest=1&debug=1' } });
+fightAds.Ads.setAllow(survivorAllow('playing'));
+const reviveMid = fightAds.Ads.offerRevive();
+if (reviveMid !== 'dropped') fail('revive mid-fight should drop, got ' + reviveMid);
+if (!fightDoc._nodes['adtest-prompt'].classList.contains('hidden')) fail('mid-fight revive opened a prompt');
+if (!fightDoc._nodes['adtest-held'].classList.contains('hidden')) fail('mid-fight revive was held');
+
+const deadDoc = fakeDocument();
+const deadAds = load(['js/ads.js'], { document: deadDoc, location: { search: '?adtest=1' } });
+deadAds.Ads.setAllow(survivorAllow('dead'));
+if (deadAds.Ads.offerRevive() !== 'shown') fail('death screen revive should show');
+const goldDoc = fakeDocument();
+const goldAds = load(['js/ads.js'], { document: goldDoc, location: { search: '?adtest=1' } });
+goldAds.Ads.setAllow(survivorAllow('dead'));
+if (goldAds.Ads.offerDoubleGold() !== 'shown') fail('death screen double gold should show');
+
+const plainDoc = fakeDocument();
+const plainAds = load(['js/ads.js'], { document: plainDoc, location: { search: '' } });
+plainAds.Ads.setAllow(survivorAllow('dead'));
+if (plainAds.Ads.offerRevive() !== 'unavailable' || plainAds.Ads.offerDoubleGold() !== 'unavailable') {
+  fail('plain url should show nothing');
+}
+const plainPrompt = plainDoc._nodes['adtest-prompt'];
+const plainPanel = plainDoc._nodes['adtest-panel'];
+if (plainPrompt && !plainPrompt.classList.contains('hidden')) fail('plain url opened a prompt');
+if (!plainPanel || !plainPanel.classList.contains('hidden')) fail('plain url showed the ad panel');
 
 console.log('survivor data ok, first hit ~' + hitIn.toFixed(2) + 's, first level ~' + killsForLevel + ' kills');
