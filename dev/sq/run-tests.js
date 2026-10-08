@@ -112,6 +112,7 @@ async function playQ1(seed) {
   const sword = w.Inventory.list().find(it => it && it.base === 'rustbound_sword');
   ok(sword, 'sword made (quest recipe picked without a menu)');
   eq(RPG.quests.active().step, 3);
+  eq(RPG.quests.wantEquip(), 'rustbound_sword', 'wantEquip names the Q1 sword');
   s.tick(4);                                                  // player opens the bag
   ok(w.Equipment.equip(sword.uid).ok); s.tick(0.3); // no bus 'equip' event: core D1 never emits one; runtime polls Equipment
   eq(RPG.quests.active().step, 4, 'wield step');

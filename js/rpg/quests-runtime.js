@@ -175,6 +175,8 @@
     }
     function marker(npcId) { return C().giverMarker(SQ.npcKey(npcId), log()); }
     function wantRecipe() { var st = step(); return st && st.done.type === 'craft' ? st.done.target : null; }
+    /** Item base the current quest step wants worn (Q1: 'rustbound_sword'), else null. For core's Wield prompt. */
+    function wantEquip() { var st = step(); return st && st.done.type === 'equip' ? st.done.target : null; }
 
     /**
      * Would this kill finish the active quest's kill step? Order-proof: the answer is taken
@@ -232,7 +234,7 @@
     RPG.registerSystem({ id: 'sq-quests', update: update, draw: function () {} });
 
     RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh,
-      marker: marker, wantRecipe: wantRecipe, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
+      marker: marker, wantRecipe: wantRecipe, wantEquip: wantEquip, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
     refresh();
     return RPG.quests;
   };

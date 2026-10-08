@@ -45,3 +45,7 @@ D&B: `Loot.rollDrop(id, rng, x, y, { questFinish: !!(RPG.quests && RPG.quests.co
 
 ## Ash Stair gate
 `RPG.quests.isDone('q2')` (or the full id `'q2_field'`) is true once Q2 is handed in. D&B's `RPG.dungeon.canEnter()` reads it.
+
+## Wield prompt
+`RPG.quests.wantEquip()` returns the item base the current step wants worn (Q1: `'rustbound_sword'`), else null.
+Equip steps also poll `Equipment` every 0.25 s, so they complete with or without a bus `equip` event.
