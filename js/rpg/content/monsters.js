@@ -13,7 +13,7 @@
  *   core can pass it straight into the death recap's lastHits.
  * - anim on every attack = the sheet key core plays for it (derived below):
  *   melee / ranged -> `${sprite}_attack`, slam -> `${sprite}_slam`, charge ->
- *   `${sprite}_charge` (rat/goblin: rsc-look/mobs, the rest: rsc-look/mobs2).
+ *   `${sprite}_charge` (rat/goblin: art/mobs, the rest: art/mobs2).
  * - Every windupMs >= 400; boss attacks >= 600; elite (brute) telegraphs >= 600. 'charge' draws telegraphLine
  *   (length = range), 'slam' draws telegraph (ring radius = radius, or range).
  * - cooldownMs is per attack, counted from the hit; balance-sim also rests a

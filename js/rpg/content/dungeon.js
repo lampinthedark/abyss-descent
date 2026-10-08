@@ -14,8 +14,8 @@
  *
  * Helpers: RPGContent.Dungeon.keyGrid() -> [[{base, edges:[...]}]],
  * .walkable(x, y), .keysUsed(), .bfs(from), .walkSeconds(from, to).
- * All keys come from rsc-look/phaseb/sheet.json (stone, dirt, grass, props)
- * and rsc-look/town/sheet.json (cobble + edge_grass_cobble_*); the content
+ * All keys come from art/phaseb/sheet.json (stone, dirt, grass, props)
+ * and art/town/sheet.json (cobble + edge_grass_cobble_*); the content
  * tests check every key against those sheets.
  */
 (function (root, factory) {
