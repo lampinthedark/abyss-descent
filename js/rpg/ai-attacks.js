@@ -4,9 +4,10 @@
  * otherwise the fallback table in ai-monsters.js (same shape).
  * Windup floors: field melee/ranged >= 400, brute slam/charge >= 600, Ashmaw >= 600.
  * Content windup is held on animation frame 0, and is always >= sheet ms[0].
- * Clip keys: attack.anim when content sets it, else melee/ranged `${sprite}_attack`,
- * slam `${sprite}_slam`, charge `${sprite}_charge`. A mobs2 `${sprite}_throw` clip
- * is the ranged rock and releases on hit_frame. Ashmaw's sprite is mob_ashmaw.
+ * Clip keys: attack.anim when content sets it (Senior 0f7d3fb stamps
+ * `${sprite}_attack|_slam|_charge`). Goblin ranged is the exception: if mobs2
+ * has mob_goblin_throw, play that and spawn the rock on hit_frame. Otherwise
+ * the content anim (the club) is used. Ashmaw's sprite is mob_ashmaw.
  */
 (function (root) {
   'use strict';
@@ -145,13 +146,33 @@
     return key;
   }
 
+  /**
+   * Content anim wins, except goblin ranged: mob_goblin_throw replaces the
+   * club key mob_goblin_attack when that clip is on mobs2.
+   */
   function animKeyFor(monsterId, kind) {
+    const use = kind === 'claw' ? 'melee' : (kind || 'melee');
+    if (monsterId === 'goblin' && use === 'ranged' && clipOnMobs2('mob_goblin_throw')) {
+      return 'mob_goblin_throw';
+    }
     const row = rowFor(monsterId, kind);
     if (row && row.anim) return resolveAnimToken(monsterId, row.anim);
-    if ((kind === 'ranged' || kind === 'throw') && clipOnMobs2(spriteOf(monsterId) + '_throw')) {
-      return spriteOf(monsterId) + '_throw';
-    }
     return spriteOf(monsterId) + '_' + suffixFor(kind);
+  }
+
+  function frameCount(anim) {
+    if (!anim) return 1;
+    if (typeof anim.frames === 'number' && anim.frames > 0) return anim.frames;
+    if (Array.isArray(anim.ms) && anim.ms.length) return anim.ms.length;
+    if (Array.isArray(anim.frames) && anim.frames.length) return anim.frames.length;
+    return 1;
+  }
+
+  /** Last frame of a death clip (the corpse). 0 when the clip is missing. */
+  function corpseFrame(key) {
+    const anim = animRecord(mobs2Atlas(), key);
+    if (!anim) return 0;
+    return Math.max(0, frameCount(anim) - 1);
   }
 
   function attackKey(monsterId) {
@@ -769,6 +790,7 @@
     attackKey: attackKey,
     animKeyFor: animKeyFor,
     clipOnMobs2: clipOnMobs2,
+    corpseFrame: corpseFrame,
     attacksOf: attacksOf,
     clipReady: clipReady,
     frame0Ms: frame0Ms,

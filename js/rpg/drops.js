@@ -174,10 +174,8 @@
     if (RPG.ai && typeof RPG.ai.forget === 'function') {
       try { RPG.ai.forget(mob); } catch (err) {}
     }
-    const world = RPG.world;
-    if (world && typeof world.removeEntity === 'function') {
-      try { world.removeEntity(mob); } catch (err) {}
-    }
+    // Leave the mob in the world. Death holds the last corpse frame (or an
+    // idle box when that clip is missing) until core despawns it.
     return spawned;
   }
 
