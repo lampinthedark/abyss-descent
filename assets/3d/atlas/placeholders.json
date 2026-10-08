@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "placeholder": true,
+  "note": "Original placeholder figures drawn for this test. Bodies are 64 source pixels tall, anchored at the feet, with 8 directions and walk, attack, hit, and death. Swap in a private atlas by setting mapUrl in js/spike3d/atlas-config.js. Use these sheet ids, or supply an explicit frames table with the same ids.",
+  "image": null,
+  "grid": {
+    "cellW": 48,
+    "cellH": 64,
+    "columns": 42,
+    "atlasW": 2048,
+    "atlasH": 4096
+  },
+  "directions": 8,
+  "anims": [
+    { "id": "walk", "frames": 4 },
+    { "id": "attack", "frames": 4 },
+    { "id": "hit", "frames": 2 },
+    { "id": "death", "frames": 4 }
+  ],
+  "foot": { "x": 24, "y": 2 },
+  "sheets": [
+    { "id": "hero/cape/short", "tint": "armour" },
+    { "id": "hero/cape/long", "tint": "armour" },
+    { "id": "hero/legs/base", "tint": "none" },
+    { "id": "hero/body/base", "tint": "armour" },
+    { "id": "hero/pauldrons/small", "tint": "armour" },
+    { "id": "hero/pauldrons/big", "tint": "armour" },
+    { "id": "hero/shield/base", "tint": "armour" },
+    { "id": "hero/head/base", "tint": "armour" },
+    { "id": "hero/crest/short", "tint": "armour" },
+    { "id": "hero/crest/tall", "tint": "armour" },
+    { "id": "hero/weapon/sword", "tint": "armour" },
+    { "id": "hero/weapon/axe", "tint": "armour" },
+    { "id": "rat/body/base", "tint": "none" },
+    { "id": "skeleton/body/base", "tint": "none" },
+    { "id": "skeleton/body/elite", "tint": "none" },
+    { "id": "skeleton/body/boss", "tint": "none", "outline": false },
+    { "id": "wolf/body/base", "tint": "none" },
+    { "id": "caster/body/base", "tint": "none" }
+  ]
+}
