@@ -2466,7 +2466,7 @@ function watchRun(game, limit, opts) {
   let emptyAt = 300;
   let eliteAt = null;
   let eliteTtk = null;
-  const steps = Math.ceil(limit / dt) + 40;
+  const steps = Math.ceil((limit + 5) / dt) + 2500;
   for (let n = 0; n < steps; n++) {
     snap = game.__svStep(dt);
     if (snap.state === 'hermit') {
@@ -2574,6 +2574,7 @@ function balanceTable() {
       idle: idleAt == null ? null : Number(idleAt.toFixed(1)),
       circle: circle.end,
       circleState: circle.state,
+      circleHp: circle.life + '/' + circle.max,
       hurt180: circle.hurt180,
       min180: circle.min180,
       min270: circle.min270,
@@ -2586,6 +2587,7 @@ function balanceTable() {
       gap: Number(circle.gap.toFixed(1)),
       vowEnd: vowed.end,
       vowState: vowed.state,
+      vowHp: vowed.life + '/' + vowed.max,
       vowGap: Number(vowed.gap.toFixed(1)),
       kite: kite.end,
       kiteState: kite.state,
