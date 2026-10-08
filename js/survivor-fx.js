@@ -3,13 +3,18 @@
  * Safe to call before the atlas loads: missing args and a missing sprite
  * sheet are ignored.
  *
- * Boss / elite silhouette flashes share one photosensitivity budget with the
- * evolution flash (at most 3 per second, and never a full-screen white above
- * 60%). The hit payload has no stable enemy id today, so those silhouette
- * flashes also share a single 0.35s cooldown. If `id` or `fid` is present on
- * the hit options, the 0.35s wait is per id instead (fixed 24-slot table).
- * Sparks still spawn on every hit, inside the particle cap.
- * Second Chance never uses a full-screen flash.
+ * Boss / elite hit silhouettes share one photosensitivity budget with the
+ * evolution flash and with boss death silhouettes (at most 3 per second,
+ * never closer than 0.34s, full-screen white never above 60%). The hit
+ * payload has no stable enemy id today, so those hit silhouettes also share
+ * a single 0.35s cooldown. If `id` or `fid` is present, the 0.35s wait is
+ * per id (fixed 24-slot table). Sparks still spawn on every hit.
+ * Death silhouettes are capped at 3 per 0.1s, drawn at 60% white, and
+ * skipped entirely when reduced motion is on. Shards still play. A boss
+ * death (`vis.boss` or type `'boss'`) also spends the shared flash budget.
+ * A second full-screen evolve within 1s of the last one is a hero ring.
+ * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
+ * overrides the matchMedia check. Second Chance never flashes the screen.
  */
 const FX = (function () {
   'use strict';
@@ -43,7 +48,7 @@ const FX = (function () {
 
   const sils = new Array(SIL_CAP);
   for (let i = 0; i < SIL_CAP; i++) {
-    sils[i] = { life: 0, x: 0, y: 0, sx: 0, sy: 0, sw: 0, sh: 0, scale: 1, flip: 0 };
+    sils[i] = { life: 0, x: 0, y: 0, sx: 0, sy: 0, sw: 0, sh: 0, scale: 1, flip: 0, pad: 0, a: 1 };
   }
 
   const blades = new Array(MAX_B);
@@ -64,11 +69,11 @@ const FX = (function () {
   }
 
   const flashStamp = [-10, -10, -10];
+  const deathSilStamp = [-10, -10, -10];
   const trailAlpha = [0.55, 0.34, 0.2, 0.1];
   const toneColor = ['#ffffff', '#c8cdd4', '#9aa3ad'];
 
   let clock = 0;
-  let stepped = false;
   let vows = 0;
   let vowAng = 0;
   let halo = 0;
@@ -82,8 +87,11 @@ const FX = (function () {
   let lastBladeSample = -10;
   let globalBossAt = -10;
   let cdCursor = 0;
+  let evolveFlashAt = -10;
+  let deathSilSlot = 0;
   let reduce = false;
   let reduceChecked = -1;
+  let reduceOverride = null;
   let heroHalf = 0;
   let whiteAtlas = null;
   let bladeImg = null;
@@ -116,11 +124,21 @@ const FX = (function () {
   }
 
   function reducedNow() {
+    if (reduceOverride != null) return reduceOverride;
     if (clock - reduceChecked > 0.4) {
       reduceChecked = clock;
       reduce = readReduced();
     }
     return reduce;
+  }
+
+  // Hero and skel frames in the atlas include a 1px pad (18×30 and 18×18).
+  // The game anchors feet at (h - pad), so the padded frame hangs below y.
+  function framePad(fr) {
+    if (!fr) return 0;
+    if (typeof fr.pad === 'number') return fr.pad > 0 ? fr.pad : 0;
+    if (fr.sw === 18 && (fr.sh === 18 || fr.sh === 30)) return 1;
+    return 0;
   }
 
   function heroHalfSprite() {
@@ -272,7 +290,7 @@ const FX = (function () {
     r.tone = o.tone | 0;
   }
 
-  function spawnSil(x, y, vis) {
+  function spawnSil(x, y, vis, alpha) {
     const fr = vis && vis.frame;
     if (!fr || !(fr.sw > 0) || !(fr.sh > 0)) return;
     const s = takeSil();
@@ -285,6 +303,21 @@ const FX = (function () {
     s.sh = fr.sh;
     s.scale = vis.scale > 0 ? vis.scale : 1;
     s.flip = vis.flip ? 1 : 0;
+    s.pad = framePad(fr);
+    s.a = alpha > 0 ? alpha : 1;
+  }
+
+  function deathWindowOpen() {
+    let within = 0;
+    for (let i = 0; i < 3; i++) {
+      if (clock - deathSilStamp[i] < 0.1) within += 1;
+    }
+    return within < 3;
+  }
+
+  function commitDeathWindow() {
+    deathSilStamp[deathSilSlot] = clock;
+    deathSilSlot = (deathSilSlot + 1) % 3;
   }
 
   function tryConsumeFlash() {
@@ -417,7 +450,7 @@ const FX = (function () {
       popT += dt;
       if (popT > 0.45) popOn = 0;
     }
-    vowAng += dt * 1.5;
+    if (!reducedNow()) vowAng += dt * 1.5;
     if (bladeN && clock - bladeStamp > 0.45) {
       bladeN = 0;
       lastBladeSample = -10;
@@ -461,10 +494,11 @@ const FX = (function () {
   function emberHalf(zoom) {
     const span = Math.round((7 * zoom) / 3);
     const half = Math.floor(span / 2);
-    return half < 2 ? 2 : half;
+    // Odd diamond; 3px radius is 7px, the smallest size that stays at least 6px.
+    return half < 3 ? 3 : half;
   }
 
-  function paintEmbers(ctx, zoom) {
+  function paintEmbers(ctx, zoom, calm) {
     if (!vows) return;
     const lift = heroHalfSprite() * zoom;
     const hx = ctx.canvas.width * 0.5;
@@ -472,22 +506,25 @@ const FX = (function () {
     const rad = ORBIT_SPRITE * zoom;
     const half = emberHalf(zoom);
     const trailR = half > 2 ? half - 1 : 1;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < vows; i++) {
-      const base = vowAng + (i / vows) * TAU;
-      const far = base - 0.84;
-      const near = base - 0.42;
-      ctx.globalAlpha = 0.28;
-      diamondPx(ctx, hx + Math.cos(far) * rad, hy + Math.sin(far) * rad, trailR, '#ffb347');
-      ctx.globalAlpha = 0.5;
-      diamondPx(ctx, hx + Math.cos(near) * rad, hy + Math.sin(near) * rad, trailR, '#ffb347');
+    const spin = calm ? -1.5707963267948966 : vowAng;
+    if (!calm) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < vows; i++) {
+        const base = spin + (i / vows) * TAU;
+        const far = base - 0.84;
+        const near = base - 0.42;
+        ctx.globalAlpha = 0.28;
+        diamondPx(ctx, hx + Math.cos(far) * rad, hy + Math.sin(far) * rad, trailR, '#ffb347');
+        ctx.globalAlpha = 0.5;
+        diamondPx(ctx, hx + Math.cos(near) * rad, hy + Math.sin(near) * rad, trailR, '#ffb347');
+      }
+      ctx.restore();
     }
-    ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     for (let i = 0; i < vows; i++) {
-      const a = vowAng + (i / vows) * TAU;
+      const a = spin + (i / vows) * TAU;
       const x = hx + Math.cos(a) * rad;
       const y = hy + Math.sin(a) * rad;
       diamondPx(ctx, x, y, half + 1, '#0b0a0d');
@@ -529,22 +566,26 @@ const FX = (function () {
     ctx.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = false;
 
+    const calm = reducedNow();
     const img = ensureWhite();
     if (img) {
       for (let i = 0; i < SIL_CAP; i++) {
         const s = sils[i];
         if (s.life <= 0) continue;
         const sc = s.scale > 0 ? s.scale : 1;
-        const dw = Math.round(s.sw * zoom * sc);
-        const dh = Math.round(s.sh * zoom * sc);
-        if (dw < 1 || dh < 1) continue;
+        const dw = Math.max(1, Math.round(s.sw * zoom * sc));
+        const dh = Math.max(1, Math.round(s.sh * zoom * sc));
+        const pad = s.pad > 0 ? s.pad : 0;
+        const foot = (s.sh - pad) * zoom * sc;
         const sx = s.x * tile + camX;
         const sy = s.y * tile + camY;
         const dx = Math.round(sx - dw / 2);
-        const dy = Math.round(sy - dh);
+        const dy = Math.round(sy - foot);
+        ctx.globalAlpha = s.a > 0 ? s.a : 1;
         if (s.flip) ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx + dw, dy, -dw, dh);
         else ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx, dy, dw, dh);
       }
+      ctx.globalAlpha = 1;
     }
 
     for (let i = 0; i < CAP; i++) {
@@ -603,15 +644,17 @@ const FX = (function () {
       const mul = bladeMul();
       for (let i = 0; i < bladeN; i++) {
         const b = blades[i];
-        const ntr = b.samples;
-        for (let t = ntr - 1; t >= 0; t--) {
-          paintBlade(ctx, b.trail[t], zoom, tile, camX, camY, mul, trailAlpha[t] || 0.1);
+        if (!calm) {
+          const ntr = b.samples;
+          for (let t = ntr - 1; t >= 0; t--) {
+            paintBlade(ctx, b.trail[t], zoom, tile, camX, camY, mul, trailAlpha[t] || 0.1);
+          }
         }
         paintBlade(ctx, b, zoom, tile, camX, camY, mul, 1);
       }
     }
 
-    paintEmbers(ctx, zoom);
+    paintEmbers(ctx, zoom, calm);
 
     if (flashLeft > 0) {
       let a = 0.6 * (flashLeft / FLASH_LIFE);
@@ -632,13 +675,20 @@ const FX = (function () {
       const heavy = !!(vis && (vis.boss || vis.elite));
       if (heavy) spray(x, y, 6, 0.16, 5.6, 5, 5, true);
       else spray(x, y, 4, 0.12, 4.4, 3, 3, true);
-      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis);
+      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 1);
     },
 
     death: function (x, y, type, vis) {
       if (!ok(x) || !ok(y)) return;
       spray(x, y, 7, 0.32, 5.2, 4, 3, false);
-      spawnSil(x, y, vis);
+      if (reducedNow()) return;
+      const fr = vis && vis.frame;
+      if (!fr || !(fr.sw > 0) || !(fr.sh > 0)) return;
+      if (!deathWindowOpen()) return;
+      const boss = !!(vis && vis.boss) || type === 'boss';
+      if (boss && !tryConsumeFlash()) return;
+      commitDeathWindow();
+      spawnSil(x, y, vis, 0.6);
     },
 
     cast: function (kind, x, y, info) {
@@ -672,10 +722,11 @@ const FX = (function () {
         popOn = 1;
         popT = 0;
       }
-      if (reducedNow() || !tryConsumeFlash()) {
+      if (reducedNow() || clock - evolveFlashAt < 1 || !tryConsumeFlash()) {
         addRing({ space: 1, r0: 12, r1: 28, thick: 2, dur: 0.24, tone: 0 });
         return;
       }
+      evolveFlashAt = clock;
       flashLeft = FLASH_LIFE;
     },
 
@@ -693,16 +744,65 @@ const FX = (function () {
       if (!reducedNow()) spray(x, bodyY(y), 8, 0.28, 6.2, 4, 3, true);
     },
 
+    reset: function () {
+      clock = 0;
+      vows = 0;
+      vowAng = 0;
+      halo = 0;
+      popOn = 0;
+      popT = 0;
+      popKind = 0;
+      flashLeft = 0;
+      flashSlot = 0;
+      bladeN = 0;
+      bladeStamp = -10;
+      lastBladeSample = -10;
+      globalBossAt = -10;
+      cdCursor = 0;
+      evolveFlashAt = -10;
+      deathSilSlot = 0;
+      reduceChecked = -1;
+      for (let i = 0; i < 3; i++) {
+        flashStamp[i] = -10;
+        deathSilStamp[i] = -10;
+      }
+      for (let i = 0; i < CD_N; i++) {
+        cdKey[i] = null;
+        cdTime[i] = -10;
+      }
+      for (let i = 0; i < CAP; i++) parts[i].life = 0;
+      for (let i = 0; i < RING_CAP; i++) rings[i].on = 0;
+      for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
+      for (let i = 0; i < MAX_B; i++) {
+        const b = blades[i];
+        b.live = 0;
+        b.samples = 0;
+        b.x = 0;
+        b.y = 0;
+        b.a = 0;
+        b.holdX = 0;
+        b.holdY = 0;
+        b.holdA = 0;
+        for (let t = 0; t < TRAIL; t++) {
+          b.trail[t].x = 0;
+          b.trail[t].y = 0;
+          b.trail[t].a = 0;
+        }
+      }
+    },
+
+    setReducedMotion: function (flag) {
+      reduceOverride = !!flag;
+      reduce = reduceOverride;
+    },
+
     update: function (dt) {
       step(dt);
-      stepped = true;
       ensureWhite();
     },
 
     draw: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      if (!stepped) step(1 / 60);
-      stepped = false;
       paint(ctx, cam || {});
     },
   };
