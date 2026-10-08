@@ -65,11 +65,13 @@
     if (!isHeroHurt(e)) return;
     const amount = num(e.amount, e.dmg, e.damage, e.hit);
     if (!(amount > 0)) return;
+    const srcName = e.srcName || e.name || e.source || e.monsterId || 'Something';
     hits.push({
       amount: amount,
       crit: !!(e.crit || e.isCrit),
       srcId: e.srcId || e.monsterId || '',
-      name: e.name || e.srcName || e.source || e.monsterId || 'Something',
+      srcName: srcName,
+      name: srcName,
     });
     while (hits.length > 3) hits.shift();
   }
@@ -78,7 +80,7 @@
     const copy = [];
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
-      copy.push({ amount: h.amount, crit: h.crit, srcId: h.srcId, name: h.name });
+      copy.push({ amount: h.amount, crit: h.crit, srcId: h.srcId, srcName: h.srcName, name: h.name });
     }
     return copy;
   }
@@ -125,6 +127,7 @@
     const recap = {
       title: 'You died',
       hits: list,
+      lastHits: list,
       lines: linesOf(list),
       revive: {
         used: reviveUsed >= 1,

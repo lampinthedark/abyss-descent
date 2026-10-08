@@ -89,6 +89,12 @@
         out[k] = Object.assign({}, out[k] || {}, extra[k]);
       }
     }
+    const display = (over && over.name) || (live && live.name) || (spec && (spec.label || spec.name)) || '';
+    const names = Object.keys(out);
+    for (let i = 0; i < names.length; i++) {
+      const row = out[names[i]];
+      if (row && !row.srcName && display) row.srcName = display;
+    }
     return out;
   }
 
@@ -314,9 +320,20 @@
     };
   }
 
+  function srcNameFor(mob, info) {
+    if (info && info.srcName) return info.srcName;
+    const kind = mob && (mob.attackKind || (mob.attackName === 'claw' ? 'melee' : mob.attackName));
+    const row = mob && rowFor(mob.monsterId, kind);
+    if (row && row.srcName) return row.srcName;
+    if (mob && (mob.label || mob.name)) return mob.label || mob.name;
+    return '';
+  }
+
   /**
-   * Apply a hit to the hero. Core should implement hero.takeHit and emit `hurt`
-   * from there. We do not emit hurt ourselves.
+   * Apply a hit to the hero. Prefer RPG.hero.damage(amount, info) and always
+   * pass attack.srcName (the monster display name). takeHit is the same payload
+   * when damage is not a function. A numeric hero.damage is outgoing damage, not this call.
+   * We do not emit hurt; core does that from damage/takeHit.
    */
   function hurtHero(mob, amount, info) {
     const hero = heroOf();
@@ -326,6 +343,13 @@
     const payload = info || hitInfo(mob, null, dmg);
     payload.amount = dmg;
     payload.dmg = dmg;
+    payload.srcName = srcNameFor(mob, payload);
+    if (!payload.name) payload.name = payload.srcName;
+    payload.target = payload.target || 'hero';
+    if (typeof hero.damage === 'function') {
+      try { hero.damage(dmg, payload); } catch (err) {}
+      return true;
+    }
     if (typeof hero.takeHit === 'function') {
       try { hero.takeHit(dmg, payload); } catch (err) {}
       return true;
