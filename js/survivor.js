@@ -267,6 +267,7 @@
   let revivalLeft = 0;
   let secondChance = 0;
   let toastText = '';
+  let activeToast = null;
   let casterPlant = 0;
   let castersCleared = 0;
   let partnerPulse = 0;
@@ -925,9 +926,38 @@
       color: RARITY_FILL[item.rarity] || '#f4efe0',
     };
   }
+  const TOAST_CAP = 3;
+  const TOAST_STALE = 4.05;
+  function rarityRank(rarity) {
+    const key = String(rarity || 'common').toLowerCase();
+    if (key === 'legendary') return 4;
+    if (key === 'epic') return 3;
+    if (key === 'rare') return 2;
+    if (key === 'uncommon') return 1;
+    return 0;
+  }
+  function toastTitle(entry) {
+    const base = (entry.rarityName || 'Common') + ': ' + (entry.name || 'Item');
+    if ((entry.count || 1) > 1) return base + ' +' + (entry.count - 1) + ' more';
+    return base;
+  }
+  function bossBannerOn() {
+    return bannerT > 0 && String(banner || '').indexOf('approaches') >= 0;
+  }
+  function hideToastEl() {
+    toastText = '';
+    activeToast = null;
+    const el = $('sv-toast');
+    if (el) {
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+  }
   function presentToast(entry) {
     if (!entry) return;
-    toastText = entry.text;
+    activeToast = entry;
+    toastText = toastTitle(entry);
+    entry.text = toastText;
     const el = $('sv-toast');
     if (el) {
       el.textContent = toastText;
@@ -936,26 +966,85 @@
     }
     toastT = 1.6;
   }
+  function pruneToasts() {
+    const now = time;
+    for (let pass = 0; pass < 2; pass++) {
+      const dropRare = pass === 1;
+      for (let i = toastQueue.length - 1; i >= 0; i--) {
+        const entry = toastQueue[i];
+        const rare = rarityRank(entry.rarity) >= 2;
+        if (now - entry.at > TOAST_STALE && rare === dropRare) toastQueue.splice(i, 1);
+      }
+    }
+    while (toastQueue.length > TOAST_CAP) {
+      let drop = 0;
+      for (let i = 1; i < toastQueue.length; i++) {
+        const ar = rarityRank(toastQueue[drop].rarity);
+        const br = rarityRank(toastQueue[i].rarity);
+        if (br < ar || (br === ar && toastQueue[i].at < toastQueue[drop].at)) drop = i;
+      }
+      toastQueue.splice(drop, 1);
+    }
+  }
+  function queueToast(entry) {
+    for (let i = 0; i < toastQueue.length; i++) {
+      if (toastQueue[i].rarity !== entry.rarity) continue;
+      const row = toastQueue[i];
+      row.count = (row.count || 1) + (entry.count || 1);
+      if (entry.at >= row.at) row.at = entry.at;
+      row.text = toastTitle(row);
+      pruneToasts();
+      return;
+    }
+    entry.count = entry.count || 1;
+    entry.text = toastTitle(entry);
+    toastQueue.push(entry);
+    pruneToasts();
+  }
+  function shelterToast() {
+    if (activeToast) {
+      const parked = activeToast;
+      activeToast = null;
+      queueToast(parked);
+    }
+    toastT = 0;
+    hideToastEl();
+  }
   function showToast(item) {
     if (!item) return;
-    const entry = toastLine(item);
-    if (toastT > 0) {
-      toastQueue.push(entry);
+    const line = toastLine(item);
+    const entry = {
+      rarity: String(item.rarity || 'common').toLowerCase(),
+      rarityName: line.text.split(':')[0] || 'Common',
+      name: item.name || 'Item',
+      color: line.color,
+      count: 1,
+      at: time,
+      text: line.text,
+    };
+    if (bossBannerOn() || toastT > 0) {
+      queueToast(entry);
       return;
     }
     presentToast(entry);
   }
   function tickToast(dt) {
-    if (toastT <= 0) return;
-    toastT = Math.max(0, toastT - dt);
-    if (toastT > 0) return;
+    pruneToasts();
+    if (bossBannerOn()) {
+      shelterToast();
+      return;
+    }
+    if (toastT > 0) {
+      toastT = Math.max(0, toastT - dt);
+      if (toastT > 0) return;
+      activeToast = null;
+      toastText = '';
+    }
     if (toastQueue.length) {
       presentToast(toastQueue.shift());
       return;
     }
-    toastText = '';
-    const toast = $('sv-toast');
-    if (toast) toast.classList.add('hidden');
+    hideToastEl();
   }
   function countGround(rarity) {
     let n = 0;
@@ -1315,6 +1404,7 @@
       el.classList.toggle('sv-pulse', !!pulse && !reduceMotion);
     }
     sfx('portal');
+    if (text && String(text).indexOf('approaches') >= 0) shelterToast();
   }
 
   function clearBossUi() {
@@ -2996,6 +3086,7 @@
     evoWindow = false;
     toastT = 0;
     toastText = '';
+    activeToast = null;
     toastQueue.length = 0;
     localTells.length = 0;
     chatLog.length = 0;
@@ -5127,6 +5218,7 @@
       secondChance: secondChance,
       revivalLeft: revivalLeft,
       toast: toastText,
+      toastAge: activeToast ? Math.max(0, time - activeToast.at) : -1,
       doubleLocked: doubleLocked,
       evoHold: evoHold,
       evoSlow: evoSlow,
@@ -5342,6 +5434,28 @@
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
     window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
     window.__svInvuln = (seconds) => { player.invuln = seconds == null ? 30 : seconds; return player.invuln; };
+    window.__svBanner = (text, seconds) => {
+      raiseBanner(text || 'Grave Warden approaches', true);
+      if (seconds != null) bannerT = seconds;
+      return snapRun();
+    };
+    window.__svToasts = (items) => {
+      const list = items || [];
+      for (let i = 0; i < list.length; i++) announceItem(list[i], player.x, player.y);
+      return snapRun();
+    };
+    window.__svSweepItems = () => {
+      for (let i = gems.length - 1; i >= 0; i--) {
+        if (gems[i].kind === 'item') releaseGemAt(i);
+      }
+      return gems.length;
+    };
+    window.__svQuiet = () => {
+      nextDropAt = time + 9999;
+      rareDue = false;
+      if (rareAt < 0) rareAt = time;
+      return snapRun();
+    };
     window.__svRevive = () => { revivePlayer(); return snapRun(); };
     window.__svDismiss = () => {
       if (state === 'levelup') {

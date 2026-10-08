@@ -1638,6 +1638,70 @@ function telegraphShapes() {
   console.log('fallback dash line and slam ring draw after the hero');
 }
 
+function bannerToastCap(label, search, bannerText) {
+  const game = boot(4, search);
+  game.__svStart();
+  game.__svInvuln(60);
+  ['bolt', 'orbit', 'nova', 'pierce'].forEach((id) => game.__svGive(id, 0));
+  game.__svSweepItems();
+  game.__svQuiet();
+  let snap = game.__svSnap();
+  if (!snap.banner || snap.banner.indexOf(bannerText) < 0) fail(label + ' banner ' + snap.banner);
+  game.__svBanner(snap.banner, 8);
+  const parked = game.__svToasts([{ id: 'old', name: 'Old Bone', rarity: 'common' }]);
+  if (parked.toast) fail(label + ' stale toast drew on the banner ' + parked.toast);
+  const t0 = parked.time;
+  let guard = 0;
+  snap = parked;
+  while (snap.time < t0 + 4.3 && guard++ < 500) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') snap = game.__svDecline();
+    if (snap.toast) fail(label + ' toast covered ' + snap.banner + ' / ' + snap.toast);
+    if (snap.state !== 'playing') fail(label + ' left play during banner ' + snap.state);
+  }
+  if (snap.toastQueued !== 0) fail(label + ' stale common stayed queued ' + snap.toastQueued);
+  snap = game.__svToasts([
+    { id: 'c1', name: 'Bone Charm', rarity: 'common' },
+    { id: 'u1', name: 'Copper Band', rarity: 'uncommon' },
+    { id: 'c2', name: 'Bone Charm', rarity: 'common' },
+    { id: 'r1', name: 'Ash Bead', rarity: 'rare' },
+    { id: 'r2', name: 'Ash Bead', rarity: 'rare' },
+    { id: 'e1', name: 'Grave Seal', rarity: 'epic' },
+  ]);
+  if (snap.toast) fail(label + ' burst drew on the banner ' + snap.toast);
+  if (snap.toastQueued !== 3) fail(label + ' queue ' + snap.toastQueued);
+  game.__svBanner(snap.banner, 0.05);
+  const shown = [];
+  const ages = [];
+  guard = 0;
+  while (guard++ < 200) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') snap = game.__svDecline();
+    if (snap.warnOn && snap.banner && snap.banner.indexOf('approaches') >= 0) {
+      if (snap.toast) fail(label + ' still covering ' + snap.toast);
+      continue;
+    }
+    if (snap.toast && shown[shown.length - 1] !== snap.toast) {
+      shown.push(snap.toast);
+      ages.push(snap.toastAge);
+    }
+    if (!snap.toast && snap.toastQueued === 0 && shown.length) break;
+    if (snap.state === 'dead') break;
+  }
+  if (shown.length < 1 || shown.length > 3) fail(label + ' showed ' + shown.length + ': ' + shown.join(' | '));
+  if (!shown.some((text) => text.indexOf('Ash Bead +1 more') >= 0)) fail(label + ' merge ' + shown.join(' | '));
+  if (!shown.some((text) => text.indexOf('Rare:') === 0 || text.indexOf('Epic:') === 0 || text.indexOf('Legendary:') === 0)) {
+    fail(label + ' dropped rare+ ' + shown.join(' | '));
+  }
+  if (shown.some((text) => text.indexOf('Old Bone') >= 0)) fail(label + ' kept a stale toast ' + shown.join(' | '));
+  ages.forEach((age, i) => {
+    if (!(age >= 0 && age <= 4.05)) fail(label + ' toast age ' + age + ' for ' + shown[i]);
+  });
+  console.log(label + ' ' + shown.join(' | '));
+}
+
 function pickCard(game, snap) {
   const ids = game.__svOffers();
   const owned = snap.owned || {};
@@ -1811,6 +1875,8 @@ casterClearPaths();
 bossOutlinePixels();
 telegraphHook();
 telegraphShapes();
+bannerToastCap('warden', '?headless=1&debug=1&t=148', 'Grave Warden');
+bannerToastCap('demon', '?headless=1&debug=1&t=295', 'Risen Demon');
 vows();
 forcedVow();
 hermitTwice();
