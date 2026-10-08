@@ -34,24 +34,27 @@
  * sweeps the lane; the last 120ms blinks once at 60% white. Reduced motion
  * keeps a static lane and a solid end outline, with no sweep and no blink.
  * FX.lootPull(id, x, y, toX, toY, ms, rarity) draws the trail of a flying
- * drop. Coordinates are tiles. GD moves the item. This draws four squares
- * behind it (3, 3, 2, 2 art px, about 0.35 tiles apart, alpha 90/70/50/30,
+ * drop. Coordinates are tiles. The game owns the positions and re-feeds
+ * this call every tick after the gem moves, including hit-pause, the same
+ * re-aim pattern as telegraphLine. This draws four squares behind the fed
+ * point (3, 3, 2, 2 art px, about 0.35 tiles apart, alpha 90/70/50/30,
  * 1px #14120f edges at 70%) and a 1px rarity ring on the item. Legendary
- * squares use a #ffb43c core and a #ffd27a edge. ms is the flight time, not
- * a ground wait: the game flies an item in about 400ms, including a
- * Rare-and-up auto-fly that starts after 10s on the ground. ms is clamped
- * to 120-1200. The same id updates the point and the hero and does not
- * restart the clock. The trail advances only in FX.update, so a pause,
- * level-up, or background skips it, and slow-mo follows the dt passed in.
- * rarity is cached per slot; rarityId runs only when that argument is not
- * the same string as last time. Common, junk, and unknown names draw
- * nothing. lootPullOff(id) and FX.reset() cancel with no pop. Reaching the
- * hero plays a 4-spark pop. lootPullOff(id, true) plays that same pop once
- * at the last hero point when the slot is still in flight, then clears it.
- * A second call, an inactive id, or a flight that already popped does
- * nothing. A later lootPull with the same id starts a new flight and may
- * pop once more. Reduced motion skips the trail and draws one ring on
- * arrival, including that banked pop.
+ * squares use a #ffb43c core and a #ffd27a edge. The same id re-aims: it
+ * updates the point and the hero, keeps the trail continuous, and does not
+ * reset or pop. Rarity stays until the rarity argument changes. ms is only
+ * the trail and ring phase, clamped to 120-1200, not a lifetime. A flight
+ * that is still being fed never expires on its own. It ends on the
+ * 0.15-tile auto-pop, on lootPullOff(id, true) once at the last hero
+ * point, or silently on lootPullOff(id) or FX.reset(). A slot that is not
+ * re-fed for more than 1500ms of FX.update time is cleared with no pop and
+ * counted on FX._stats.lootStale. When all 16 slots are live, a new pull
+ * evicts the lowest-rarity slot, oldest first among equals, and never
+ * evicts a higher rarity; if every live slot is higher, the new pull is
+ * dropped. Common, junk, and unknown names draw nothing and take no slot.
+ * Non-finite ids are ignored. Reduced motion skips the trail and draws one
+ * ring on arrival, including that banked pop. The trail advances only in
+ * FX.update, so a level-up or background skips it, and slow-mo follows the
+ * dt passed in.
  * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
  * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
  * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
@@ -272,7 +275,7 @@ const FX = (function () {
     const s = loots[i] = {
       on: 0, id: null, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5,
       toX: 0.5, toY: 0.5, ux: 0.5, uy: 0.5,
-      age: 0.5, dur: 0.5, r: 0, pop: 0, wait: 0, lit: 0, popped: 0, tag: null,
+      age: 0.5, dur: 0.5, gap: 0.5, r: 0, pop: 0, wait: 0, lit: 0, popped: 0, ord: 0, tag: null,
     };
     s.x = -0;
     s.y = -0;
@@ -289,7 +292,15 @@ const FX = (function () {
     s.wait = 0;
     s.lit = 0;
     s.popped = 0;
+    s.gap = -0;
+    s.ord = 0;
   }
+
+  const LOOT_STALE = 1.5;
+  let lootOrd = 1;
+  let lootMissTag = null;
+  let lootMissR = 0;
+  const fxStats = { lootStale: 0 };
 
   const hexUx = new Array(6);
   const hexUy = new Array(6);
@@ -397,6 +408,11 @@ const FX = (function () {
 
   function ok(n) {
     return typeof n === 'number' && n === n;
+  }
+
+  function idOk(id) {
+    if (typeof id !== 'number') return true;
+    return id === id && id !== Infinity && id !== -Infinity;
   }
 
   function framePx() {
@@ -1138,7 +1154,7 @@ const FX = (function () {
       const by = y0 + uy * i * z;
       for (let k = -across; k <= across; k++) {
         if (k <= -across || k >= across) {
-          ctx.globalAlpha = 0.7;
+          ctx.globalAlpha = calm ? 1 : 0.7;
           ctx.fillStyle = '#14120f';
         } else if (blink) {
           ctx.globalAlpha = 0.6;
@@ -1262,7 +1278,7 @@ const FX = (function () {
   }
 
   function telegraphOn(id, x, y, ms, opts) {
-    if (!ok(x) || !ok(y)) return;
+    if (!idOk(id) || !ok(x) || !ok(y)) return;
     let dur = 0.7;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
     const boss = opts && opts.boss ? 1 : 0;
@@ -1309,7 +1325,7 @@ const FX = (function () {
   }
 
   function telegraphLineOn(id, x, y, toX, toY, ms, opts) {
-    if (!ok(x) || !ok(y) || !ok(toX) || !ok(toY)) return;
+    if (!idOk(id) || !ok(x) || !ok(y) || !ok(toX) || !ok(toY)) return;
     let dur = 0.7;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
     const boss = opts && opts.boss ? 1 : 0;
@@ -1453,7 +1469,7 @@ const FX = (function () {
   let lootSlot = null;
   let lootFresh = 1;
 
-  function lootTake(id) {
+  function lootTake(id, rid) {
     lootSlot = null;
     lootFresh = 1;
     for (let i = 0; i < LOOT_N; i++) {
@@ -1470,39 +1486,59 @@ const FX = (function () {
       }
     }
     let best = -1;
-    let age = -1;
+    let bestR = 99;
+    let bestOrd = 0;
     for (let i = 0; i < LOOT_N; i++) {
-      if (loots[i].pop) continue;
-      if (loots[i].age > age) {
-        age = loots[i].age;
+      const s = loots[i];
+      if (!s.on) continue;
+      if (s.r < bestR || (s.r === bestR && (best < 0 || s.ord < bestOrd))) {
         best = i;
+        bestR = s.r;
+        bestOrd = s.ord;
       }
     }
-    if (best < 0) return;
+    if (best < 0 || bestR > rid) return;
+    lootStop(loots[best]);
     lootSlot = loots[best];
     lootFresh = 1;
   }
 
   function lootPullOn(id, x, y, toX, toY, ms, rarity) {
-    if (!lootFinite(x) || !lootFinite(y) || !lootFinite(toX) || !lootFinite(toY)) return;
-    lootTake(id);
-    if (!lootSlot) return;
-    const slot = lootSlot;
+    if (!idOk(id) || !lootFinite(x) || !lootFinite(y) || !lootFinite(toX) || !lootFinite(toY)) return;
+    let known = null;
+    for (let i = 0; i < LOOT_N; i++) {
+      if (loots[i].id === id) {
+        known = loots[i];
+        break;
+      }
+    }
     let rid = 0;
-    if (slot.tag === rarity) rid = slot.r;
+    if (known && known.tag === rarity) rid = known.r;
+    else if (lootMissTag === rarity) rid = lootMissR;
     else {
       rid = rarityId(rarity);
-      slot.tag = rarity;
-      slot.r = rid;
+      lootMissTag = rarity;
+      lootMissR = rid;
     }
     if (!(rid > 0)) {
-      slot.id = id;
-      lootStop(slot);
+      if (known) {
+        known.tag = rarity;
+        known.r = 0;
+        lootStop(known);
+      }
       return;
     }
+    if (known && known.tag !== rarity) {
+      known.tag = rarity;
+      known.r = rid;
+    }
+    lootTake(id, rid);
+    if (!lootSlot) return;
+    const slot = lootSlot;
     const dur = lootDur(ms);
     const fresh = lootFresh;
     slot.id = id;
+    slot.tag = rarity;
     slot.r = rid;
     slot.nx = x;
     slot.ny = y;
@@ -1511,6 +1547,7 @@ const FX = (function () {
     slot.dur = dur;
     slot.wait = 1;
     slot.pop = 0;
+    slot.gap = -0;
     if (fresh) {
       slot.on = 1;
       slot.x = x;
@@ -1520,6 +1557,8 @@ const FX = (function () {
       slot.age = -0;
       slot.lit = 0;
       slot.popped = 0;
+      slot.ord = lootOrd;
+      lootOrd += 1;
     } else {
       slot.on = 1;
     }
@@ -1724,7 +1763,7 @@ const FX = (function () {
   }
 
   function shieldOn(id, x, y, r, ms, opts) {
-    if (!ok(x) || !ok(y) || !(r > 0)) return;
+    if (!idOk(id) || !ok(x) || !ok(y) || !(r > 0)) return;
     let dur = 1;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
     let idx = findShield(id);
@@ -2187,6 +2226,10 @@ const FX = (function () {
       const s = loots[i];
       if (!s.on) continue;
       s.age += dt;
+      if (s.dur > 0) {
+        while (s.age >= s.dur) s.age -= s.dur;
+      }
+      s.gap += dt;
       if (s.wait) lootApply(s);
       const dx = s.toX - s.x;
       const dy = s.toY - s.y;
@@ -2194,7 +2237,10 @@ const FX = (function () {
         lootArrive(s);
         continue;
       }
-      if (s.age + 0.0001 >= s.dur) lootStop(s);
+      if (s.gap > LOOT_STALE) {
+        lootStop(s);
+        fxStats.lootStale += 1;
+      }
     }
   }
 
@@ -2791,6 +2837,7 @@ const FX = (function () {
       for (let i = 0; i < SP_N; i++) spawns[i].on = 0;
       for (let i = 0; i < BR_N; i++) breaks[i].on = 0;
       for (let i = 0; i < LOOT_N; i++) lootStop(loots[i]);
+      fxStats.lootStale = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
@@ -2928,6 +2975,7 @@ const FX = (function () {
       return sweepOut;
     },
 
+    _stats: fxStats,
     LEVELUP_RADIUS: LEVELUP_RADIUS,
     EVOLVE_SWEEP_MS: EVOLVE_SWEEP_MS,
   };

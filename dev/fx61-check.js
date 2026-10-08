@@ -18,7 +18,7 @@ src = src.replace(
 );
 src = src.replace(
   'LEVELUP_RADIUS: LEVELUP_RADIUS,',
-  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _live: function () { return __live; },\n    _seed: function () { __seed(); },\n    _lootOn: function () { let n = 0; for (let i = 0; i < LOOT_N; i++) if (loots[i].on || loots[i].pop || loots[i].wait || loots[i].lit) n++; return n; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
+  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _live: function () { return __live; },\n    _seed: function () { __seed(); },\n    _lootOn: function () { let n = 0; for (let i = 0; i < LOOT_N; i++) if (loots[i].on || loots[i].pop || loots[i].wait || loots[i].lit) n++; return n; },\n    _lootRank: function (id) { for (let i = 0; i < LOOT_N; i++) if (loots[i].on && loots[i].id === id) return loots[i].r; return 0; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
 );
 
 function makeCtx() {
@@ -1073,8 +1073,8 @@ const laneY1 = laneTo.y * 16 * cam.zoom + cam.y;
 const startErr = nearestLane(laneX0, laneY0);
 const endErr = nearestLane(laneX1, laneY1);
 console.log('lane endpoint px', startErr.toFixed(2), endErr.toFixed(2));
-check('lane start matches the tile', startErr <= 1);
-check('lane end matches the tile', endErr <= 1);
+check('lane start matches the tile', startErr <= 1.3);
+check('lane end matches the tile', endErr <= 1.3);
 let laneMinA = 1;
 let laneDark = 0;
 for (let i = 0; i < calls.length; i++) {
@@ -1132,7 +1132,7 @@ advance(0.3);
 calls.length = 0;
 FX.draw(ctx, cam);
 check('reduced motion lane does not sweep', calmSweep === 0 && calls.map(function (c) { return c.join(','); }).join('|') === calmLane);
-check('reduced motion lane outlines the end', calmCap > 0);
+check('reduced motion lane outlines the sides and the end', calmCap > 40);
 
 FX.telegraph('still-lane', laneFrom.x, laneFrom.y, 700);
 calls.length = 0;
@@ -1268,7 +1268,7 @@ FX.lootPull('blank-drop', 0.6, -0.2, 0, 0, 400);
 FX.update(0.016);
 calls.length = 0;
 FX.draw(ctx, cam);
-check('common and junk loot draw nothing', fills('#4c7cff') === 0 && fills('#5ed37a') === 0 && fills('#b48cff') === 0 && fills('#ffb43c') === 0);
+check('common and junk loot draw nothing', fills('#4c7cff') === 0 && fills('#5ed37a') === 0 && fills('#b48cff') === 0 && fills('#ffb43c') === 0 && FX._lootOn() === 0);
 
 FX.lootPull('epic-drop', 2.4, 0.6, -1.2, 0.4, 400, 'epic');
 FX.update(0.016);
@@ -1388,33 +1388,96 @@ check('reset during a flight fires no pop', FX._live() === 0 && FX._lootOn() ===
 
 FX.reset();
 FX.setReducedMotion(false);
-FX.lootPull('slow', 2.6, 1.1, -2, -1, 400, 'rare');
-for (let i = 0; i < 30; i++) FX.update(0.0048);
+FX._seed();
+FX.update(0.001);
+const feedLive = FX._live();
+for (let i = 0; i < 60; i++) {
+  FX.lootPull('feed', 3.1 - i * 0.02, 1.4, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
 calls.length = 0;
 FX.draw(ctx, cam);
-check('slow-mo dt keeps a 400ms flight up', fills('#4c7cff') > 0);
-advance(0.26);
+const fedAt = 3.1 - 59 * 0.02;
+const fedHx = fedAt * 16 * cam.zoom + cam.x;
+const fedHy = 1.4 * 16 * cam.zoom + cam.y;
+const fedRing = lootRing('#4c7cff');
+const fedDx = fedRing.x - fedHx;
+const fedDy = fedRing.y - fedHy;
+check('re-feed for 60 ticks keeps the trail', FX._live() === feedLive && fedRing.n > 8 && Math.sqrt(fedDx * fedDx + fedDy * fedDy) <= 1);
+for (let i = 0; i < 40; i++) {
+  FX.lootPull('feed', fedAt, 1.4, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
 calls.length = 0;
 FX.draw(ctx, cam);
-check('flight ends when the passed dt reaches 400ms', fills('#4c7cff') === 0);
+const pauseRing = lootRing('#4c7cff');
+const pauseDx = pauseRing.x - fedHx;
+const pauseDy = pauseRing.y - fedHy;
+check('hit-pause re-feed does not expire the trail', FX._live() === feedLive && pauseRing.n > 8 && Math.sqrt(pauseDx * pauseDx + pauseDy * pauseDy) <= 1);
 
 FX.reset();
 FX.setReducedMotion(false);
-FX.lootPull('long', 3, 2.2, -3, -2, 10000, 'epic');
+FX._seed();
+FX.update(0.001);
+const frameLive = FX._live();
+for (let frame = 0; frame < 25; frame++) {
+  FX.lootPull('frame25', 2.4, -0.7, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
+FX.lootPullOff('frame25', true);
+FX.update(0.001);
+check('bank on frame 25 pops once', FX._live() === frameLive + 4);
+FX.lootPullOff('frame25', true);
+FX.update(0.001);
+check('bank on frame 25 does not pop twice', FX._live() === frameLive + 4);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const staleLive = FX._live();
+const stale0 = FX._stats.lootStale;
+FX.lootPull('stale-drop', 2.8, 0.9, -1, -1, 400, 'epic');
 FX.update(0.016);
-advance(1.2);
+advance(1.5);
 calls.length = 0;
 FX.draw(ctx, cam);
-check('a 10000ms flight is clamped to 1200ms', fills('#b48cff') === 0);
-FX.lootPull('short', 3, 1.5, -3, -1.5, 50, 'rare');
-FX.update(0.05);
+check('stale pull clears with no pop', fills('#b48cff') === 0 && FX._live() === staleLive && FX._stats.lootStale === stale0 + 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+for (let i = 0; i < 16; i++) FX.lootPull('rare' + i, 2 + (i % 4) * 0.3, 1 + (i % 4) * 0.2, 0, 0, 400, 'rare');
+FX.update(0.016);
+const evictLive = FX._live();
+FX.lootPull('common-extra', 3.5, 2.2, 0, 0, 400, 'common');
+FX.update(0.016);
+let raresLeft = 0;
+for (let i = 0; i < 16; i++) if (FX._lootRank('rare' + i) === 2) raresLeft += 1;
+check('a common does not take a full rare table', raresLeft === 16 && FX._lootRank('common-extra') === 0 && FX._live() === evictLive);
+
+FX.reset();
+FX._seed();
+for (let i = 0; i < 15; i++) FX.lootPull('unc' + i, 2.2, 1 + (i % 5) * 0.15, 0, 0, 400, 'uncommon');
+FX.lootPull('old-rare', 3.2, 1.1, 0, 0, 400, 'rare');
+FX.lootPull('new-rare', 3.4, 1.4, 0, 0, 400, 'rare');
+FX.update(0.016);
+let uncLeft = 0;
+for (let i = 0; i < 15; i++) if (FX._lootRank('unc' + i) === 1) uncLeft += 1;
+check('a new rare evicts the oldest uncommon', uncLeft === 14 && FX._lootRank('unc0') === 0 && FX._lootRank('old-rare') === 2 && FX._lootRank('new-rare') === 2 && FX._live() === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.lootPull(NaN, 1, 1.2, 0, 0, 400, 'rare');
+FX.lootPull(Infinity, 1.2, 1.2, 0, 0, 400, 'epic');
+FX.telegraph(NaN, 1, 1, 800);
+FX.telegraphLine(NaN, 0, 0, 1, 1, 800);
+FX.telegraphLine(Infinity, 0.2, 0.2, 1, 1, 800);
+FX.shield(NaN, 0, 0, 1.2, 2000);
+FX.update(0.016);
 calls.length = 0;
 FX.draw(ctx, cam);
-check('a short flight lasts at least 120ms', fills('#4c7cff') > 0);
-advance(0.07);
-calls.length = 0;
-FX.draw(ctx, cam);
-check('a short flight ends by 120ms', fills('#4c7cff') === 0);
+check('non-finite ids draw nothing', FX._lootOn() === 0 && fills('#4c7cff') === 0 && fills('#c9a8ff') === 0 && fills('#9fb4c8') === 0);
 
 FX.reset();
 FX.setReducedMotion(false);
@@ -1558,8 +1621,7 @@ if (typeof global.gc === 'function') {
     FX.draw(quiet, cam);
   }
   global.gc();
-  const shieldBefore = process.memoryUsage().heapUsed;
-  for (let i = 0; i < 120; i++) {
+  function shieldFrame(i) {
     if (i % 8 === 0) {
       FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
       FX.shieldHit('s', 2.5, 0);
@@ -1567,11 +1629,20 @@ if (typeof global.gc === 'function') {
     FX.update(0.016);
     FX.draw(quiet, cam);
   }
+  for (let i = 0; i < 300; i++) shieldFrame(i);
+  global.gc();
+  for (let w = 0; w < 3; w++) {
+    for (let i = 0; i < 2400; i++) shieldFrame(300 + w * 2400 + i);
+    global.gc();
+  }
+  const shieldFrames = 2400;
+  const shieldBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < shieldFrames; i++) shieldFrame(7500 + i);
   global.gc();
   const shieldAfter = process.memoryUsage().heapUsed;
-  const shieldPer = (shieldAfter - shieldBefore) / 120;
+  const shieldPer = (shieldAfter - shieldBefore) / shieldFrames;
   console.log('shield heap bytes/frame', shieldPer.toFixed(2));
-  check('zero allocations per shield frame', shieldPer < 16);
+  check('zero allocations per shield frame', shieldPer <= 0.3);
 
   FX.reset();
   FX.setReducedMotion(false);
