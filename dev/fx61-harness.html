@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FX 6.1 harness</title>
+  <style>
+    html, body { margin: 0; background: #100c0c; }
+    canvas { display: block; width: 390px; height: 844px; image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <canvas id="c" width="390" height="844"></canvas>
+  <script src="../js/survivor-fx.js?v=6.1"></script>
+  <script>
+    var canvas = document.getElementById('c');
+    var ctx = canvas.getContext('2d');
+    var atlas = document.createElement('canvas');
+    atlas.width = 16;
+    atlas.height = 16;
+    var ag = atlas.getContext('2d');
+    ag.fillStyle = '#c8b8ff';
+    ag.fillRect(4, 1, 8, 13);
+    ag.fillRect(2, 5, 12, 6);
+    ag.fillStyle = '#1a1028';
+    ag.fillRect(5, 4, 2, 2);
+    ag.fillRect(9, 4, 2, 2);
+    window.Sprites = { atlas: atlas };
+
+    var cam = { x: 195, y: 560, zoom: 3 };
+    var FRAME = { sx: 2, sy: 1, sw: 12, sh: 14, pad: 0 };
+    var props = [];
+
+    function boot() {
+      props = [];
+      FX.setReducedMotion(false);
+      FX.reset();
+    }
+
+    function tileFloor() {
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#120e12';
+      ctx.fillRect(0, 0, 390, 844);
+      for (var y = 0; y < 22; y++) {
+        for (var x = 0; x < 12; x++) {
+          ctx.fillStyle = ((x + y) & 1) ? '#1a141c' : '#161218';
+          ctx.fillRect(x * 40 - 20, y * 40 + 8, 40, 40);
+        }
+      }
+    }
+
+    function hero() {
+      var x = 195;
+      var y = 560;
+      ctx.fillStyle = '#2a140c';
+      ctx.fillRect(x - 11, y - 30, 22, 30);
+      ctx.fillStyle = '#e0703a';
+      ctx.fillRect(x - 8, y - 26, 16, 20);
+      ctx.fillStyle = '#ffb347';
+      ctx.fillRect(x - 4, y - 22, 8, 6);
+      ctx.fillStyle = '#fff1c9';
+      ctx.fillRect(x - 2, y - 20, 3, 3);
+    }
+
+    function gem(wx, wy, color) {
+      var s = world(wx, wy);
+      ctx.fillStyle = '#14120f';
+      ctx.fillRect(s.x - 5, s.y - 5, 10, 10);
+      ctx.fillStyle = color;
+      ctx.fillRect(s.x - 3, s.y - 3, 6, 6);
+    }
+
+    function world(wx, wy) {
+      return { x: Math.round(wx * 48 + cam.x), y: Math.round(wy * 48 + cam.y) };
+    }
+
+    function paintProps() {
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        if (p.kind === 'gem') gem(p.x, p.y, p.color);
+        if (p.kind === 'foe') {
+          var s = world(p.x, p.y);
+          ctx.fillStyle = '#14120f';
+          ctx.fillRect(s.x - 8, s.y - 16, 16, 16);
+          ctx.fillStyle = p.color;
+          ctx.fillRect(s.x - 6, s.y - 14, 12, 12);
+        }
+      }
+    }
+
+    function draw() {
+      tileFloor();
+      paintProps();
+      hero();
+      FX.draw(ctx, cam);
+    }
+
+    window.shotKill = function () {
+      boot();
+      props.push({ kind: 'foe', x: -0.9, y: 0.15, color: '#8a6cff' });
+      props.push({ kind: 'foe', x: 1.05, y: -0.05, color: '#7b4fd4' });
+      FX.kill(-0.9, 0.15, 'skel', { frame: FRAME, color: '#8a6cff' });
+      FX.kill(1.05, -0.05, 'brute', { elite: true, frame: FRAME, color: '#7b4fd4' });
+      FX.hit(0.15, -0.35, { n: 36, crit: true, frame: FRAME });
+      FX.update(0.05);
+      FX.update(0.05);
+      FX.kill(0.1, 0.35, 'skel', { frame: FRAME, color: '#8a6cff' });
+      draw();
+    };
+
+    window.shotLevel = function () {
+      boot();
+      FX.levelUp(0, 0, { radius: 48 });
+      FX.update(0.05);
+      FX.update(0.05);
+      draw();
+    };
+
+    window.shotBeams = function () {
+      boot();
+      var drops = [
+        ['common', -1.7, 1.05, '#b9b4aa'],
+        ['uncommon', -0.75, 1.25, '#5ed37a'],
+        ['rare', 0.35, 1.15, '#4c7cff'],
+        ['epic', 1.55, 0.35, '#b48cff'],
+        ['legendary', 0.85, -0.15, '#f4f2ff']
+      ];
+      for (var i = 0; i < drops.length; i++) {
+        props.push({ kind: 'gem', x: drops[i][1], y: drops[i][2], color: drops[i][3] });
+        FX.beam('on' + i, drops[i][1], drops[i][2], drops[i][0]);
+      }
+      FX.beam('left', -8, 0.2, 'rare');
+      FX.beam('right', 6.5, -0.4, 'epic');
+      FX.beam('top', 0.3, -14, 'legendary');
+      draw();
+    };
+
+    window.shotHorde = function () {
+      boot();
+      for (var i = 0; i < 40; i++) {
+        var x = (i % 8) * 0.62 - 2.2;
+        var y = ((i / 8) | 0) * 0.55 - 0.9;
+        var elite = i % 13 === 0;
+        props.push({ kind: 'foe', x: x, y: y, color: elite ? '#7b4fd4' : '#8a6cff' });
+        FX.kill(x, y, elite ? 'brute' : 'skel', {
+          frame: FRAME,
+          color: elite ? '#7b4fd4' : '#8a6cff',
+          elite: elite
+        });
+      }
+      FX.update(0.05);
+      FX.update(0.05);
+      FX.update(0.04);
+      draw();
+    };
+
+    window.runStress = function (ms) {
+      boot();
+      var rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+      for (var i = 0; i < 20; i++) {
+        var x = i < 3 ? (-7 - i * 0.4) : ((i - 10) * 0.55);
+        var y = (i % 6) * 0.4 - 0.6;
+        props.push({ kind: 'gem', x: x, y: y, color: '#5ed37a' });
+        FX.beam('s' + i, x, y, rarities[i % 5]);
+      }
+      return new Promise(function (resolve) {
+        var t0 = performance.now();
+        var last = t0;
+        var frames = 0;
+        var sum = 0;
+        var minF = 1e9;
+        var slow = 0;
+        var seed = 1;
+        function rand() {
+          seed = (seed * 1664525 + 1013904223) >>> 0;
+          return seed / 4294967296;
+        }
+        function frame(now) {
+          var dtMs = now - last;
+          last = now;
+          var dt = dtMs / 1000;
+          if (dt > 0.05) dt = 0.05;
+          if (dt < 0) dt = 0;
+          var kills = Math.max(1, Math.round(dt * 25));
+          for (var k = 0; k < kills; k++) {
+            FX.kill(rand() * 5 - 2.5, rand() * 3 - 1, 'skel', { frame: FRAME, color: '#8a6cff' });
+          }
+          FX.update(dt);
+          draw();
+          if (dtMs > 0 && frames > 0) {
+            var fps = 1000 / dtMs;
+            sum += fps;
+            if (fps < minF) minF = fps;
+            if (dtMs > 33.3) slow += 1;
+          }
+          frames += 1;
+          if (now - t0 >= ms) {
+            var n = Math.max(1, frames - 1);
+            resolve({
+              avg: sum / n,
+              min: minF,
+              slow: slow,
+              frames: frames,
+              slowPct: (slow / n) * 100,
+              ms: now - t0
+            });
+            return;
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      });
+    };
+  </script>
+</body>
+</html>
