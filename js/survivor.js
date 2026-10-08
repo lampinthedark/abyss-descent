@@ -18,7 +18,7 @@
     chip: 3,
     idleGrace: 8,
     idleBiteEvery: 1.5,
-    heavyAt: 150,
+    heavyAt: 100,
     eliteFirst: 120,
     eliteEvery: 45,
     hpScaleAt: 150,
@@ -199,6 +199,9 @@
   let velY = 0;
   let headX = 1;
   let headY = 0;
+  let heroX0 = 0;
+  let heroY0 = 0;
+  let headTurn = 1;
   let frameDt = 1 / 60;
   let nextDropAt = 18;
   let foodEaten = 0;
@@ -215,6 +218,7 @@
   let forwardAcc = 0;
   let threatMark = 0;
   let threatGap = 0;
+  let orbitClip = 0;
   const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
@@ -1573,11 +1577,13 @@
   function spawnForwardPack() {
     const cap = Math.min(LIVE_CAP, spawnCap());
     const count = 5;
+    const head = Math.atan2(headY, headX);
     let sx = 0;
     let sy = 0;
     let n = 0;
     for (let i = 0; i < count && enemies.length < cap; i++) {
-      const ang = aheadAngle(true);
+      const side = i % 2 === 0 ? 1 : -1;
+      const ang = head + side * (Math.PI / 2) + (Math.random() - 0.5) * 0.35;
       const spot = viewEdge(ang, true, BALANCE.minSpawn);
       const x = spot.x;
       const y = spot.y;
@@ -2229,12 +2235,46 @@
     return dist;
   }
 
+  function leadTiles() {
+    return time >= MINI_AT ? 2.5 : 1.7;
+  }
+
+  function aimPoint() {
+    const h = len2(headX, headY) || 1;
+    const tx = headX / h;
+    const ty = headY / h;
+    const lead = leadTiles();
+    const s = headTurn >= 0 ? 1 : -1;
+    const cut = player.moving ? Math.min(1.1, lead * 0.55) : 0;
+    return {
+      x: player.x + tx * lead + (-ty * s) * cut,
+      y: player.y + ty * lead + (tx * s) * cut,
+    };
+  }
+
+  function seekHero(en, speed, dt) {
+    const aim = aimPoint();
+    const dx = aim.x - en.x;
+    const dy = aim.y - en.y;
+    const dist = len2(dx, dy) || 1;
+    en.x += (dx / dist) * speed * dt;
+    en.y += (dy / dist) * speed * dt;
+    en.facing = (player.x - en.x) >= 0 ? 1 : -1;
+    return len2(player.x - en.x, player.y - en.y) || 1;
+  }
+
   function touchPlayer(en, dist, dmg, dt) {
     if (en.touchCd > 0) en.touchCd -= dt;
     if (player.moving && !en.boss && !en.elite) return;
     if (stillRing() && !en.boss && !en.elite) return;
-    if (dist < en.radius + 0.48 && en.touchCd <= 0) {
-      en.touchCd = (player.moving && en.elite) ? 2.4 : 0.7;
+    let reach = en.radius + 0.48;
+    if (player.moving && en.elite) reach += 0.4;
+    let hit = dist < reach;
+    if (!hit && player.moving && en.elite) {
+      hit = sweptHit(heroX0, heroY0, player.x, player.y, en.x, en.y, reach);
+    }
+    if (hit && en.touchCd <= 0) {
+      en.touchCd = (player.moving && en.elite) ? 22 : 0.7;
       lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
       hurt(dmg == null ? en.dmg : dmg, en.boss);
     }
@@ -2470,21 +2510,25 @@
         en.x -= (dx / dist) * en.speed * dt;
         en.y -= (dy / dist) * en.speed * dt;
         en.facing = dx >= 0 ? 1 : -1;
-      } else {
-        steer(en, dt, en.speed);
-        if (dist < 4.6 && dist > 2.2) {
-          ai.mode = 'tell';
-          ai.t = 0.6;
-          ai.vx = dx / dist;
-          ai.vy = dy / dist;
+        } else {
+          seekHero(en, en.speed, dt);
+          if (dist < 4.6 && dist > 2.2) {
+            ai.mode = 'tell';
+            ai.t = 0.6;
+            const h = len2(headX, headY) || 1;
+            const aimX = player.x + (headX / h) * (player.moving ? 1.2 : 0) - en.x;
+            const aimY = player.y + (headY / h) * (player.moving ? 1.2 : 0) - en.y;
+            const ad = len2(aimX, aimY) || 1;
+            ai.vx = aimX / ad;
+            ai.vy = aimY / ad;
+          }
         }
-      }
-    } else if (ai.mode === 'tell') {
+      } else if (ai.mode === 'tell') {
       ai.t -= dt;
       en.facing = dx >= 0 ? 1 : -1;
       if (ai.t <= 0) {
         telegraphOff(en);
-        const look = 0.28;
+        const look = player.moving ? 0.4 : 0.28;
         const px = player.x + velX * look;
         const py = player.y + velY * look;
         const lx = px - en.x;
@@ -2493,7 +2537,7 @@
         ai.vx = lx / ld;
         ai.vy = ly / ld;
         ai.mode = 'dash';
-        ai.t = 0.38;
+        ai.t = player.moving ? 0.42 : 0.38;
       } else telegraphDash(en);
     } else if (ai.mode === 'dash') {
       ai.t -= dt;
@@ -2502,7 +2546,7 @@
       en.x += ai.vx * 8.2 * dt;
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
-      const hitR = player.moving ? en.radius + 0.12 : en.radius + 0.5;
+      const hitR = player.moving ? en.radius + 0.22 : en.radius + 0.5;
       const hit = sweptHit(x0, y0, en.x, en.y, player.x, player.y, hitR);
       if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
@@ -2531,7 +2575,13 @@
       if (ai.t <= 0) {
         const sp = 2.7;
         const shot = 5 + lateT() * (BALANCE.lateShot - 5);
-        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
+        const leadT = Math.min(0.55, dist / sp);
+        const px = player.x + velX * leadT;
+        const py = player.y + velY * leadT;
+        const lx = px - en.x;
+        const ly = py - en.y;
+        const ld = len2(lx, ly) || 1;
+        spawnFoeShot(en.x, en.y, (lx / ld) * sp, (ly / ld) * sp, shot);
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -2648,8 +2698,9 @@
           en.ai.t = (en.ai.t || 0) + dt;
           if (en.ai.t > 2.2) en.ai.t = 0;
           if (en.ai.t < 0.45) sp *= 1.85;
+          if (player.moving) sp *= 1.45;
         } else if (time > 75 && enemies.length > 70 && dist < Math.max(viewHalfW(), viewHalfH())) {
-          sp *= 0.2;
+          sp *= 0.75;
         }
         const stand = (en.radius || 0.32) + (en.elite ? 0.2 : 0.72);
         // Idle trash stops in the chip band. Stacking on the hero fed the level
@@ -2661,14 +2712,33 @@
           en.x -= (dx / dist) * push;
           en.y -= (dy / dist) * push;
         } else if (!holdIdle) {
-          en.x += (dx / dist) * sp * dt;
-          en.y += (dy / dist) * sp * dt;
+          seekHero(en, sp, dt);
         }
         en.facing = dx >= 0 ? 1 : -1;
         if (stillRing() && !en.elite) biteIfStill(en);
         touchPlayer(en, len2(player.x - en.x, player.y - en.y), en.dmg, dt);
       }
     }
+    clipOrbit(dt);
+  }
+
+  function clipOrbit(dt) {
+    if (orbitClip > 0) orbitClip = Math.max(0, orbitClip - dt);
+    if (!player.moving || state !== 'playing' || time < 130 || bossFightOn()) return;
+    if (orbitClip > 0) return;
+    const need = time < 180 ? 5.2 : 7.2;
+    let near = false;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.life <= 0 || en.dying > 0) continue;
+      if (len2(player.x - en.x, player.y - en.y) <= need) { near = true; break; }
+    }
+    if (!near) return;
+    if (time >= 180 && player.maxLife > 0 && player.life <= player.maxLife * 0.54) return;
+    orbitClip = time < 180 ? 16 : 8;
+    lastHit = 'clip';
+    const bite = time < 180 ? 8 : Math.max(7, Math.round(player.maxLife * 0.08));
+    hurt(bite, false);
   }
 
   function releaseGemAt(i, pop) {
@@ -3134,7 +3204,21 @@
     checkLevel();
   }
 
+  function noteHeading(nx, ny, speed) {
+    const d = len2(nx, ny) || 1;
+    const nxn = nx / d;
+    const nyn = ny / d;
+    headTurn = headX * nyn - headY * nxn;
+    if (Math.abs(headTurn) < 0.0001) headTurn = headTurn >= 0 ? 0.0001 : -0.0001;
+    headX = nxn;
+    headY = nyn;
+    velX = headX * speed;
+    velY = headY * speed;
+  }
+
   function movePlayer(dt) {
+    heroX0 = player.x;
+    heroY0 = player.y;
     let sx = 0;
     let sy = 0;
     let steered = false;
@@ -3175,6 +3259,9 @@
       sx = Math.cos(ang) * radius - player.x;
       sy = Math.sin(ang) * radius - player.y;
       if (len2(sx, sy) < 0.08) {
+        const tx = -Math.sin(ang);
+        const ty = Math.cos(ang);
+        noteHeading(tx, ty, moveSpeed());
         player.moving = true;
         stillT = 0;
         return;
@@ -3182,6 +3269,8 @@
     }
     if (sx === 0 && sy === 0) {
       player.moving = false;
+      velX = 0;
+      velY = 0;
       stillT += dt;
       return;
     }
@@ -3189,6 +3278,7 @@
     stillT = 0;
     const len = len2(sx, sy) || 1;
     const sp = moveSpeed();
+    noteHeading(sx, sy, sp);
     player.x += (sx / len) * sp * dt;
     player.y += (sy / len) * sp * dt;
     if (sx !== 0) player.facing = sx > 0 ? 1 : -1;
@@ -3239,6 +3329,7 @@
     spawnAcc = 0;
     threatMark = 0;
     threatGap = 0;
+    orbitClip = 0;
     boss5 = false;
     curse = 0;
     vowPayout = false;

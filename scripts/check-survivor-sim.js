@@ -2287,6 +2287,50 @@ function pickCard(game, snap) {
   return game.__svChoose(pick);
 }
 
+function circleProbe() {
+  const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
+  want.forEach((seed) => {
+    const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+    game.__svStart();
+    game.__svView(390, 844, 3);
+    let snap = game.__svSnap();
+    let prev = snap.life;
+    let hurt180 = false;
+    let min180 = 1;
+    let min270 = 1;
+    let at270 = null;
+    let dead = null;
+    for (let n = 0; n < 6000; n++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'hermit') snap = game.__svDecline();
+      if (snap.state === 'levelup') snap = pickCard(game, snap);
+      if (snap.maxLife > 0) {
+        const ratio = snap.life / snap.maxLife;
+        if (snap.time < 180) {
+          if (snap.life < prev - 0.4) hurt180 = true;
+          if (ratio < min180) min180 = ratio;
+        }
+        if (snap.time <= 270 && ratio < min270) min270 = ratio;
+        if (at270 == null && snap.time >= 270) at270 = ratio;
+      }
+      prev = snap.life;
+      if (snap.state === 'dead' || snap.state === 'won') { dead = snap.time; break; }
+      if (snap.time > 280) break;
+    }
+    console.log([
+      'seed', seed,
+      'hurt180', hurt180 ? 'yes' : 'no',
+      'min180', Math.round(min180 * 100) + '%',
+      'min270', Math.round(min270 * 100) + '%',
+      'at270', at270 == null ? '-' : Math.round(at270 * 100) + '%',
+      'end', dead == null ? snap.state + '@' + snap.time.toFixed(0) : 'dead@' + dead.toFixed(1),
+      'boss', snap.boss || '-',
+      'hit', snap.lastHit,
+      'hp', Math.round(snap.life) + '/' + snap.maxLife,
+    ].join(' '));
+  });
+}
+
 function watchRun(game, limit, kite) {
   game.__svStart();
   game.__svView(390, 844, 3);
@@ -2413,6 +2457,11 @@ function balanceTable() {
 
 if (process.env.METRICS === '1') {
   rexMetrics();
+  process.exit(0);
+}
+
+if (process.env.CIRCLE === '1') {
+  circleProbe();
   process.exit(0);
 }
 
