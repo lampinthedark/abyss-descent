@@ -299,3 +299,19 @@ body.sv-bench-run #sv-bench {
   body.survivor .sv-card { flex: 1; min-height: 120px; }
   body.survivor .sv-level-panel { width: min(920px, 96vw); }
 }
+body.survivor #sv-toast {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 8px 12px;
+  background: #14120f;
+  border: 2px solid currentColor;
+  font-weight: 700;
+  pointer-events: none;
+}
+body.survivor #sv-toast.hidden { display: none; }
+[data-pending]{position:relative}
+[data-pending]::after{content:"\00d7" attr(data-pending);position:absolute;top:6px;right:6px;padding:3px 7px;font:700 13px/1 monospace;color:#0b0a0d;background:#5fd8ff;border:1px solid #0b0a0d;border-radius:3px;pointer-events:none}
+[data-pending="0"]::after,[data-pending="1"]::after{display:none}

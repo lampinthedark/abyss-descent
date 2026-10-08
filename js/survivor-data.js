@@ -16,7 +16,7 @@ const SurvivorData = (() => {
     {
       id: 'bolt', name: 'Ash Bolt', kind: 'weapon', icon: 'bolt',
       blurb: 'Hurls ash at the nearest demon.',
-      ranks: ['One bolt.', 'The bolt hits harder.', 'A second bolt follows.', 'The volley quickens.', 'Three bolts in a spread.'],
+      ranks: ['One bolt.', 'The bolt grows thicker.', 'A second bolt follows.', 'It punches through one more foe.', 'Three bolts in a spread.'],
       maxLevel: WEAPON_CAP, evolvesWith: null,
     },
     {
@@ -28,13 +28,13 @@ const SurvivorData = (() => {
     {
       id: 'nova', name: 'Star Nova', kind: 'weapon', icon: 'nova',
       blurb: 'A ring of ash bursts outward.',
-      ranks: ['A single ring.', 'The ring returns sooner.', 'The ring pulses twice.', 'The ring reaches farther.', 'A thick double ring.'],
+      ranks: ['A single ring.', 'The ring returns sooner.', 'The ring pulses twice.', 'The ring reaches farther.', 'A thick double ring that covers the crowd.'],
       maxLevel: WEAPON_CAP, evolvesWith: 'cinder', evolveName: 'Cinder Halo',
     },
     {
       id: 'pierce', name: 'Piercing Ash', kind: 'weapon', icon: 'pierce',
       blurb: 'A bolt that keeps going through a line of demons.',
-      ranks: ['A line of ash.', 'It bites harder.', 'The line is wider.', 'It flies faster.', 'Two lines, side by side.'],
+      ranks: ['A line of ash.', 'The line grows wider.', 'It cuts through a thicker crowd.', 'It flies faster.', 'Two lines, side by side.'],
       maxLevel: WEAPON_CAP, evolvesWith: null,
     },
   ];
@@ -43,7 +43,7 @@ const SurvivorData = (() => {
     {
       id: 'might', name: 'Might', kind: 'passive', icon: 'might',
       blurb: 'Your blows get heavier.',
-      ranks: ['A firmer hit.', 'A little more weight.', 'Heavy hands. Damage jumps.', 'The staff bites.', 'Ruinous force.'],
+      ranks: ['Hits throw sparks.', 'Sparks fly farther.', 'Every third hit bursts a ring.', 'The ring reaches farther.', 'Kills burst a second ring.'],
       maxLevel: PASSIVE_CAP, evolvesWith: null,
     },
     {
@@ -127,23 +127,20 @@ const SurvivorData = (() => {
 
   function xpToNext(level) {
     const lv = Math.max(1, level | 0);
-    // Early ranks are a handful of gems so the first two minutes hold about six
-    // level-ups. After that the cost climbs so a geared hero waits ~20–35s.
-    if (lv <= 1) return 10;
-    if (lv === 2) return 12;
-    if (lv === 3) return 14;
+    // Five level-ups in the first minute, then a steeper climb.
+    if (lv <= 1) return 8;
+    if (lv === 2) return 10;
+    if (lv === 3) return 12;
     if (lv === 4) return 16;
-    if (lv === 5) return 18;
-    if (lv === 6) return 24;
-    if (lv === 7) return 44;
-    if (lv === 8) return 100;
-    if (lv === 9) return 68;
-    if (lv === 10) return 100;
-    if (lv === 11) return 158;
-    if (lv === 12) return 176;
-    if (lv === 13) return 184;
-    if (lv === 14) return 196;
-    return 200 + (lv - 14) * 12;
+    if (lv === 5) return 20;
+    if (lv === 6) return 36;
+    if (lv === 7) return 56;
+    if (lv === 8) return 84;
+    if (lv === 9) return 120;
+    if (lv === 10) return 160;
+    if (lv === 11) return 200;
+    if (lv === 12) return 240;
+    return 280 + (lv - 12) * 28;
   }
 
   function rankText(item, nextLevel) {

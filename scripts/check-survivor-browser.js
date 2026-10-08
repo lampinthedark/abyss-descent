@@ -145,7 +145,7 @@ async function pageWith(browser, url, viewport) {
       pips: document.querySelector('.sv-rank') ? document.querySelector('.sv-rank').textContent : '',
     }));
     if (buildRow.icons < 2) fail('build row icons: ' + JSON.stringify(buildRow));
-    if (!/Storm of Blades|Cinder Halo/.test(buildRow.hint)) fail('evolve hint: ' + buildRow.hint);
+    if (!/Needs: (Battle Tempo|Cinder Heart)|Ready/.test(buildRow.hint)) fail('evolve hint: ' + buildRow.hint);
     if (!/\/5/.test(buildRow.pips)) fail('rank pips: ' + buildRow.pips);
     await build.screenshot({ path: path.join(shots, 'survivor-level-build.png') });
     await build.close();
@@ -190,7 +190,7 @@ async function pageWith(browser, url, viewport) {
     if (phoneCard.titleSize < 22 || phoneCard.bodySize < 16) fail('phone card text: ' + JSON.stringify(phoneCard));
     if (phoneCard.dir !== 'column') fail('phone cards should stack: ' + phoneCard.dir);
     const phoneHint = await phoneLevel.$eval('.sv-evo', (el) => el.textContent);
-    if (!/Storm of Blades|Cinder Halo/.test(phoneHint)) fail('portrait evolve hint: ' + phoneHint);
+    if (!/Needs: (Battle Tempo|Cinder Heart)|Ready/.test(phoneHint)) fail('portrait evolve hint: ' + phoneHint);
     const rerollBox = await phoneLevel.$eval('#sv-reroll', (el) => {
       const r = el.getBoundingClientRect();
       return { w: r.width, h: r.height };
@@ -474,7 +474,7 @@ async function pageWith(browser, url, viewport) {
     if (boss.__errors.length) fail('boss errors: ' + boss.__errors.join(' | '));
     await boss.close();
 
-    const bench = await pageWith(browser, base + 'survivor.html?v=6&debug=1&bench=1', desk);
+    const bench = await pageWith(browser, base + 'survivor.html?v=6.1&debug=1&bench=1', desk);
     await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 30000 });
     const fps = await bench.evaluate(() => window.__fps);
     const benchText = await bench.$eval('#sv-bench', (el) => el.textContent);
@@ -658,7 +658,7 @@ async function pageWith(browser, url, viewport) {
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));
-    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=1')) fail('link: ' + link);
+    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=6.1')) fail('link: ' + link);
     if (old.__errors.length) fail('index errors: ' + old.__errors.join(' | '));
     await old.close();
 

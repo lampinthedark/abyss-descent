@@ -22,10 +22,17 @@ const SurvivorSave = (() => {
   const RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 
   const BASES = {
-    'iron-blade': { name: 'Iron Blade', stats: { might: 0.02 } },
-    'bone-charm': { name: 'Bone Charm', stats: { life: 4 } },
-    'ash-bead': { name: 'Ash Bead', stats: { greed: 0.02 } },
+    'iron-blade': { name: 'Iron Blade', slot: 'charm', stats: { might: 0.02 } },
+    'bone-charm': { name: 'Bone Charm', slot: 'armour', stats: { life: 4 } },
+    'ash-bead': { name: 'Ash Bead', slot: 'ring', stats: { greed: 0.02 } },
+    'shard-edge': { name: 'Shard Edge', slot: 'charm', effect: 'shards', stats: { might: 0.04 } },
+    'cinder-chain': { name: 'Cinder Chain', slot: 'ring', effect: 'chain', stats: { might: 0.03 } },
+    'grave-magnet': { name: 'Grave Magnet', slot: 'ring', effect: 'magnet', stats: { greed: 0.04 } },
+    'twin-ring': { name: 'Twin Ring', slot: 'charm', effect: 'twin', stats: { might: 0.03 } },
+    'ember-tread': { name: 'Ember Tread', slot: 'armour', effect: 'ember', stats: { life: 8 } },
   };
+  const LEGENDARY_IDS = ['shard-edge', 'cinder-chain', 'grave-magnet', 'twin-ring', 'ember-tread'];
+  const SLOTS = ['charm', 'armour', 'ring'];
 
   const SHOP = [
     { id: 'vitality', name: 'Vitality', blurb: '+12 max life', max: 8, cost: (n) => 40 + n * 35 },
@@ -37,9 +44,15 @@ const SurvivorSave = (() => {
   ];
 
   let migrated = false;
+  const freshSave = /(?:^|[?&])fresh=1(?:&|$)/.test((typeof location !== 'undefined' && location.search) || '');
+  const memorySave = Object.create(null);
 
   function read(key) {
     try {
+      if (freshSave) {
+        if (!Object.prototype.hasOwnProperty.call(memorySave, key)) return null;
+        return JSON.parse(memorySave[key]);
+      }
       const raw = localStorage.getItem(key);
       if (!raw) return null;
       return JSON.parse(raw);
@@ -49,7 +62,13 @@ const SurvivorSave = (() => {
   }
 
   function write(key, data) {
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
+    const raw = JSON.stringify(data);
+    if (freshSave) {
+      memorySave[key] = raw;
+      derived = null;
+      return;
+    }
+    try { localStorage.setItem(key, raw); } catch (e) {}
     // Every save (purchase, refund, vow reward, double gold, reset) drops
     // the derived cache. The next read rebuilds it from localStorage.
     derived = null;
@@ -69,7 +88,7 @@ const SurvivorSave = (() => {
   }
 
   function emptyInventory() {
-    return { version: SCHEMA, items: [] };
+    return { version: SCHEMA, items: [], equipped: { charm: null, armour: null, ring: null } };
   }
 
   function emptyProgress() {
@@ -117,6 +136,7 @@ const SurvivorSave = (() => {
       write(KEYS.inventory, fresh);
       return fresh;
     }
+    if (!data.equipped) data.equipped = { charm: null, armour: null, ring: null };
     return data;
   }
 
@@ -164,13 +184,24 @@ const SurvivorSave = (() => {
   function refreshDerived() {
     const progress = loadProgress();
     const bag = loadInventory();
-    const bonus = bonusFrom(bag.items);
+    const worn = equippedItems(bag);
+    const bonus = bonusFrom(worn);
+    effectFlags.shards = 0;
+    effectFlags.chain = 0;
+    effectFlags.magnet = 0;
+    effectFlags.twin = 0;
+    effectFlags.ember = 0;
+    for (let i = 0; i < worn.length; i++) {
+      const e = worn[i].effect;
+      if (e && effectFlags[e] != null) effectFlags[e] = 1;
+    }
     derived = {
       gold: progress.gold,
       upgrades: Object.assign({}, progress.upgrades || {}),
       might: bonus.might,
       life: bonus.life,
       greed: bonus.greed,
+      effects: effectFlags,
     };
     return derived;
   }
@@ -253,9 +284,50 @@ const SurvivorSave = (() => {
     return { ok: true, gold: p.gold, rank: have + 1 };
   }
 
+  function slotOf(item) {
+    const base = item && BASES[item.base];
+    return (base && base.slot) || 'charm';
+  }
+
+  function scoreItem(item) {
+    if (!item) return -1;
+    const r = RARITY_ORDER.indexOf(item.rarity);
+    return (r < 0 ? 0 : r) * 100 + (item.effect ? 40 : 0);
+  }
+
+  function findItem(bag, id) {
+    if (!id || !bag) return null;
+    for (let i = 0; i < bag.items.length; i++) {
+      if (bag.items[i].id === id) return bag.items[i];
+    }
+    return null;
+  }
+
+  function equippedItems(bag) {
+    const out = [];
+    if (!bag || !bag.equipped) return out;
+    for (let i = 0; i < SLOTS.length; i++) {
+      const it = findItem(bag, bag.equipped[SLOTS[i]]);
+      if (it) out.push(it);
+    }
+    return out;
+  }
+
+  function tryAutoEquip(bag, item) {
+    if (!bag.equipped) bag.equipped = { charm: null, armour: null, ring: null };
+    const slot = slotOf(item);
+    const cur = findItem(bag, bag.equipped[slot]);
+    if (!cur || scoreItem(item) > scoreItem(cur)) bag.equipped[slot] = item.id;
+  }
+
   function createItem(baseId, rarity, rng) {
-    const base = BASES[baseId] || BASES['iron-blade'];
-    const rare = RARITY[rarity] ? rarity : 'common';
+    const random = rng || Math.random;
+    let rare = RARITY[rarity] ? rarity : 'common';
+    let id = BASES[baseId] ? baseId : 'iron-blade';
+    if (rare === 'legendary' && LEGENDARY_IDS.indexOf(id) < 0) {
+      id = LEGENDARY_IDS[Math.floor(random() * LEGENDARY_IDS.length)];
+    }
+    const base = BASES[id];
     const mult = { common: 1, uncommon: 1.5, rare: 2.2, epic: 3, legendary: 4 }[rare];
     const stats = {};
     Object.keys(base.stats).forEach((k) => {
@@ -263,10 +335,12 @@ const SurvivorSave = (() => {
     });
     return {
       id: uuid(),
-      base: BASES[baseId] ? baseId : 'iron-blade',
+      base: id,
       name: base.name,
       rarity: rare,
       stats: stats,
+      slot: base.slot,
+      effect: base.effect || '',
       owner: loadProfile().playerId,
       tradeable: false,
       createdAt: Date.now(),
@@ -275,20 +349,42 @@ const SurvivorSave = (() => {
 
   function rollRarity(bonus, rng) {
     const random = rng || Math.random;
-    const roll = random() + (bonus || 0);
-    if (roll > 0.985) return 'legendary';
-    if (roll > 0.94) return 'epic';
-    if (roll > 0.82) return 'rare';
-    if (roll > 0.58) return 'uncommon';
+    const luck = Math.max(0, Number(bonus) || 0);
+    const roll = random();
+    const leg = 0.01 + luck * 0.04;
+    const epic = leg + 0.04 + luck * 0.05;
+    const rare = epic + 0.10 + luck * 0.05;
+    const unc = rare + 0.25;
+    if (roll < leg) return 'legendary';
+    if (roll < epic) return 'epic';
+    if (roll < rare) return 'rare';
+    if (roll < unc) return 'uncommon';
     return 'common';
   }
 
-  function mintDrop(kind, rng) {
-    const bases = Object.keys(BASES);
+  function plainBase(rng) {
     const random = rng || Math.random;
-    const base = bases[Math.floor(random() * bases.length)];
-    const bonus = kind === 'boss' ? 0.12 : kind === 'elite' ? 0.06 : 0;
-    return createItem(base, rollRarity(bonus, random), random);
+    const gear = ['iron-blade', 'bone-charm', 'ash-bead'];
+    return gear[Math.floor(random() * gear.length)];
+  }
+
+  function mintDrop(kind, rng) {
+    const random = rng || Math.random;
+    if (kind === 'demon') {
+      const id = LEGENDARY_IDS[Math.floor(random() * LEGENDARY_IDS.length)];
+      return createItem(id, 'legendary', random);
+    }
+    if (kind === 'boss') {
+      const rarity = random() < 0.18 ? 'legendary' : 'epic';
+      return createItem(plainBase(random), rarity, random);
+    }
+    let rarity = 'common';
+    if (kind === 'rare') rarity = 'rare';
+    else {
+      const bonus = kind === 'elite' ? 0.08 : 0;
+      rarity = rollRarity(bonus, random);
+    }
+    return createItem(plainBase(random), rarity, random);
   }
 
   function addItem(item) {
@@ -297,10 +393,26 @@ const SurvivorSave = (() => {
     item.owner = item.owner || loadProfile().playerId;
     const bag = loadInventory();
     bag.items.push(item);
-    if (bag.items.length > 80) bag.items.splice(0, bag.items.length - 80);
+    tryAutoEquip(bag, item);
+    if (bag.items.length > 80) {
+      const dropped = bag.items.splice(0, bag.items.length - 80);
+      for (let i = 0; i < dropped.length; i++) {
+        for (let s = 0; s < SLOTS.length; s++) {
+          if (bag.equipped[SLOTS[s]] === dropped[i].id) bag.equipped[SLOTS[s]] = null;
+        }
+      }
+    }
     saveInventory(bag);
     refreshDerived();
     return item;
+  }
+
+  function equipped() {
+    return equippedItems(loadInventory());
+  }
+
+  function effects() {
+    return view().effects || effectFlags;
   }
 
   function items() {
@@ -308,6 +420,7 @@ const SurvivorSave = (() => {
   }
 
   const bonusView = { might: 0, life: 0, greed: 0 };
+  const effectFlags = { shards: 0, chain: 0, magnet: 0, twin: 0, ember: 0 };
 
   function itemBonus() {
     const d = view();
@@ -344,6 +457,6 @@ const SurvivorSave = (() => {
     KEYS, SCHEMA, RARITY, RARITY_ORDER, SHOP, BASES,
     loadProfile, saveProfile, loadInventory, saveInventory, loadProgress, saveProgress,
     rank, gold, bankGold, shopList, nextUpgrade, buy, roman, reload,
-    createItem, rollRarity, mintDrop, addItem, items, itemBonus, recordRun, rarityName,
+    createItem, rollRarity, mintDrop, addItem, items, equipped, effects, itemBonus, recordRun, rarityName,
   };
 })();

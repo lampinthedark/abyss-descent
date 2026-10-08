@@ -6,7 +6,12 @@
 const SurvivorSprites = (() => {
   const FRAME = 16;
   const CREAM = '#f4efe0';
+  const BOSS_OUTLINE_COLOR = '#ff5ad6';
+  const BOSS_OUTLINE_PX = 2;
+  const SKEL_RIM_RGB = [200, 212, 232];
+  const SKEL_RIM_MIX = 0.65;
   let zoom = 3;
+  let skelLift = /(?:^|[?&])skel=1(?:&|$)/.test((typeof location !== 'undefined' && location.search) || '');
   let ready = false;
   let atlas = null;
   let scaled = null;
@@ -121,12 +126,14 @@ const SurvivorSprites = (() => {
     },
     warden: {
       mode: 'moss',
+      outline: true,
       idle: rects(16, 380, 32, 36, 4, 32),
       run: rects(144, 380, 32, 36, 4, 32),
     },
   };
+  LAYOUT.boss.outline = true;
 
-  function paintSheetFrame(img, rect, mode) {
+  function paintSheetFrame(img, rect, mode, outline) {
     const pad = (mode === 'hero' || mode === 'skel') ? 1 : 0;
     const w = rect.w + pad * 2;
     const h = rect.h + pad * 2;
@@ -195,8 +202,168 @@ const SurvivorSprites = (() => {
         }
       }
     }
+    if (mode === 'skel' && skelLift) applySkelBody(d, w, h, srcA);
     g.putImageData(im, 0, 0);
+    if (outline) return outlinedFrame(d, w, h, pad);
     return { canvas: c, w, h, pad };
+  }
+
+  function hexRgb(hex) {
+    return [
+      parseInt(hex.slice(1, 3), 16),
+      parseInt(hex.slice(3, 5), 16),
+      parseInt(hex.slice(5, 7), 16),
+    ];
+  }
+
+  function rgbToHsl(r, g, b) {
+    const rr = r / 255;
+    const gg = g / 255;
+    const bb = b / 255;
+    const max = Math.max(rr, gg, bb);
+    const min = Math.min(rr, gg, bb);
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const span = max - min;
+      s = l > 0.5 ? span / (2 - max - min) : span / (max + min);
+      if (max === rr) h = (gg - bb) / span + (gg < bb ? 6 : 0);
+      else if (max === gg) h = (bb - rr) / span + 2;
+      else h = (rr - gg) / span + 4;
+      h /= 6;
+    }
+    return [h * 360, s * 100, l * 100];
+  }
+
+  function hslToRgb(h, s, l) {
+    const hh = ((h % 360) + 360) % 360 / 360;
+    const ss = Math.max(0, Math.min(100, s)) / 100;
+    const ll = Math.max(0, Math.min(100, l)) / 100;
+    if (ss === 0) {
+      const v = Math.round(ll * 255);
+      return [v, v, v];
+    }
+    const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss;
+    const p = 2 * ll - q;
+    const hue = (t) => {
+      let u = t;
+      if (u < 0) u += 1;
+      if (u > 1) u -= 1;
+      if (u < 1 / 6) return p + (q - p) * 6 * u;
+      if (u < 1 / 2) return q;
+      if (u < 2 / 3) return p + (q - p) * (2 / 3 - u) * 6;
+      return p;
+    };
+    return [
+      Math.round(hue(hh + 1 / 3) * 255),
+      Math.round(hue(hh) * 255),
+      Math.round(hue(hh - 1 / 3) * 255),
+    ];
+  }
+
+  function applySkelBody(data, w, h, bodySrc) {
+    const n = w * h;
+    const body = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = bodySrc ? bodySrc[i] : data[i * 4 + 3];
+      if (a > 16) body[i] = 1;
+    }
+    for (let i = 0; i < n; i++) {
+      if (!body[i]) continue;
+      const o = i * 4;
+      const hsl = rgbToHsl(data[o], data[o + 1], data[o + 2]);
+      const lifted = hslToRgb(hsl[0], hsl[1], hsl[2] + 0.2 * (100 - hsl[2]));
+      data[o] = lifted[0];
+      data[o + 1] = lifted[1];
+      data[o + 2] = lifted[2];
+    }
+    const mix = SKEL_RIM_MIX;
+    const keep = 1 - mix;
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const i = row + x;
+        if (!body[i]) continue;
+        if (y > 0 && body[i - w]) continue;
+        const o = i * 4;
+        data[o] = Math.round(data[o] * keep + SKEL_RIM_RGB[0] * mix);
+        data[o + 1] = Math.round(data[o + 1] * keep + SKEL_RIM_RGB[1] * mix);
+        data[o + 2] = Math.round(data[o + 2] * keep + SKEL_RIM_RGB[2] * mix);
+      }
+    }
+  }
+
+  function growOutline(src, w, h) {
+    const px = BOSS_OUTLINE_PX;
+    const rgb = hexRgb(BOSS_OUTLINE_COLOR);
+    const ow = w + px * 2;
+    const oh = h + px * 2;
+    const data = new Uint8ClampedArray(ow * oh * 4);
+    let mark = new Uint8Array(ow * oh);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const s = (y * w + x) * 4;
+        if (src[s + 3] < 16) continue;
+        const i = (y + px) * ow + (x + px);
+        const o = i * 4;
+        data[o] = src[s];
+        data[o + 1] = src[s + 1];
+        data[o + 2] = src[s + 2];
+        data[o + 3] = src[s + 3];
+        mark[i] = 1;
+      }
+    }
+    for (let step = 0; step < px; step++) {
+      const next = new Uint8Array(mark);
+      for (let y = 0; y < oh; y++) {
+        for (let x = 0; x < ow; x++) {
+          const i = y * ow + x;
+          if (mark[i]) continue;
+          let hit = false;
+          for (let yy = y - 1; yy <= y + 1 && !hit; yy++) {
+            if (yy < 0 || yy >= oh) continue;
+            for (let xx = x - 1; xx <= x + 1; xx++) {
+              if (xx < 0 || xx >= ow) continue;
+              if (mark[yy * ow + xx]) hit = true;
+            }
+          }
+          if (!hit) continue;
+          next[i] = 1;
+          const o = i * 4;
+          data[o] = rgb[0];
+          data[o + 1] = rgb[1];
+          data[o + 2] = rgb[2];
+          data[o + 3] = 255;
+        }
+      }
+      mark = next;
+    }
+    return { data: data, w: ow, h: oh };
+  }
+
+  function bakePixels(src, w, h, opts) {
+    const skel = !!(opts && opts.skel);
+    const outline = !!(opts && opts.outline);
+    let data = src;
+    if (skel) {
+      data = new Uint8ClampedArray(src);
+      applySkelBody(data, w, h);
+    }
+    if (outline) return growOutline(data, w, h);
+    return { data: data, w: w, h: h };
+  }
+
+  function outlinedFrame(src, w, h, pad) {
+    const grown = growOutline(src, w, h);
+    const c = document.createElement('canvas');
+    c.width = grown.w;
+    c.height = grown.h;
+    const g = c.getContext('2d');
+    const out = g.createImageData(grown.w, grown.h);
+    out.data.set(grown.data);
+    g.putImageData(out, 0, 0);
+    return { canvas: c, w: grown.w, h: grown.h, pad: (pad || 0) + BOSS_OUTLINE_PX };
   }
 
   function paintGem() {
@@ -320,7 +487,7 @@ const SurvivorSprites = (() => {
       const spec = LAYOUT[id];
       ['idle', 'run'].forEach((clip) => {
         spec[clip].forEach((rect) => {
-          const painted = paintSheetFrame(img, rect, spec.mode);
+          const painted = paintSheetFrame(img, rect, spec.mode, !!spec.outline);
           painted.key = id + ':' + clip;
           list.push(painted);
         });
@@ -730,6 +897,11 @@ const SurvivorSprites = (() => {
 
   return {
     FRAME,
+    BOSS_OUTLINE_COLOR,
+    BOSS_OUTLINE_PX,
+    SKEL_RIM_RGB,
+    bakePixels,
+    skelOn: () => skelLift,
     load,
     setZoom,
     ready: () => ready,
