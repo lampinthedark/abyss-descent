@@ -103,9 +103,8 @@
     const Items = R.createWorld(RPG.itemsWorldOptions());
     const loaded = Items.ItemSave && Items.ItemSave.load ? Items.ItemSave.load() : { ok: false, reason: 'no_save' };
     if (!loaded.ok && loaded.reason === 'no_save' && Items.Inventory && Items.Inventory.grant) {
-      Items.Inventory.grant({ src: 'starter', items: [
-        { base: 'rustbound_sword' }, { base: 'rustbound_pickaxe' }, { base: 'rustbound_hatchet' },
-        { base: 'fishing_rod' }, { base: 'smithing_hammer' }, { base: 'hearth_bread', qty: 3 }] });
+      // Bread only: Q1 grants the pick + hammer (and the sword is smithed), Q2 the rod.
+      Items.Inventory.grant({ src: 'starter', items: [{ base: 'hearth_bread', qty: 3 }] });
     }
     if (Items.ItemSave && Items.ItemSave.installLifecycle) Items.ItemSave.installLifecycle();
     const inst = typeof R.installGlobals === 'function' ? R.installGlobals(Items) : null;
