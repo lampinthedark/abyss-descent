@@ -106,7 +106,7 @@
         { text: 'Defeat goblins ({n}/{count})', arrowTo: 'goblin_field', done: { type: 'kill', target: 'goblin', count: 4 } },
         { text: 'Report to Warden Ilse', arrowTo: 'questgiver', done: { type: 'talk', target: 'questgiver', count: 1 } },
       ],
-      rewards: { xp: { fishing: 40, cooking: 40 }, gold: 60, items: [{ base: 'rustbound_shield', qty: 1 }, { base: 'travellers_stew', qty: 2 }] },
+      rewards: { xp: { fishing: 40, cooking: 40, defence: 55 }, gold: 60, items: [{ base: 'rustbound_shield', qty: 1 }, { base: 'travellers_stew', qty: 2 }] },
       next: 'q3_ashmaw',
     },
     {

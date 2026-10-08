@@ -454,23 +454,24 @@ test('post-Q2 path into the dungeon in Cinderiron (weapon + body) < ~10 min for 
     const o = GP.postQ2('core', st);
     ok(o.gear.feasible, st + ' feasible');
     ok(o.gear.totalS <= 60, st + ' gear leg ' + o.gear.totalS.toFixed(0) + ' s (buy from the smithy)');
-    ok(o.rawS / 60 <= 4.5, st + ' raw ' + (o.rawS / 60).toFixed(2));
-    ok(o.slackS / 60 <= 10.5, st + ' slack ' + (o.slackS / 60).toFixed(2));
+    ok(o.slackS / 60 <= 8, st + ' cold (x slack) ' + (o.slackS / 60).toFixed(2) + ' min > 8');
   }
-  ok(GP.postQ2('core', 'even').slackS / 60 < 10 && GP.postQ2('core', 'attack').slackS / 60 < 10);
+  const typ = GP.postQ2('core', 'typical');
+  ok(typ.slackS / 60 >= 5.5 && typ.slackS / 60 <= 7.5, 'typical cold path ~6-7 min: ' + (typ.slackS / 60).toFixed(2));
   // smithing stays meaningful: the full Cinderiron set and Verdite are not in the shop
   deq(['sword', 'shield', 'helm', 'cuirass', 'greaves', 'gauntlets', 'sabatons'].filter(k => GP.shopPrice('cinderiron_' + k) != null), ['sword', 'cuirass'], 'smithy Cinderiron stock');
   ok(GP.shopPrice('verdite_sword') == null && GP.shopPrice('verdite_cuirass') == null, 'Verdite is smithed only');
   const full = GP.postQ2('full', 'typical');
   ok(full.gear.plan && full.gear.plan.smiths > 0, 'rest of the set is smithed');
-  // everyone can pay 91g at the smithy: quest gold 85 + goblin coin over the fewest-kill path (14 goblins, no rats);
+  // everyone can pay 91g at the smithy: quest gold 85 + goblin coin over the fewest-kill path (all-on-Attack, no rats);
   // the rare short purse (~1 in 20000 is a few gold short on coin alone) sells the field's first Rare at the general store (buys all)
   const SH = R.Modules.shop, store = SH.SHOPS.general_store;
   const need = GP.shopPrice('cinderiron_sword') + GP.shopPrice('cinderiron_cuirass');
+  const fewestKills = GP.fieldFirstRare('attack', 1).kills;
   let poorestCoin = Infinity, poorest = Infinity;
   for (let sd = 0; sd < (QUICK ? 300 : 3000); sd++) {
     const rng = M.rng32(777 + sd * 13); let fr = { done: false, kills: 0, all: 0 }, gold = GP.coldStart().gold, sale = 0;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < fewestKills; i++) {
       const o = R.Loot.rollDrop('goblin', rng, { firstRare: fr }); fr = o.firstRare; gold += o.gold;
       if (o.firstRareUsed) { const it = o.items.find(x => x.rarity === 'rare'); ok(SH.shopBuys(store, Db.getBase(it.base)), 'store buys ' + it.base); sale = SH.unitSell(store, it, 0); }
     }
@@ -480,6 +481,24 @@ test('post-Q2 path into the dungeon in Cinderiron (weapon + body) < ~10 min for 
   ok(poorest >= need, 'poorest fewest-kill player ' + poorest + 'g (coin + first Rare sold) < ' + need + 'g');
   // before the fix (sword-only shop) the cold path was way over
   ok(GP.postQ2('core', 'typical', { shopPieces: GP.BEFORE_SHOP }).slackS / 60 > 15, 'before-fix sanity');
+});
+test('Q2 hand-in pays Defence XP sized for the post-Q2 path; no style skips the field (fewest near-town kills >= first-Rare N)', () => {
+  const xp = C.quest('q2_field').rewards.xp;
+  deq(xp, { fishing: 40, cooking: 40, defence: 55 });
+  eq(B.q2Xp().d, 55);
+  ok(xp.defence < M.XP_TABLE[B.GEAR_LEVEL], 'quest XP alone never meets the Defence req');
+  const N = R.Loot.FIRST_RARE.GUARANTEE;
+  for (const st of ['typical', 'even', 'attack']) {
+    const g = B.grindDamage(B.STYLES[st]);
+    ok(g > 0, st + ' still grinds after Q2');
+    // fewest-kill timeline (Q2's 4 goblins + the grind counted from the modelled Q2 damage) and the hard floor
+    // (every near-town kill pays at most a goblin's hp in XP)
+    const timeline = 4 + Math.ceil(g / C.MONSTERS.goblin.hp);
+    const floor = Math.ceil((B.q2Damage() + g) / C.MONSTERS.goblin.hp);
+    ok(timeline >= N && floor >= N, st + ' field kills ' + timeline + ' / ' + floor + ' < N=' + N);
+    const x = B.styleXp(B.STYLES[st], B.q2Damage() + g);
+    ok(M.levelFor(x.a) >= 3 && M.levelFor(x.d) >= 3, st + ' reqs met');
+  }
 });
 test('Cinderiron wear requirement is Attack 3 / Defence 3 (PM-approved); grind after Q2 is short; Wyrmfang stays Attack 40', () => {
   deq(B.GEAR_REQ, { attack: 3, defence: 3 });

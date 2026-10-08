@@ -173,14 +173,24 @@ const RI = require(path.join(__dirname, '../../js/rpg/items/index.js'));
 const GEAR_REQ = { attack: RI.ItemsDb.getBase('cinderiron_sword').req.attack, defence: RI.ItemsDb.getBase('cinderiron_cuirass').req.defence };
 const GEAR_LEVEL = Math.max(GEAR_REQ.attack, GEAR_REQ.defence);
 function q2Damage() { return 5 * C.MONSTERS.goblin.hp + 2.5 * C.MONSTERS.rat.hp; }   // 4 goblins = 2 packs (~5) + one rat pack on the way
+/** Q2 "The Goblin Field" hand-in combat XP (quest rewards.xp; paid via core stats). */
+function q2Xp() { const x = C.quest('q2_field').rewards.xp || {}; return { a: x.attack || 0, s: x.strength || 0, d: x.defence || 0 }; }
+/**
+ * Style XP after dealing `dmg` total combat damage. Q2's quest XP is added once
+ * dmg reaches the Q2 fights (the hand-in follows them). An all-on-Attack player
+ * trains Defence only up to the gear requirement, counting the quest XP.
+ */
 function styleXp(st, dmg) {
   const x = M.XP_RATE.style * dmg;
-  if (st.defenceFirst) { const d = Math.min(x, M.XP_TABLE[GEAR_LEVEL]); return { a: x - d, s: 0, d }; }
-  return { a: x * st.a, s: x * st.s, d: x * st.d };
+  const q = dmg >= q2Damage() - 1e-9 ? q2Xp() : { a: 0, s: 0, d: 0 };
+  if (st.defenceFirst) { const d = Math.min(x, Math.max(0, M.XP_TABLE[GEAR_LEVEL] - q.d)); return { a: x - d + q.a, s: q.s, d: d + q.d }; }
+  return { a: x * st.a + q.a, s: x * st.s + q.s, d: x * st.d + q.d };
 }
+/** Damage after Q2 until Attack and Defence both reach the Cinderiron requirement (quest XP counted). */
 function grindDamage(st) {
-  const need = M.XP_TABLE[GEAR_LEVEL] / M.XP_RATE.style;
-  const total = st.defenceFirst ? 2 * need : Math.max(need / st.a, need / st.d);
+  const q = q2Xp(), XP = M.XP_TABLE[GEAR_LEVEL];
+  const needA = Math.max(0, XP - q.a) / M.XP_RATE.style, needD = Math.max(0, XP - q.d) / M.XP_RATE.style;
+  const total = st.defenceFirst ? needA + needD : Math.max(needA / st.a, needD / st.d);
   return Math.max(0, total - q2Damage());
 }
 function xpModel(clearDamage, paces) {
@@ -284,7 +294,7 @@ function main() {
   out.push('Overheads: ' + JSON.stringify(OVERHEAD) + '; rest before pull: ' + JSON.stringify(REST) + '; food bag ' + CLEAR_FOOD.count + ' stews, eaten only below 35% HP mid-fight. Repeat clears skip the 1.5x explore walk.');
   out.push('Shortest walk entry -> boss: ' + C.Dungeon.walkSeconds(C.Dungeon.entry, { x: 11, y: 67 }).toFixed(1) + ' s (GD metric, 80 px/s).\n');
   out.push('## Combat levels (1 XP per damage to the style stat, 0.33 to Hitpoints)\n');
-  out.push('Wearing Cinderiron needs Attack ' + GEAR_REQ.attack + ' and Defence ' + GEAR_REQ.defence + ' (RPGItems), so after Q2 the player grinds goblin packs until both are met (Rustbound set). Mining/Smithing 5 to make the set are unchanged and not modelled here.\n');
+  out.push('Wearing Cinderiron needs Attack ' + GEAR_REQ.attack + ' and Defence ' + GEAR_REQ.defence + ' (RPGItems), so after Q2 (which pays ' + q2Xp().d + ' Defence XP on hand-in) the player grinds goblin packs until both are met (Rustbound set). Getting the gear itself: dev/content/gear-path.js.\n');
   out.push('| style | stage | damage dealt | Attack | Strength | Defence | Hitpoints |');
   out.push('|---|---|---|---|---|---|---|');
   for (const k in xp.styles) xp.styles[k].stages.forEach(s => out.push('| ' + [xp.styles[k].label, s.stage, s.damage, s.attack, s.strength, s.defence, s.hitpoints].join(' | ') + ' |'));
@@ -304,4 +314,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { row, table, dungeonEstimate, xpModel, dangerTable, ashmawAtRealLevels, q2Damage, styleXp, grindDamage, fieldGrindMinutes, GEAR_LEVEL, GEAR_REQ, STEW, OVERHEAD, REST, CLEAR_FOOD, STYLES, packSizes };
+module.exports = { row, table, dungeonEstimate, xpModel, dangerTable, ashmawAtRealLevels, q2Damage, q2Xp, styleXp, grindDamage, fieldGrindMinutes, GEAR_LEVEL, GEAR_REQ, STEW, OVERHEAD, REST, CLEAR_FOOD, STYLES, packSizes };
