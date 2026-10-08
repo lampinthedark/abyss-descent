@@ -1277,6 +1277,7 @@
         en.shieldHitAt = time;
         box.shieldHit(en.fid, en.x, en.y);
       }
+      floatText(en.x, en.y - 0.35, 'blocked', '#9fb4c8');
       return;
     }
     let crit = false;
@@ -2433,6 +2434,8 @@
     const early = en.shieldT > 0.05;
     en.shieldT = 0;
     en.shieldLive = false;
+    en.shieldFallback = false;
+    clearLocalTell('shield-' + en.fid);
     if (early) shieldEarly += 1;
     const box = fxBox();
     if (box && typeof box.shieldBreak === 'function') box.shieldBreak(en.fid);
@@ -2480,11 +2483,29 @@
     const box = fxBox();
     const rad = (en.radius || 0.8) + 0.9;
     if (box && typeof box.shield === 'function') box.shield(en.fid, en.x, en.y, rad, en.shieldT * 1000);
+    else {
+      en.shieldFallback = true;
+      demonShieldRing(en);
+    }
     spawnAddRing(en);
+  }
+
+  function demonShieldRing(en) {
+    if (!en || !en.shieldFallback || !(en.shieldT > 0)) return;
+    putLocalTell({
+      kind: 'ring',
+      id: 'shield-' + en.fid,
+      x: en.x,
+      y: en.y,
+      r: (en.radius || 0.8) + 0.9,
+      until: time + Math.max(0.05, en.shieldT),
+      color: '#9fb4c8',
+    });
   }
 
   function tickDemonShield(en, dt) {
     if (!en || !(en.shieldT > 0)) return;
+    demonShieldRing(en);
     en.shieldT -= dt;
     let alive = 0;
     for (let i = 0; i < enemies.length; i++) {
@@ -4888,6 +4909,7 @@
         continue;
       }
       ctx.beginPath();
+      ctx.strokeStyle = tell.color || '#ffb45a';
       if (tell.kind === 'ring') {
         ctx.lineWidth = 3;
         ctx.arc(sxOf(tell.x), syOf(tell.y), Math.max(4, tell.r * TILE), 0, Math.PI * 2);
@@ -5637,7 +5659,20 @@
       y: tell.y,
       x2: tell.x2 || 0,
       y2: tell.y2 || 0,
+      color: tell.color || '',
     }));
+    window.__svFloats = () => floats.map((f) => f.text);
+    window.__svCrackDemon = () => {
+      let demon = null;
+      for (let i = 0; i < enemies.length; i++) {
+        if (enemies[i].bossKind === 'demon' && enemies[i].life > 0) demon = enemies[i];
+      }
+      if (!demon) return null;
+      demon.life = Math.round(demon.maxLife * 0.5);
+      startDemonShield(demon);
+      damageEnemy(demon, 12);
+      return { max: demon.maxLife, life: demon.life, shield: demon.shieldT || 0 };
+    };
     window.__svStep = (dt) => {
       if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));

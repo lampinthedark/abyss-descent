@@ -801,6 +801,23 @@ function levelTimeline(seed) {
   return times;
 }
 
+function demonShield() {
+  const game = boot(4, '?headless=1&debug=1');
+  game.FX.shield = undefined;
+  game.__svStart();
+  game.__svInvuln(30);
+  game.__svSpawn('brute', 2.2, 0, 'demon');
+  const cracked = game.__svCrackDemon();
+  if (!cracked) fail('demon did not spawn');
+  if (cracked.max !== 3100) fail('demon hp ' + cracked.max);
+  if (!(cracked.shield > 0)) fail('shield did not start at half health');
+  const ring = game.__svTells().filter((tell) => tell.color === '#9fb4c8');
+  if (!ring.length) fail('missing #9fb4c8 shield ring');
+  const texts = game.__svFloats();
+  if (texts.indexOf('blocked') < 0) fail('shield hit did not say blocked: ' + texts.join(','));
+  console.log('demon shield at 50% of ' + cracked.max + ' says blocked, fallback ring #9fb4c8');
+}
+
 function deadStretch() {
   const game = boot(4, '?headless=1&debug=1&walk=circle&seed=4');
   game.__svStart();
@@ -2508,6 +2525,7 @@ partnerRanks();
 idleIgnoresArmor();
 eliteTtk();
 retiredAfterEvo();
+demonShield();
 deadStretch();
 hermitTwice();
 vowRevive();
