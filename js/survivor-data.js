@@ -137,7 +137,7 @@ const SurvivorData = (() => {
     if (lv === 6) return 28;
     if (lv === 7) return 82;
     if (lv === 8) return 100;
-    if (lv === 9) return 122;
+    if (lv === 9) return 84;
     if (lv === 10) return 152;
     if (lv === 11) return 158;
     if (lv === 12) return 176;
@@ -193,34 +193,82 @@ const SurvivorData = (() => {
       name: 'Second Wind',
       kind: 'reward',
       icon: 'heart',
-      blurb: 'Heal 30% now, and +1 life a second for a moment.',
+      blurb: 'Heal 30% now, and +6 life a second for a moment.',
       maxLevel: 99,
       evolvesWith: null,
     };
   }
 
-  function pickOffers(owned, rng) {
+  function catalogItem(id) {
+    for (let i = 0; i < CATALOG.length; i++) {
+      if (CATALOG[i].id === id) return CATALOG[i];
+    }
+    return null;
+  }
+
+  // Holding one half of an evolution pair pulls the other half forward.
+  // Once that weapon is rank 4 or higher, the partner is forced into the
+  // three cards on every other level-up (the caller sets forcePartner).
+  function partnerPulls(owned) {
+    const have = owned || {};
+    const pairs = [
+      { weapon: 'orbit', passive: 'tempo' },
+      { weapon: 'nova', passive: 'cinder' },
+    ];
+    const heavy = [];
+    const force = [];
+    pairs.forEach((pair) => {
+      const w = have[pair.weapon] || 0;
+      const p = have[pair.passive] || 0;
+      const weapon = catalogItem(pair.weapon);
+      const passive = catalogItem(pair.passive);
+      if (w > 0 && passive && p < passive.maxLevel) {
+        heavy.push(passive);
+        if (w >= 4) force.push(passive);
+      }
+      if (p > 0 && weapon && w < weapon.maxLevel) heavy.push(weapon);
+    });
+    return { heavy: heavy, force: force };
+  }
+
+  function pickOffers(owned, rng, opts) {
     const random = rng || Math.random;
+    const pulls = partnerPulls(owned);
     const bag = [];
     for (let i = 0; i < CATALOG.length; i++) {
       const item = CATALOG[i];
       const lv = owned && owned[item.id] ? owned[item.id] : 0;
       if (lv < item.maxLevel) bag.push(item);
     }
+    pulls.heavy.forEach((item) => {
+      for (let n = 0; n < 16; n++) bag.push(item);
+    });
     if (random() < 0.4) bag.push(healCard());
     const out = [];
-    while (out.length < 3 && bag.length) {
+    let guard = 0;
+    while (out.length < 3 && bag.length && guard++ < 40) {
       const i = Math.floor(random() * bag.length);
-      out.push(bag.splice(i, 1)[0]);
+      const item = bag.splice(i, 1)[0];
+      if (out.some((o) => o.id === item.id)) continue;
+      out.push(item);
     }
     while (out.length < 3) {
       out.push({
         id: out.length % 2 === 0 ? 'purse' : 'heal',
         name: out.length % 2 === 0 ? 'Coin purse' : 'Second wind',
         kind: 'reward',
-        blurb: out.length % 2 === 0 ? 'Take 15 gold.' : 'Heal 30% of your life.',
+        blurb: out.length % 2 === 0 ? 'Take 15 gold.' : 'Heal 30% now, and +6 life a second for a moment.',
         maxLevel: 99,
         evolvesWith: null,
+      });
+    }
+    if (opts && opts.forcePartner) {
+      let slot = out.length - 1;
+      pulls.force.forEach((item) => {
+        if (out.some((o) => o.id === item.id)) return;
+        if (slot < 0) return;
+        out[slot] = item;
+        slot -= 1;
       });
     }
     return out;

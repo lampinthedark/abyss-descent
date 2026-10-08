@@ -67,7 +67,7 @@ function fakeDocument() {
   };
 }
 
-function boot(seed0) {
+function boot(seed0, search) {
   let seed = (seed0 == null ? 1 : seed0) >>> 0;
   const math = Object.create(Math);
   math.random = () => {
@@ -77,7 +77,7 @@ function boot(seed0) {
   const context = {
     console, Math: math, Date, Number, String, JSON, parseInt, Array, Object, isNaN,
     navigator: { doNotTrack: '1', sendBeacon: () => false },
-    location: { search: '?headless=1' },
+    location: { search: search || '?headless=1' },
     localStorage: {
       getItem: () => null,
       setItem() {},
@@ -141,7 +141,7 @@ function vows() {
       if (snap.time > 60 || snap.state === 'dead') break;
     }
     if (!seen) fail('vow missing in run ' + (n + 1));
-    if (seen > 60) fail('vow late in run ' + (n + 1) + ': ' + seen);
+    if (seen < 20 || seen > 45) fail('vow outside 0:20-0:45 in run ' + (n + 1) + ': ' + seen);
   }
   console.log('vow offered within 60s in 3 runs');
 }
@@ -229,8 +229,202 @@ function levelTimeline(seed) {
   return times;
 }
 
+function hermitTwice() {
+  const game = boot(11);
+  game.__svStart();
+  const times = [];
+  let snap = game.__svSnap();
+  for (let i = 0; i < 9000 && times.length < 3; i++) {
+    const t = snap.time || 0;
+    game.__svMove(Math.cos(t * 0.7), Math.sin(t * 0.55));
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') {
+      times.push(Number(snap.time.toFixed(1)));
+      snap = game.__svDecline();
+    }
+    if (snap.state === 'dead' || snap.time > 320) break;
+  }
+  if (times.length !== 2) fail('hermit offers ' + times.join(', ') + ' (want exactly two)');
+  if (times[0] < 20 || times[0] > 45) fail('first hermit at ' + times[0]);
+  const gap = times[1] - times[0];
+  if (gap < 70 || gap > 85) fail('second hermit gap ' + gap.toFixed(1));
+  console.log('hermit offers', times.join(', '));
+}
+
+function vowRevive() {
+  const game = boot(5);
+  game.__svStart();
+  let snap = game.__svSnap();
+  for (let i = 0; i < 2000; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') break;
+    if (snap.time > 50) fail('vow revive never saw the hermit');
+  }
+  snap = game.__svAccept();
+  if (!snap.vow || !(snap.curse > 0)) fail('accept did not start the vow');
+  const curse = snap.curse;
+  snap = game.__svHurt(9999);
+  if (snap.state !== 'dead') fail('hurt did not kill, state ' + snap.state);
+  snap = game.__svRevive();
+  if (snap.state !== 'playing') fail('revive state ' + snap.state);
+  if (!snap.vow || !(snap.curse > 0)) fail('revive dropped the vow');
+  if (Math.abs(snap.curse - curse) > 1) fail('revive changed the curse clock');
+  console.log('vow resumed after revive, curse ' + snap.curse.toFixed(1));
+}
+
+function twoEvos() {
+  const game = boot(1);
+  game.__svStart();
+  const armed = game.__svForceEvos();
+  if (armed.evolved.length < 2) fail('both evolutions should queue, got ' + armed.evolved.join(','));
+  for (let i = 0; i < 16; i++) game.__svStep(0.05);
+  const log = game.__svEvoLog();
+  const ids = log.map((row) => row.id).sort();
+  if (ids.join(',') !== 'halo,storm') fail('evolution log ' + JSON.stringify(log));
+  if (log.length < 2 || log[0].tick === log[1].tick) fail('evolutions landed on the same step ' + JSON.stringify(log));
+  console.log('evolutions', JSON.stringify(log));
+}
+
+function secondChance() {
+  const game = boot(2);
+  game.__svStart();
+  game.__svArmRevival();
+  const snap = game.__svHurt(9999);
+  if (snap.state !== 'playing') fail('second chance did not save the run: ' + snap.state);
+  if (snap.secondChance !== 1) fail('second chance count ' + snap.secondChance);
+  const expect = Math.round(snap.maxLife * 0.3);
+  if (Math.abs(snap.life - expect) > 1) fail('second chance life ' + snap.life + ' want ~' + expect);
+  if (snap.banner !== 'Second Chance!') fail('second chance banner ' + snap.banner);
+  const again = game.__svHurt(9999);
+  if (again.state !== 'dead') fail('second chance fired twice');
+  console.log('second chance at ' + snap.life + '/' + snap.maxLife);
+}
+
+function wholeHp() {
+  const game = boot(2);
+  game.__svStart();
+  const snap = game.__svSnap();
+  if (snap.maxLife !== Math.round(snap.maxLife)) fail('max life not whole: ' + snap.maxLife);
+  if (snap.life > snap.maxLife) fail('life above max ' + snap.life + '/' + snap.maxLife);
+  console.log('hp ' + snap.life + '/' + snap.maxLife);
+}
+
+function gemMerge() {
+  const game = boot(2);
+  game.__svStart();
+  const before = game.__svSeedGems(6, 8);
+  const snap = game.__svStep(0.05);
+  if (snap.bigGems < 1) fail('old gems did not merge');
+  if (snap.gems > before.gems - 4) fail('merge left too many gems: ' + snap.gems + ' from ' + before.gems);
+  console.log('gem merge ' + before.gems + ' -> ' + snap.gems + ' big ' + snap.bigGems);
+}
+
+function flashCap() {
+  const game = boot(3, '?headless=1&debug=1&t=150');
+  game.__svStart();
+  const hit = game.__svPummel();
+  if (hit.bossFlashes < 2 || hit.bossFlashes > 3) fail('boss flash count ' + hit.bossFlashes);
+  if (hit.trashFlashes < 18) fail('trash flashes were capped: ' + hit.trashFlashes);
+  console.log('flash boss ' + hit.bossFlashes + ' trash ' + hit.trashFlashes);
+}
+
+function bossDuel(label, search, name) {
+  const game = boot(7, search);
+  game.__svStart();
+  let snap = game.__svSnap();
+  if (snap.boss !== name) fail(label + ' missing ' + name + ' got ' + snap.boss);
+  const start = snap.time;
+  const startHp = snap.bossLife;
+  let lowest = startHp;
+  let diedAt = null;
+  for (let i = 0; i < 1100; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup' || snap.state === 'hermit') snap = game.__svDismiss();
+    if (snap.bossLife > 0 && snap.bossLife < lowest) lowest = snap.bossLife;
+    if (snap.chest || (snap.boss === '' && lowest < startHp)) {
+      diedAt = snap.time;
+      break;
+    }
+    if (snap.state === 'dead') fail(label + ' hero died at ' + snap.time.toFixed(1) + ' boss ' + snap.bossLife);
+  }
+  if (diedAt == null) fail(label + ' still up after 55s, hp ' + snap.bossLife + '/' + startHp);
+  const fight = diedAt - start;
+  if (!(lowest < startHp * 0.9)) fail(label + ' hp barely moved ' + lowest + '/' + startHp);
+  if (fight < 20 || fight > 45) fail(label + ' fight ' + fight.toFixed(1) + 's (want 20-45)');
+  if (!snap.chest) fail(label + ' died without a chest');
+  console.log(label + ' died in ' + fight.toFixed(1) + 's, chest dropped');
+  return fight;
+}
+
+function plainToolsIgnored() {
+  const game = boot(1, '?headless=1&t=150&walk=circle');
+  game.__svStart();
+  let snap = game.__svSnap();
+  if (snap.time > 1) fail('plain url honored &t= ' + snap.time);
+  if (snap.boss) fail('plain url spawned ' + snap.boss);
+  for (let i = 0; i < 80; i++) snap = game.__svStep(0.05);
+  if (Math.hypot(snap.x, snap.y) > 0.2) fail('plain url walked the hero to ' + snap.x.toFixed(2) + ',' + snap.y.toFixed(2));
+  console.log('plain url ignored t= and walk=circle');
+}
+
+function evolveByThree() {
+  const game = boot(9, '?headless=1&debug=1&walk=circle');
+  game.__svStart();
+  let snap = game.__svSnap();
+  let evolvedAt = null;
+  for (let t = 0; t < 4200; t++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'hermit') snap = game.__svDecline();
+    if (snap.state === 'levelup') {
+      const ids = game.__svOffers();
+      const owned = snap.owned || {};
+      const order = [];
+      if ((owned.orbit || 0) >= 5 && !(owned.tempo > 0)) order.push('tempo');
+      if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
+      if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+      if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
+      order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'might', 'haste');
+      let pick = 0;
+      for (let p = 0; p < order.length; p++) {
+        const at = ids.indexOf(order[p]);
+        if (at >= 0) { pick = at; break; }
+      }
+      snap = game.__svChoose(pick);
+    }
+    if (snap.evolved && snap.evolved.length) {
+      evolvedAt = snap.time;
+      break;
+    }
+    if (snap.state === 'dead') break;
+    if (snap.time > 185) break;
+  }
+  if (evolvedAt == null || evolvedAt > 180) {
+    fail('no evolution by 3:00, at ' + (evolvedAt == null ? 'none' : evolvedAt.toFixed(1))
+      + ' t=' + (snap.time || 0).toFixed(1)
+      + ' state=' + snap.state
+      + ' boss=' + snap.boss + ' hp=' + Math.round(snap.bossLife || 0)
+      + ' chest=' + snap.chest
+      + ' level=' + snap.level
+      + ' owned ' + JSON.stringify(snap.owned));
+  }
+  console.log('evolution by ' + evolvedAt.toFixed(1) + 's ' + snap.evolved.join(','));
+}
+
 idleDeath();
 vows();
+hermitTwice();
+vowRevive();
+twoEvos();
+secondChance();
+wholeHp();
+gemMerge();
+flashCap();
+bossDuel('warden', '?headless=1&debug=1&t=150&walk=circle', 'Grave Warden');
+bossDuel('demon', '?headless=1&debug=1&t=295&walk=circle', 'Risen Demon');
+plainToolsIgnored();
+evolveByThree();
 novas();
 const canon = levelTimeline(7);
 console.log('survivor sim ok', canon.join(', '));

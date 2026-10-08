@@ -303,6 +303,35 @@ async function pageWith(browser, url, viewport) {
     if (goldLabel !== 'TEST AD: Double gold') fail('death gold prompt: ' + goldLabel);
     await deadAd.close();
 
+    const doubled = await pageWith(browser, base + 'survivor.html?debug=1&adtest=1&preview=dead', desk);
+    await doubled.waitForSelector('#sv-end:not(.hidden) #sv-end-time');
+    await new Promise(r => setTimeout(r, 360));
+    const beforeTime = await doubled.$eval('#sv-end-time', (el) => el.textContent);
+    await doubled.click('#sv-double');
+    await doubled.waitForSelector('#adtest-prompt:not(.hidden) [data-ad-accept]');
+    await doubled.click('[data-ad-accept]');
+    const afterGold = await doubled.evaluate(() => ({
+      time: document.getElementById('sv-end-time').textContent,
+      timeTag: document.getElementById('sv-end-time').tagName,
+      gold: document.getElementById('sv-end-gold').textContent,
+      stats: document.getElementById('sv-end-stats').textContent,
+    }));
+    if (!/\d:\d\d/.test(afterGold.time) || afterGold.time !== beforeTime) fail('double gold wiped the time: ' + JSON.stringify(afterGold));
+    if (!/36 gold banked/.test(afterGold.gold)) fail('double gold amount: ' + afterGold.gold);
+    if (!/survived/.test(afterGold.stats) || !/kills/.test(afterGold.stats)) fail('double gold wiped stats: ' + afterGold.stats);
+    await new Promise(r => setTimeout(r, 360));
+    await doubled.click('#sv-restart');
+    await doubled.waitForFunction(() => window.__sv && window.__sv().state === 'playing');
+    await doubled.evaluate(() => window.__svHurt(9999));
+    await doubled.waitForFunction(() => window.__sv && window.__sv().state === 'dead');
+    const second = await doubled.evaluate(() => ({
+      time: document.getElementById('sv-end-time') && document.getElementById('sv-end-time').textContent,
+      gold: document.getElementById('sv-end-gold') && document.getElementById('sv-end-gold').textContent,
+    }));
+    if (!second.time || !/\d:\d\d/.test(second.time)) fail('second death lost the time: ' + JSON.stringify(second));
+    if (!second.gold || !/gold banked/.test(second.gold)) fail('second death lost the gold line: ' + JSON.stringify(second));
+    await doubled.close();
+
     const plain = await pageWith(browser, base + 'survivor.html?debug=1&preview=dead', desk);
     await plain.waitForSelector('#sv-end:not(.hidden) #sv-restart');
     const plainAds = await plain.evaluate(() => ({
@@ -319,6 +348,7 @@ async function pageWith(browser, url, viewport) {
 
     const freeRoll = await pageWith(browser, base + 'survivor.html?debug=1&preview=level', desk);
     await freeRoll.waitForSelector('#sv-level:not(.hidden) .sv-card');
+    await new Promise(r => setTimeout(r, 360));
     const firstCards = await freeRoll.$$eval('.sv-card b', (els) => els.map((el) => el.textContent).join('|'));
     await freeRoll.click('#sv-reroll');
     const secondCards = await freeRoll.$$eval('.sv-card b', (els) => els.map((el) => el.textContent).join('|'));
@@ -418,7 +448,7 @@ async function pageWith(browser, url, viewport) {
     if (boss.__errors.length) fail('boss errors: ' + boss.__errors.join(' | '));
     await boss.close();
 
-    const bench = await pageWith(browser, base + 'survivor.html?v=4&debug=1&bench=1', desk);
+    const bench = await pageWith(browser, base + 'survivor.html?v=5&debug=1&bench=1', desk);
     await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 30000 });
     const fps = await bench.evaluate(() => window.__fps);
     const benchText = await bench.$eval('#sv-bench', (el) => el.textContent);
@@ -445,6 +475,39 @@ async function pageWith(browser, url, viewport) {
     await swarmed.screenshot({ path: path.join(shots, 'survivor-phone-crowd.png') });
     if (swarmed.__errors.length) fail('phone crowd errors: ' + swarmed.__errors.join(' | '));
     await swarmed.close();
+
+    const phoneDead = await pageWith(browser, base + 'survivor.html?debug=1&preview=dead', phone);
+    await phoneDead.waitForSelector('#sv-end:not(.hidden) #sv-restart');
+    const restartPlace = await phoneDead.evaluate(() => {
+      const r = document.getElementById('sv-restart').getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: window.innerHeight };
+    });
+    if (restartPlace.bottom < restartPlace.h * 0.82) fail('portrait restart is not in the thumb zone: ' + JSON.stringify(restartPlace));
+    await phoneDead.screenshot({ path: path.join(shots, 'survivor-death-portrait.png') });
+    if (phoneDead.__errors.length) fail('portrait death errors: ' + phoneDead.__errors.join(' | '));
+    await phoneDead.close();
+
+    const ward = await pageWith(browser, base + 'survivor.html?debug=1&t=150&walk=circle', desk);
+    await ward.click('#sv-play');
+    await ward.waitForFunction(() => {
+      const bar = document.getElementById('sv-boss');
+      const name = document.getElementById('sv-boss-name');
+      return bar && name && !bar.classList.contains('hidden') && /Grave Warden/.test(name.textContent);
+    }, { timeout: 8000 });
+    await new Promise(r => setTimeout(r, 500));
+    await ward.screenshot({ path: path.join(shots, 'survivor-warden-t150.png') });
+    await ward.screenshot({ path: path.join(shots, 'survivor-hud.png') });
+    await ward.screenshot({ path: path.join(shots, 'survivor-drops-crowd.png') });
+    await ward.evaluate(() => window.__svSetVows(0));
+    await new Promise(r => setTimeout(r, 200));
+    await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-0.png') });
+    await ward.evaluate(() => window.__svSetVows(3));
+    await new Promise(r => setTimeout(r, 200));
+    const vowBadge = await ward.$eval('#sv-vow-badge', (el) => ({ hidden: el.classList.contains('hidden'), text: el.textContent }));
+    if (vowBadge.hidden || vowBadge.text !== 'Vow x3') fail('vow badge: ' + JSON.stringify(vowBadge));
+    await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-3.png') });
+    if (ward.__errors.length) fail('warden errors: ' + ward.__errors.join(' | '));
+    await ward.close();
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));

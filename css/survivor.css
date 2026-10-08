@@ -29,10 +29,35 @@ body.survivor #game {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   font-weight: 700;
-  text-shadow: 0 1px 3px #000;
+}
+body.survivor .sv-stats,
+body.survivor .sv-vitals .bar-wrap span {
+  color: #f4efe0;
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow:
+    0 1px 0 #140e0c,
+    1px 0 0 #140e0c,
+    -1px 0 0 #140e0c,
+    0 -1px 0 #140e0c,
+    0 0 2px #140e0c;
 }
 #sv-vow { color: #e0c080; }
+#sv-vow-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #1a2433;
+  color: #d5e4ff;
+  border: 1px solid #7f9cc4;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+#sv-vow-badge.hidden { display: none; }
 #sv-pause-btn {
   pointer-events: auto;
   position: absolute;
@@ -56,7 +81,12 @@ body.survivor #game {
   text-shadow: 0 1px 2px #000;
 }
 #sv-bench { bottom: 32px; color: #ffe0a0; }
-#sv-fps.hidden, #sv-bench.hidden, #sv-vow.hidden { display: none; }
+#sv-fps.hidden, #sv-bench.hidden, #sv-vow.hidden, #sv-vow-badge.hidden { display: none; }
+@media (max-width: 760px) {
+  body.survivor .sv-stats,
+  body.survivor .sv-vitals .bar-wrap span { font-size: 18px; }
+  body.survivor .sv-vitals .bar-wrap { height: 16px; }
+}
 body.sv-bench-run #sv-fps,
 body.sv-bench-run #sv-bench {
   left: 12px;
@@ -225,7 +255,35 @@ body.sv-bench-run #sv-bench {
   background: #f4efe0; color: #1a1020; border-color: #f4efe0; font-size: 22px;
 }
 .sv-shop-panel { width: min(440px, 94vw); text-align: left; }
-.sv-shop-buy { width: 100%; margin: 8px 0 2px; text-align: left; }
+.sv-shop-buy {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-weight: 700;
+  width: 100%;
+  margin: 8px 0 2px;
+  text-align: left;
+  min-height: 48px;
+  background: #1c1916;
+  border: 2px solid #3a342e;
+  color: #f4efe0;
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.sv-shop-buy:disabled { opacity: 0.45; }
+@media (max-width: 760px) and (orientation: portrait) {
+  body.survivor #sv-end.overlay {
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding-bottom: 0;
+  }
+  body.survivor #sv-end .sv-end-panel {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    border-radius: 16px 16px 0 0;
+  }
+}
 #sv-shop-list small { display: block; color: #b7aa9c; margin: 0 0 8px; }
 @media (min-width: 760px) and (orientation: landscape) {
   body.survivor #sv-cards { flex-direction: row; align-items: stretch; }

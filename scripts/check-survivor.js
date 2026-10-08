@@ -74,6 +74,18 @@ const maxed = {};
 D.CATALOG.forEach(item => { maxed[item.id] = item.maxLevel; });
 const filler = D.pickOffers(maxed, () => 0.5);
 if (filler.length !== 3) fail('a full build should still offer 3 cards');
+let forced = 0;
+for (let i = 0; i < 6; i++) {
+  const cards = D.pickOffers({ bolt: 1, orbit: 4 }, () => 0.2 + i * 0.01, { forcePartner: i % 2 === 0 });
+  if (cards.some((c) => c.id === 'tempo')) forced += 1;
+  if (cards.length !== 3) fail('partner offers should stay at 3');
+  const seen = {};
+  cards.forEach((c) => { if (seen[c.id]) fail('duplicate card ' + c.id); seen[c.id] = true; });
+}
+if (forced < 3) fail('tempo should be offered every other level once orbit is rank 4, got ' + forced);
+const heal = D.pickOffers({ bolt: 1 }, () => 0).find((c) => c.id === 'heal');
+if (heal && !/6 life/.test(heal.blurb)) fail('heal blurb ' + heal.blurb);
+if (!filler.some((c) => /6 life a second/.test(c.blurb || ''))) fail('filler heal should say +6 life a second');
 
 if (D.minuteReachedEvent(1) !== 'survivor-minute-1') fail('minute 1 name');
 if (D.minuteReachedEvent(10) !== 'survivor-minute-10') fail('minute 10 name');
@@ -109,13 +121,13 @@ if ((again.SurvivorSave.loadProgress().upgrades || {}).vitality !== 1) fail('leg
 const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
-if (!html.includes('survivor.js?v=4')) fail('cache bust');
+if (!html.includes('survivor.js?v=5')) fail('cache bust');
 if (!html.includes('survivor-fx.js')) fail('fx hooks should load');
 const fxSrc = fs.readFileSync(path.join(root, 'js/survivor-fx.js'), 'utf8');
 if (!fxSrc.includes('hit:') || !fxSrc.includes('evolve:') || !fxSrc.includes('draw:')) fail('fx stub is missing a hook');
 if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file should not hold game logic');
-if (!html.includes('survivor-sprites.js?v=4')) fail('sprite module');
-if (!html.includes('survivor-items.js?v=4')) fail('items module');
+if (!html.includes('survivor-sprites.js?v=5')) fail('sprite module');
+if (!html.includes('survivor-items.js?v=5')) fail('items module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
@@ -143,7 +155,7 @@ if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor red
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
 if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.includes("fxCall('cast', 'nova'") || !src.includes("fxCall('cast', 'blade'")) fail('fx hit, death, and cast hooks');
 if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
-if (!src.includes('dungeon-tileset-ii.png?v=4')) fail('tileset is not cache-busted');
+if (!src.includes('dungeon-tileset-ii.png?v=5')) fail('tileset is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
 if (!sprites.includes('#5fd8ff')) fail('gems should be light cyan');
@@ -234,5 +246,22 @@ const plainPrompt = plainDoc._nodes['adtest-prompt'];
 const plainPanel = plainDoc._nodes['adtest-panel'];
 if (plainPrompt && !plainPrompt.classList.contains('hidden')) fail('plain url opened a prompt');
 if (!plainPanel || !plainPanel.classList.contains('hidden')) fail('plain url showed the ad panel');
+
+const store = { bag: {}, gets: 0 };
+const countingStorage = {
+  getItem(k) { store.gets += 1; return Object.prototype.hasOwnProperty.call(store.bag, k) ? store.bag[k] : null; },
+  setItem(k, v) { store.bag[k] = String(v); },
+  removeItem(k) { delete store.bag[k]; },
+};
+const saved = load(['js/survivor-items.js'], { localStorage: countingStorage });
+const bead = saved.SurvivorSave.createItem('ash-bead', 'common');
+saved.SurvivorSave.addItem(bead);
+if (!(saved.SurvivorSave.itemBonus().greed > 0)) fail('ash bead greed was not applied');
+const reads = store.gets;
+saved.SurvivorSave.itemBonus();
+saved.SurvivorSave.rank('might');
+saved.SurvivorSave.gold();
+saved.SurvivorSave.itemBonus();
+if (store.gets !== reads) fail('cached stats touched storage again, +' + (store.gets - reads));
 
 console.log('survivor data ok, first hit ~' + hitIn.toFixed(2) + 's, first level ~' + killsForLevel + ' kills');

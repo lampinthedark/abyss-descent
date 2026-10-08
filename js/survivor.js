@@ -16,6 +16,9 @@
   const adsOn = /(?:^|[?&])adtest=1(?:&|$)/.test(search);
   const previewMatch = /(?:^|[?&])preview=([a-z0-9]+)/.exec(search);
   let previewOnce = previewMatch ? previewMatch[1] : '';
+  const debugClockMatch = /(?:^|[?&])t=(\d+(?:\.\d+)?)(?:&|$)/.exec(search);
+  const debugClock = debug && debugClockMatch ? Number(debugClockMatch[1]) : 0;
+  const walkCircle = !!(debug && /(?:^|[?&])walk=circle(?:&|$)/.test(search));
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -54,20 +57,30 @@
   let curse = 0;
   let pickLeft = 0;
   let vowPayout = false;
+  let vowResume = false;
   let vowCount = 0;
+  let hermitDeclines = 0;
   let nextVowAt = 32;
   let vowSeen = false;
   let spawnSerial = 0;
   let eliteWarned = false;
   let eliteSpawned = false;
+  let wardenCleared = false;
+  let demonCleared = false;
   let demonWarned = false;
   let banner = '';
   let bannerT = 0;
   let evolveFreeze = 0;
   let evolvePending = '';
+  const evolveQueue = [];
+  let spawnedThisFrame = 0;
   let uiGuardUntil = 0;
   let regen = 0;
   let revivalLeft = 0;
+  let secondChance = 0;
+  let partnerPulse = 0;
+  const evoLog = [];
+  let simTick = 0;
   let scriptMove = null;
   let chestReady = false;
   const evolved = {};
@@ -106,10 +119,29 @@
     try { return SurvivorSave.rank(id); } catch (e) { return 0; }
   }
 
+  function itemStats() {
+    try { return SurvivorSave.itemBonus(); } catch (e) { return { might: 0, life: 0, greed: 0 }; }
+  }
+
+  function vowMult() {
+    if (vowCount >= 3) return 3;
+    if (vowCount === 2) return 2;
+    if (vowCount === 1) return 1.5;
+    return 1;
+  }
+
+  function nowMs() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  }
+
+  function tapBlocked() {
+    return nowMs() < uiGuardUntil;
+  }
+
   function blankPlayer() {
     let bonusLife = 0;
     try { bonusLife = SurvivorSave.itemBonus().life + shopRank('vitality') * 12; } catch (e) {}
-    const maxLife = hero.base.life + bonusLife;
+    const maxLife = Math.max(1, Math.round(hero.base.life + bonusLife));
     return {
       x: 0, y: 0,
       classId: hero.id,
@@ -168,8 +200,8 @@
     else if (id === 'charger') hp = 28;
     else if (id === 'shooter') hp = 18;
     else if (id === 'brute') hp = 40;
-    if (bossKind === 'warden') hp = 860;
-    else if (bossKind === 'demon') hp = 1500;
+    if (bossKind === 'warden') hp = 1050;
+    else if (bossKind === 'demon') hp = 1800;
     else hp = Math.round(hp * wave);
     if (curse > 0) hp = Math.round(hp * 1.5);
     return hp;
@@ -190,7 +222,7 @@
     en.x = x;
     en.y = y;
     en.radius = type.radius || 0.32;
-    en.speed = (type.speed || 1) * (bossFlag ? 0.34 : 0.5);
+    en.speed = (type.speed || 1) * (bossFlag ? 0.58 : 0.5);
     en.dmg = bossFlag ? 12 : (type.id === 'brute' ? 8 : type.id === 'charger' ? 7 : type.id === 'imp' ? 5 : type.id === 'shooter' ? 4 : 5);
     en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
@@ -208,7 +240,10 @@
     en.facing = x < player.x ? 1 : -1;
     en.fid = ++foeSeq;
     en.scale = bossKind === 'demon' || (bossFlag && !bossKind) ? 1 : bossKind === 'warden' ? 0.9 : (type.id === 'brute' ? 0.625 : 1);
-    const greed = 1 + shopRank('greed') * 0.08;
+    if (bossKind === 'warden') en.radius = 0.78;
+    else if (bossFlag) en.radius = 0.9;
+    en.flashAt = 0;
+    const greed = (1 + shopRank('greed') * 0.08) * (1 + (itemStats().greed || 0)) * vowMult();
     const baseGold = bossFlag ? SurvivorData.REWARDS.gold.mini : (SurvivorData.REWARDS.gold[type.id] || 1);
     en.gold = Math.max(1, Math.round(baseGold * greed));
     en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
@@ -238,6 +273,8 @@
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
+    g.age = 0;
+    g.big = false;
     gems.push(g);
     if (en.boss) dropPickup(en, 'chest', null);
     else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
@@ -257,6 +294,8 @@
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
+    g.age = 0;
+    g.big = false;
     gems.push(g);
   }
 
@@ -306,13 +345,20 @@
     floats.push(f);
   }
 
+  let fxUpdateMs = 0;
+  let fxDrawMs = 0;
+
   function fxCall(name) {
     const box = typeof FX !== 'undefined' ? FX : null;
     const fn = box && box[name];
     if (typeof fn !== 'function') return;
     const args = [];
     for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    const t0 = nowMs();
     fn.apply(box, args);
+    const spent = nowMs() - t0;
+    if (name === 'draw') fxDrawMs += spent;
+    else fxUpdateMs += spent;
   }
 
   function foeVisual(en) {
@@ -321,7 +367,14 @@
     const clip = en.dying > 0 ? 'idle' : 'run';
     let frame = null;
     try { frame = SurvivorSprites.frameRect(id, clip, animT); } catch (e) {}
-    return { frame: frame, scale: en.scale || 1, flip: (en.facing || 1) > 0 };
+    return {
+      frame: frame,
+      scale: en.scale || 1,
+      flip: (en.facing || 1) > 0,
+      boss: !!en.boss,
+      elite: !!en.elite && !en.boss,
+      fid: en.fid,
+    };
   }
 
   function spark(x, y, color, n, speed) {
@@ -349,7 +402,7 @@
     const steps = [0, 0.06, 0.1, 0.24, 0.3, 0.48];
     const rank = Math.min(5, owned.might || 0);
     let itemMight = 0;
-    try { itemMight = SurvivorSave.itemBonus().might; } catch (e) {}
+    try { itemMight = itemStats().might; } catch (e) {}
     return (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
   }
   function haste() {
@@ -380,10 +433,7 @@
   }
   function magnetR() {
     const ranks = (owned.magnet || 0) + shopRank('magnet');
-    const fromPx = pxToWorld(160 + ranks * 48);
-    // The bolt kills past the old five-unit pull, so a gem from a normal
-    // shot still flies home instead of sitting where the hero will never walk.
-    return Math.max(fromPx, 9 + ranks * 0.7);
+    return pxToWorld(150 + ranks * 40);
   }
   function pickupR() {
     return pxToWorld(36);
@@ -401,8 +451,12 @@
     if (player.life <= 0) {
       if (revivalLeft > 0) {
         revivalLeft -= 1;
+        secondChance += 1;
+        player.maxLife = Math.max(1, Math.round(player.maxLife));
         player.life = Math.max(1, Math.round(player.maxLife * 0.3));
-        player.invuln = 1.2;
+        player.invuln = 1.35;
+        raiseBanner('Second Chance!');
+        fxCall('secondChance', player.x, player.y);
         return;
       }
       player.life = 0;
@@ -415,7 +469,11 @@
     const tick = !!(opts && opts.tick);
     en.life -= amount;
     if (!tick) {
-      en.hitFlash = 0.08;
+      const heavy = !!(en.boss || en.elite);
+      if (!heavy || time >= (en.flashAt || 0)) {
+        en.hitFlash = 0.08;
+        if (heavy) en.flashAt = time + 0.35;
+      }
       hits += 1;
     }
     if (!tick && time - hitSnd > 0.08) {
@@ -438,6 +496,8 @@
     if (en.life <= 0) {
       en.life = 0;
       en.dying = 0.22;
+      if (en.bossKind === 'warden') wardenCleared = true;
+      else if (en.boss) demonCleared = true;
       en.hitFlash = 0.08;
       kills += 1;
       runGold += en.gold;
@@ -488,23 +548,50 @@
     return best;
   }
 
-  // Bolts and pierce clear the ring first so a boss doesn't soak every shot
-  // and the crowd doesn't pile up for one late burst of experience.
+  function onScreen(en) {
+    const halfW = canvas.width / (TILE * 2) + 0.35;
+    const halfH = canvas.height / (TILE * 2) + 0.35;
+    return Math.abs(en.x - player.x) <= halfW && Math.abs(en.y - player.y) <= halfH;
+  }
+
   function aimEnemy(x, y, rad) {
     let best = null;
     let bd = rad;
-    let boss = null;
-    let bossD = rad;
     nearby(x, y, rad, (en) => {
-      if (en.life <= 0) return;
+      if (en.life <= 0 || en.dying > 0) return;
       const d = Math.hypot(en.x - x, en.y - y);
-      if (en.boss) {
-        if (d < bossD) { bossD = d; boss = en; }
-        return;
-      }
       if (d < bd) { bd = d; best = en; }
     });
-    return best || boss;
+    return best;
+  }
+
+  // Ash Bolt prefers a boss, then an elite, when one is on screen and in range.
+  // Other weapons keep the nearest foe, bosses included.
+  function aimBolt(x, y, rad) {
+    let best = null;
+    let bd = rad;
+    let prefer = null;
+    let pd = rad;
+    let pr = 0;
+    nearby(x, y, rad, (en) => {
+      if (en.life <= 0 || en.dying > 0) return;
+      const d = Math.hypot(en.x - x, en.y - y);
+      if (d >= rad) return;
+      if (d < bd) { bd = d; best = en; }
+      if (!onScreen(en)) return;
+      const rank = en.boss ? 2 : (en.elite ? 1 : 0);
+      if (rank > pr || (rank > 0 && rank === pr && d < pd)) {
+        pr = rank;
+        pd = d;
+        prefer = en;
+      }
+    });
+    return pr > 0 ? prefer : best;
+  }
+
+  function bodyReach(en) {
+    if (!en || !(en.boss || en.elite)) return 0;
+    return (en.radius || 0.32) * 0.55;
   }
 
   function openingPack() {
@@ -598,7 +685,7 @@
     }
     if (!eliteSpawned && time >= 150) {
       eliteSpawned = true;
-      const spot = spawnOffscreen(1.6);
+      const spot = spawnBossEdge();
       spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
     }
     if (!demonWarned && time >= MINI_AT - 2) {
@@ -607,7 +694,7 @@
     }
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
-      const spot = spawnOffscreen(1.8);
+      const spot = spawnBossEdge();
       spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
     }
     if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt) {
@@ -624,12 +711,62 @@
       return;
     }
     const cap = spawnCap();
-    spawnAcc += spawnRate() * dt;
+    const pressure = bossFightOn() ? 0.45 : 1;
+    spawnAcc += spawnRate() * pressure * dt;
     let guard = 0;
     while (spawnAcc >= 1 && enemies.length < cap && guard++ < 6) {
       spawnAcc -= 1;
+      spawnedThisFrame += 1;
       const spot = spawnRing(0);
       spawnEnemy(spawnKind(), spot.x, spot.y);
+    }
+  }
+
+  function bossFightOn() {
+    if (demonWarned && !demonCleared) return true;
+    if (eliteWarned && !wardenCleared && time < MINI_AT) return true;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.boss && en.life > 0 && en.dying <= 0) return true;
+    }
+    return false;
+  }
+
+  function spawnBossEdge() {
+    const halfW = Math.max(2.4, canvas.width / (TILE * 2) - 1.35);
+    const halfH = Math.max(2.4, canvas.height / (TILE * 2) - 1.35);
+    const ang = Math.random() * Math.PI * 2;
+    const sx = Math.cos(ang);
+    const sy = Math.sin(ang);
+    const fit = 1 / Math.max(Math.abs(sx) / halfW, Math.abs(sy) / halfH);
+    return { x: player.x + sx * fit * 0.9, y: player.y + sy * fit * 0.9 };
+  }
+
+  function leashBoss(en, dt) {
+    const halfW = canvas.width / (TILE * 2);
+    const halfH = canvas.height / (TILE * 2);
+    const reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
+    let dx = en.x - player.x;
+    let dy = en.y - player.y;
+    let dist = Math.hypot(dx, dy) || 1;
+    if (dist > reach) {
+      const step = Math.min(dist - reach, Math.max(4.2, en.speed * 6) * dt);
+      en.x -= (dx / dist) * step;
+      en.y -= (dy / dist) * step;
+      dx = en.x - player.x;
+      dy = en.y - player.y;
+      dist = Math.hypot(dx, dy) || 1;
+    }
+    const pad = 0.8;
+    if (Math.abs(dx) > halfW - pad || Math.abs(dy) > halfH - pad) {
+      const tx = player.x + Math.max(-(halfW - pad), Math.min(halfW - pad, dx));
+      const ty = player.y + Math.max(-(halfH - pad), Math.min(halfH - pad, dy));
+      const lx = tx - en.x;
+      const ly = ty - en.y;
+      const ld = Math.hypot(lx, ly) || 1;
+      const step = Math.min(ld, Math.max(4.2, en.speed * 6) * dt);
+      en.x += (lx / ld) * step;
+      en.y += (ly / ld) * step;
     }
   }
 
@@ -668,7 +805,8 @@
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
     const aimReach = Math.max(8.5, Math.min(halfW, halfH) * 0.92);
-    const aim = aimEnemy(player.x, player.y, aimReach);
+    const aim = aimBolt(player.x, player.y, aimReach);
+    const lineAim = aimEnemy(player.x, player.y, aimReach);
     const boltRank = Math.max(1, Math.min(5, owned.bolt || 1));
     if (owned.bolt && cds.bolt <= 0 && aim) {
       const dx = aim.x - player.x;
@@ -697,9 +835,9 @@
       cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1));
     }
     const pierceRank = Math.max(0, Math.min(5, owned.pierce || 0));
-    if (pierceRank && cds.pierce <= 0 && aim) {
-      const dx = aim.x - player.x;
-      const dy = aim.y - player.y;
+    if (pierceRank && cds.pierce <= 0 && lineAim) {
+      const dx = lineAim.x - player.x;
+      const dy = lineAim.y - player.y;
       const d = Math.hypot(dx, dy) || 1;
       const sp = pierceRank >= 4 ? 12.5 : 11;
       const dmg = (14 + pierceRank * 6) * power() * (pierceRank >= 3 ? 1.15 : 1);
@@ -727,8 +865,8 @@
         const bx = player.x + Math.cos(a) * rad;
         const by = player.y + Math.sin(a) * rad;
         positions.push({ x: bx, y: by, angle: a });
-        nearby(bx, by, 1.2, (en) => {
-          if (Math.hypot(en.x - bx, en.y - by) < 0.72) damageEnemy(en, dmg, { tick: true });
+        nearby(bx, by, 1.6, (en) => {
+          if (Math.hypot(en.x - bx, en.y - by) < 0.72 + bodyReach(en)) damageEnemy(en, dmg, { tick: true });
         });
       }
       fxCall('cast', 'blade', player.x, player.y, { radius: rad, positions: positions });
@@ -749,7 +887,7 @@
           nearby(s.x, s.y, s.r + 0.6, (en) => {
             if (en._nova === s.seq) return;
             const dist = Math.hypot(en.x - s.x, en.y - s.y);
-            if (dist < s.r && dist > s.r - band) {
+            if (dist < s.r + bodyReach(en) && dist > s.r - band - bodyReach(en)) {
               en._nova = s.seq;
               damageEnemy(en, s.dmg);
             }
@@ -759,15 +897,16 @@
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         const hitR = s.kind === 'pierce' ? 0.55 * area() : 0.42;
-        nearby(s.x, s.y, hitR + 0.4, (en) => {
+        nearby(s.x, s.y, hitR + 1.2, (en) => {
+          const reach = hitR + bodyReach(en);
           if (s.kind === 'pierce') {
             if (en._pierce === s.seq) return;
-            if (Math.hypot(en.x - s.x, en.y - s.y) > hitR) return;
+            if (Math.hypot(en.x - s.x, en.y - s.y) > reach) return;
             en._pierce = s.seq;
             damageEnemy(en, s.dmg);
             return;
           }
-          if (Math.hypot(en.x - s.x, en.y - s.y) <= hitR) {
+          if (Math.hypot(en.x - s.x, en.y - s.y) <= reach) {
             damageEnemy(en, s.dmg);
             s.life = 0;
           }
@@ -964,7 +1103,10 @@
       if (!en.ai) en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
       if (en.behaviour === 'charger') tickCharger(en, dt);
       else if (en.behaviour === 'shooter') tickShooter(en, dt);
-      else if (en.behaviour === 'boss') tickBoss(en, dt);
+      else if (en.behaviour === 'boss') {
+        tickBoss(en, dt);
+        leashBoss(en, dt);
+      }
       else {
         const dx = player.x - en.x;
         const dy = player.y - en.y;
@@ -977,7 +1119,55 @@
     }
   }
 
+  function mergeOldGems() {
+    const cell = Math.max(2.5, pxToWorld(240));
+    const buckets = new Map();
+    for (let i = 0; i < gems.length; i++) {
+      const g = gems[i];
+      if ((g.kind || 'gem') !== 'gem' || g.fly) continue;
+      if ((g.age || 0) < 15) continue;
+      const key = ((g.x / cell) | 0) + ',' + ((g.y / cell) | 0);
+      let list = buckets.get(key);
+      if (!list) {
+        list = [];
+        buckets.set(key, list);
+      }
+      list.push(g);
+    }
+    buckets.forEach((list) => {
+      if (list.length < 2) return;
+      let value = 0;
+      let x = 0;
+      let y = 0;
+      for (let n = 0; n < list.length; n++) {
+        value += list[n].value || 0;
+        x += list[n].x;
+        y += list[n].y;
+      }
+      const keep = list[0];
+      keep.x = x / list.length;
+      keep.y = y / list.length;
+      keep.value = value;
+      keep.big = true;
+      keep.kind = 'gem';
+      keep.age = 15;
+      keep.fly = 0;
+      for (let n = 1; n < list.length; n++) {
+        const idx = gems.indexOf(list[n]);
+        if (idx >= 0) {
+          const gone = gems.splice(idx, 1)[0];
+          gemPool.push(gone);
+        }
+      }
+    });
+  }
+
   function tickGems(dt) {
+    for (let i = 0; i < gems.length; i++) {
+      const g = gems[i];
+      if ((g.kind || 'gem') === 'gem' && !g.fly) g.age = (g.age || 0) + dt;
+    }
+    mergeOldGems();
     const pull = magnetR();
     const grab = pickupR();
     for (let i = gems.length - 1; i >= 0; i--) {
@@ -997,7 +1187,7 @@
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
-          runGold += 18;
+          runGold += Math.round(18 * vowMult());
           chestReady = true;
         } else if (kind === 'item' && g.item) {
           try { SurvivorSave.addItem(g.item); } catch (e) {}
@@ -1038,6 +1228,8 @@
   }
 
   function sim(dt) {
+    simTick += 1;
+    spawnedThisFrame = 0;
     if (evolveFreeze > 0) {
       evolveFreeze = Math.max(0, evolveFreeze - dt);
       animT += dt;
@@ -1046,7 +1238,9 @@
         player.invuln = Math.max(player.invuln, 0.5);
         const evolvedId = evolvePending;
         evolvePending = '';
+        evoLog.push({ id: evolvedId, t: time, tick: simTick });
         fxCall('evolve', evolvedId);
+        if (evolveQueue.length) beginEvolve();
       }
       return;
     }
@@ -1090,7 +1284,7 @@
     tickGems(dt);
     if (chestReady && state === 'playing') {
       chestReady = false;
-      openLevel();
+      grantChest();
       return;
     }
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -1122,14 +1316,16 @@
   function movePlayer(dt) {
     let sx = 0;
     let sy = 0;
+    let steered = false;
     if (scriptMove) {
       sx = scriptMove.x || 0;
       sy = scriptMove.y || 0;
+      steered = true;
     } else {
-      if (keys.w || keys.arrowup) sy -= 1;
-      if (keys.s || keys.arrowdown) sy += 1;
-      if (keys.a || keys.arrowleft) sx -= 1;
-      if (keys.d || keys.arrowright) sx += 1;
+      if (keys.w || keys.arrowup) { sy -= 1; steered = true; }
+      if (keys.s || keys.arrowdown) { sy += 1; steered = true; }
+      if (keys.a || keys.arrowleft) { sx -= 1; steered = true; }
+      if (keys.d || keys.arrowright) { sx += 1; steered = true; }
       if (joy.on) {
         const jx = joy.x - joy.ox;
         const jy = joy.y - joy.oy;
@@ -1138,7 +1334,18 @@
           const scale = Math.min(1, (mag - 14) / 64);
           sx = (jx / mag) * scale;
           sy = (jy / mag) * scale;
+          steered = true;
         }
+      }
+    }
+    if (!steered && walkCircle) {
+      const radius = pxToWorld(120);
+      const ang = time * (Math.PI * 2 / 8);
+      sx = Math.cos(ang) * radius - player.x;
+      sy = Math.sin(ang) * radius - player.y;
+      if (Math.hypot(sx, sy) < 0.08) {
+        player.moving = false;
+        return;
       }
     }
     if (sx === 0 && sy === 0) {
@@ -1180,7 +1387,10 @@
     boss5 = false;
     curse = 0;
     vowPayout = false;
+    vowResume = false;
     vowCount = 0;
+    hermitDeclines = 0;
+    try { SurvivorSprites.setFloorVow(0); } catch (e) {}
     Object.keys(evolved).forEach((k) => { delete evolved[k]; });
     pickLeft = 0;
     rerollUsed = false;
@@ -1191,22 +1401,29 @@
     hermit.on = false;
     hermit.used = false;
     joy.on = false;
-    nextVowAt = 32;
+    nextVowAt = 20 + Math.random() * 25;
     vowSeen = false;
     spawnSerial = 0;
     eliteWarned = false;
     eliteSpawned = false;
+    wardenCleared = false;
+    demonCleared = false;
     demonWarned = false;
     banner = '';
     bannerT = 0;
     evolveFreeze = 0;
     evolvePending = '';
+    evolveQueue.length = 0;
     novaQueue = 0;
     regen = 0;
     chestReady = false;
     scriptMove = null;
     revivalLeft = shopRank('revival') > 0 ? 1 : 0;
+    secondChance = 0;
+    partnerPulse = 0;
+    evoLog.length = 0;
     uiGuardUntil = 0;
+    fxCall('vow', 0);
   }
 
   function startRun() {
@@ -1328,6 +1545,7 @@
     } else {
       openingPack();
     }
+    if (!preview && debugClock > 0) fastForward(debugClock);
     track('survivor-run-started');
     if (preview === 'level') {
       player.xp = SurvivorData.xpToNext(1);
@@ -1361,9 +1579,86 @@
     sfx('ui');
   }
 
+  function picksForTime(seconds) {
+    const table = [
+      'bolt', 'orbit', 'bolt', 'might', 'nova', 'haste', 'orbit',
+      'bolt', 'tempo', 'orbit', 'might', 'nova', 'orbit', 'cinder', 'haste', 'pierce',
+    ];
+    const gates = [31, 49, 62, 75, 89, 104, 142, 164, 190, 213, 245, 271, 298, 320, 350, 380];
+    let n = 0;
+    for (let i = 0; i < gates.length; i++) {
+      if (seconds >= gates[i]) n = i + 1;
+    }
+    return table.slice(0, Math.min(table.length, n));
+  }
+
+  function fastForward(seconds) {
+    clearPools();
+    time = seconds;
+    minuteMark = Math.floor(time / 60);
+    nextVowAt = time + 80;
+    const picks = picksForTime(seconds);
+    picks.forEach((id) => {
+      owned[id] = (owned[id] || 0) + 1;
+      if (id === 'vitality') {
+        const rank = owned.vitality;
+        const gain = rank === 3 ? 20 : rank === 5 ? 28 : 12;
+        player.maxLife += gain;
+        player.life += gain;
+      }
+    });
+    player.level = 1 + picks.length;
+    levelUps = picks.length;
+    player.xp = 0;
+    const n = Math.min(12, Math.max(8, Math.round(spawnCap() * 0.22)));
+    for (let i = 0; i < n; i++) {
+      spawnSerial += 1;
+      const spot = spawnRing(0.4);
+      spawnEnemy(spawnKind(), spot.x, spot.y);
+    }
+    const rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+    const bases = ['iron-blade', 'bone-charm', 'ash-bead', 'iron-blade', 'bone-charm'];
+    rarities.forEach((rarity, i) => {
+      let item = null;
+      try { item = SurvivorSave.createItem(bases[i], rarity); } catch (e) { item = null; }
+      const g = gemPool.pop() || {};
+      const ang = -1.1 + i * 0.5;
+      g.x = player.x + Math.cos(ang) * 1.7;
+      g.y = player.y + 2.4;
+      g.kind = 'item';
+      g.item = item || { rarity: rarity, name: rarity };
+      g.value = 0;
+      g.age = 0;
+      g.big = false;
+      g.fly = 0;
+      g.vx = 0;
+      g.vy = 0;
+      gems.push(g);
+    });
+    if (time >= 295) {
+      eliteWarned = true;
+      eliteSpawned = true;
+      wardenCleared = true;
+      demonWarned = true;
+      boss5 = true;
+      raiseBanner('Risen Demon');
+      bannerT = 2.4;
+      const spot = spawnBossEdge();
+      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+    } else if (time >= 148) {
+      eliteWarned = true;
+      eliteSpawned = true;
+      raiseBanner('Grave Warden');
+      bannerT = 2.4;
+      const spot = spawnBossEdge();
+      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
+    }
+  }
+
   function finish(kind) {
     if (ended) return;
     ended = true;
+    vowResume = !!(vowPayout && curse > 0);
     vowPayout = false;
     state = kind === 'won' ? 'won' : 'dead';
     joy.on = false;
@@ -1401,14 +1696,17 @@
     const next = $('sv-next');
     const fill = $('sv-next-fill');
     if (next) {
-      if (record.next) next.textContent = 'Next upgrade, ' + record.next.label + ': ' + record.next.away + ' gold away';
-      else next.textContent = 'Every upgrade is yours';
+      if (!record.next) next.textContent = 'Every upgrade is yours';
+      else if (record.next.away <= 0) next.textContent = 'Ready to buy: ' + record.next.label;
+      else next.textContent = 'Next upgrade: ' + record.next.label + ', ' + record.next.away + ' gold away';
     }
+    const vowsLine = $('sv-end-vows');
+    if (vowsLine) vowsLine.textContent = 'Vows survived: ' + vowCount;
     if (fill && record.next) {
       const span = Math.max(1, record.next.cost);
       fill.style.width = Math.round(100 * (1 - record.next.away / span)) + '%';
     }
-    uiGuardUntil = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) + 300;
+    uiGuardUntil = nowMs() + 300;
     const reviveBtn = $('sv-revive');
     if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived);
     const goldBtn = $('sv-double');
@@ -1463,8 +1761,25 @@
 
   let shopReturn = 'title';
 
+  function revivePlayer() {
+    if (state !== 'dead' || revived) return;
+    revived = true;
+    player.life = Math.round(player.maxLife * 0.55);
+    player.invuln = 1.4;
+    ended = false;
+    if (vowResume && curse > 0) vowPayout = true;
+    vowResume = false;
+    state = 'playing';
+    hide('sv-end');
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (Math.hypot(en.x - player.x, en.y - player.y) < 3.2) releaseEnemy(i);
+    }
+  }
+
   function openShop(from) {
     shopReturn = from || 'title';
+    if (shopReturn === 'end') hide('sv-end');
     const list = $('sv-shop-list');
     const goldEl = $('sv-shop-gold');
     let purse = 0;
@@ -1504,10 +1819,11 @@
   function openLevel() {
     state = 'levelup';
     joy.on = false;
-    uiGuardUntil = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) + 300;
-    offers = SurvivorData.pickOffers(owned);
+    uiGuardUntil = nowMs() + 300;
+    partnerPulse += 1;
+    offers = SurvivorData.pickOffers(owned, null, { forcePartner: (partnerPulse % 2) === 1 });
     const title = $('sv-level-title');
-    if (title) title.textContent = 'Level ' + player.level;
+    if (title) title.textContent = pickLeft > 0 ? 'Vow reward' : ('Level ' + player.level);
     const lv = $('sv-level-lv');
     if (lv) lv.textContent = 'Lv ' + player.level;
     const clock = $('sv-level-clock');
@@ -1548,9 +1864,17 @@
     sfx('level');
   }
 
-  function grantEvolve(id) {
-    evolveFreeze = 0.12;
+  function beginEvolve() {
+    if (evolvePending || evolveFreeze > 0) return;
+    const id = evolveQueue.shift();
+    if (!id) return;
     evolvePending = id;
+    evolveFreeze = 0.12;
+  }
+
+  function grantEvolve(id) {
+    evolveQueue.push(id);
+    beginEvolve();
   }
 
   function applyChoice(item) {
@@ -1574,6 +1898,41 @@
     checkEvolutions();
   }
 
+  function grantChest() {
+    const weapons = SurvivorData.WEAPONS;
+    for (let i = 0; i < weapons.length; i++) {
+      const w = weapons[i];
+      if (!w.evolvesWith || evolved[w.id]) continue;
+      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
+        checkEvolutions();
+        const evo = SurvivorData.evolutionFor(w.id);
+        raiseBanner(evo ? evo.name : 'Evolved');
+        return;
+      }
+    }
+    let best = null;
+    for (let i = 0; i < weapons.length; i++) {
+      const w = weapons[i];
+      const lv = owned[w.id] || 0;
+      if (lv >= w.maxLevel) continue;
+      if (!best || lv > (owned[best.id] || 0)) best = w;
+    }
+    if (best) {
+      const lv = owned[best.id] || 0;
+      owned[best.id] = Math.min(best.maxLevel, lv + 2);
+      checkEvolutions();
+      if (evolved[best.id]) {
+        const evo = SurvivorData.evolutionFor(best.id);
+        raiseBanner(evo ? evo.name : 'Evolved');
+      } else {
+        raiseBanner(best.name + ' +2');
+      }
+      return;
+    }
+    owned.might = Math.min(5, (owned.might || 0) + 2);
+    raiseBanner('Might +2');
+  }
+
   function checkEvolutions() {
     const weapons = SurvivorData.WEAPONS;
     for (let i = 0; i < weapons.length; i++) {
@@ -1589,8 +1948,7 @@
 
   function choose(index) {
     if (state !== 'levelup') return;
-    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    if (now < uiGuardUntil) return;
+    if (tapBlocked()) return;
     applyChoice(offers[index]);
     hide('sv-level');
     if (pickLeft > 1) {
@@ -1607,7 +1965,7 @@
     const before = prev.map((o) => o.id).sort().join(',');
     let next = prev;
     for (let n = 0; n < 8; n++) {
-      next = SurvivorData.pickOffers(owned);
+      next = SurvivorData.pickOffers(owned, null, { forcePartner: (partnerPulse % 2) === 1 });
       const key = next.map((o) => o.id).sort().join(',');
       if (key !== before) return next;
     }
@@ -1642,6 +2000,7 @@
     state = 'playing';
     vowCount += 1;
     nextVowAt = time + 150;
+    try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
     fxCall('vow', vowCount);
     const vow = $('sv-vow');
     if (vow) {
@@ -1652,7 +2011,9 @@
 
   function declineHermit() {
     hide('sv-hermit');
-    nextVowAt = time + 75;
+    hermitDeclines += 1;
+    if (hermitDeclines >= 2) nextVowAt = 1e9;
+    else nextVowAt = time + 75;
     state = 'playing';
   }
 
@@ -1749,8 +2110,13 @@
     const hpText = $('sv-hp-text');
     const xp = $('sv-xp');
     const xpText = $('sv-xp-text');
-    if (hp) hp.style.width = (100 * player.life / player.maxLife) + '%';
-    if (hpText) hpText.textContent = Math.ceil(player.life) + '/' + player.maxLife;
+    player.maxLife = Math.max(1, Math.round(player.maxLife));
+    if (player.life > player.maxLife) player.life = player.maxLife;
+    if (player.life < 0) player.life = 0;
+    const maxHp = player.maxLife;
+    const curHp = Math.max(0, Math.min(maxHp, Math.round(player.life)));
+    if (hp) hp.style.width = (100 * curHp / maxHp) + '%';
+    if (hpText) hpText.textContent = curHp + '/' + maxHp;
     const need = SurvivorData.xpToNext(player.level);
     if (xp) xp.style.width = (100 * Math.min(1, player.xp / need)) + '%';
     if (xpText) xpText.textContent = 'Lv ' + player.level;
@@ -1768,6 +2134,12 @@
     if (vow) {
       vow.classList.toggle('hidden', curse <= 0);
       vow.textContent = 'Vow ' + Math.ceil(curse) + 's';
+    }
+    const badge = $('sv-vow-badge');
+    if (badge) {
+      const showVow = vowCount > 0;
+      badge.classList.toggle('hidden', !showVow);
+      if (showVow) badge.textContent = 'Vow x' + vowMult();
     }
     let liveBoss = null;
     for (let i = 0; i < enemies.length; i++) {
@@ -1869,10 +2241,10 @@
 
   function drawGem(g) {
     const s = worldToScreen(g.x, g.y);
-    if (s.x < -30 || s.y < -30 || s.x > canvas.width + 30 || s.y > canvas.height + 30) return;
+    if (s.x < -40 || s.y < -40 || s.x > canvas.width + 40 || s.y > canvas.height + 40) return;
     const kind = g.kind || 'gem';
     if (kind === 'gem') {
-      SurvivorSprites.drawGem(ctx, s.x, s.y);
+      SurvivorSprites.drawGem(ctx, s.x, s.y, g.big ? 1.85 : 1);
       return;
     }
     if (kind === 'heart') {
@@ -1898,30 +2270,34 @@
 
   function drawRaritySquare(x, y, item) {
     const rarity = (item && item.rarity) || 'common';
-    const colors = {
+    const fill = {
       common: '#8a857d',
       uncommon: '#5ed37a',
       rare: '#4c7cff',
       epic: '#d0b4ff',
-      legendary: '#e7eef8',
-    };
+      legendary: '#f2f6ff',
+    }[rarity] || '#8a857d';
     const big = rarity === 'epic' || rarity === 'legendary';
-    const size = big ? 19 : 10;
+    const size = big ? 19 : 16;
     const half = size / 2;
     if (big) {
       const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(animT * Math.PI * 2 * 1.6));
+      const column = rarity === 'legendary' ? '#f2f6ff' : '#d0b4ff';
+      ctx.save();
       ctx.globalAlpha = pulse;
-      ctx.fillStyle = colors[rarity];
-      ctx.fillRect(x - 1, y - half - 14, 2, 12);
-      ctx.globalAlpha = 1;
+      ctx.fillStyle = column;
+      ctx.shadowColor = rarity === 'legendary' ? '#7fb2ff88' : '#d0b4ff66';
+      ctx.shadowBlur = 3;
+      ctx.fillRect(x - 1, y - half - 46, 2, 46);
+      ctx.restore();
     }
-    ctx.fillStyle = '#141018';
+    ctx.fillStyle = fill;
     ctx.fillRect(x - half, y - half, size, size);
-    ctx.strokeStyle = colors[rarity];
-    ctx.lineWidth = rarity === 'legendary' ? 2 : 2;
-    ctx.strokeRect(x - half, y - half, size, size);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = rarity === 'legendary' ? '#7fb2ff' : '#0b0a0d';
+    ctx.strokeRect(x - half + 1, y - half + 1, size - 2, size - 2);
     if (rarity === 'legendary') {
-      ctx.strokeStyle = '#4c7cff';
+      ctx.strokeStyle = '#c9b6ff';
       ctx.lineWidth = 2;
       ctx.strokeRect(x - half - 2, y - half - 2, size + 4, size + 4);
     }
@@ -1937,8 +2313,13 @@
     ctx.fillText('Hermit', s.x, s.y + 18);
   }
 
+  function fxPresent() {
+    return typeof FX !== 'undefined' && !!FX && typeof FX.cast === 'function';
+  }
+
   function drawWeapons() {
-    if (owned.orbit) {
+    const fx = fxPresent();
+    if (owned.orbit && !fx) {
       const count = Math.min(owned.orbit, 4);
       const rad = (1.55 + owned.orbit * 0.12) * area();
       for (let i = 0; i < count; i++) {
@@ -1951,15 +2332,17 @@
       const shot = shots[i];
       const s = worldToScreen(shot.x, shot.y);
       if (shot.kind === 'nova') {
-        const px = shot.r * TILE;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, px, 0, Math.PI * 2);
-        ctx.strokeStyle = '#14180c';
-        ctx.lineWidth = 5;
-        ctx.stroke();
-        ctx.strokeStyle = '#e8ff6a';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+        if (!fx) {
+          const px = shot.r * TILE;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, px, 0, Math.PI * 2);
+          ctx.strokeStyle = '#14180c';
+          ctx.lineWidth = 5;
+          ctx.stroke();
+          ctx.strokeStyle = '#e8ff6a';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
       } else {
         SurvivorSprites.drawBolt(ctx, s.x, s.y, Math.atan2(shot.vy, shot.vx));
       }
@@ -2000,7 +2383,7 @@
 
   function byY(a, b) { return a.y - b.y; }
 
-  function drawActors() {
+  function drawFoes() {
     drawOrder.length = 0;
     for (let i = 0; i < enemies.length; i++) drawOrder.push(enemies[i]);
     drawOrder.sort(byY);
@@ -2015,6 +2398,9 @@
       drawFoe(en, crowd);
     }
     if (!hermitDrawn) drawHermit();
+  }
+
+  function drawHeroActor() {
     const s = worldToScreen(player.x, player.y);
     SurvivorSprites.drawHeroRing(ctx, s.x, s.y);
     drawHeroBody();
@@ -2055,13 +2441,9 @@
       );
     }
     drawArena();
-    for (let i = 0; i < gems.length; i++) {
-      if (!gems[i].fly) drawGem(gems[i]);
-    }
-    drawActors();
-    for (let i = 0; i < gems.length; i++) {
-      if (gems[i].fly) drawGem(gems[i]);
-    }
+    drawFoes();
+    for (let i = 0; i < gems.length; i++) drawGem(gems[i]);
+    drawHeroActor();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       const s = worldToScreen(p.x, p.y);
@@ -2092,8 +2474,7 @@
     $('sv-pause-btn').addEventListener('click', () => openPause());
     $('sv-quit').addEventListener('click', () => quitToTitle());
     $('sv-restart').addEventListener('click', () => {
-      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-      if (now < uiGuardUntil) return;
+      if (tapBlocked()) return;
       track('survivor-restart');
       startRun();
     });
@@ -2104,14 +2485,17 @@
     const shopClose = $('sv-shop-close');
     if (shopClose) shopClose.addEventListener('click', () => closeShop());
     $('sv-revive').addEventListener('click', () => {
+      if (tapBlocked()) return;
       if (state !== 'dead' || revived) return;
       try { Ads.offerRevive(); } catch (e) {}
     });
     $('sv-double').addEventListener('click', () => {
+      if (tapBlocked()) return;
       if (state !== 'dead' && state !== 'won') return;
       try { Ads.offerDoubleGold(); } catch (e) {}
     });
     $('sv-reroll').addEventListener('click', () => {
+      if (tapBlocked()) return;
       if (state !== 'levelup' || (rerollUsed && !adsOn)) return;
       if (adsOn) {
         try { Ads.offerReroll(); } catch (e) {}
@@ -2183,25 +2567,22 @@
       Ads.onResult((kind, reason) => {
         if (reason !== 'accept') return;
         if (kind === 'reroll' && state === 'levelup') rerollOffers();
-        if (kind === 'revive' && state === 'dead' && !revived) {
-          revived = true;
-          player.life = Math.round(player.maxLife * 0.55);
-          player.invuln = 1.4;
-          ended = false;
-          state = 'playing';
-          hide('sv-end');
-          for (let i = enemies.length - 1; i >= 0; i--) {
-            const en = enemies[i];
-            if (Math.hypot(en.x - player.x, en.y - player.y) < 3.2) releaseEnemy(i);
-          }
-        }
+        if (kind === 'revive' && state === 'dead' && !revived) revivePlayer();
         if (kind === 'gold' && (state === 'dead' || state === 'won') && !doubled) {
           doubled = true;
           const extra = Math.round(runGold * (SurvivorData.REWARDS.doubleMult - 1));
           runGold += extra;
           syncBank();
-          const stats = $('sv-end-stats');
-          if (stats) stats.textContent = stats.textContent.replace(/Gold \d+/, 'Gold ' + runGold);
+          const goldEl = $('sv-end-gold');
+          if (goldEl) goldEl.textContent = '+' + runGold + ' gold banked';
+          const nextEl = $('sv-next');
+          try {
+            const nxt = SurvivorSave.nextUpgrade();
+            if (nextEl && nxt) {
+              if (nxt.away <= 0) nextEl.textContent = 'Ready to buy: ' + nxt.label;
+              else nextEl.textContent = 'Next upgrade: ' + nxt.label + ', ' + nxt.away + ' gold away';
+            }
+          } catch (err) {}
         }
       });
     } catch (e) {}
@@ -2212,8 +2593,14 @@
         enemies: enemies.length, gems: gems.length, floats: floats.length,
         x: player.x, y: player.y, life: player.life, xp: player.xp,
         art: SurvivorSprites.ready(),
-        vow: vowPayout, curse,
+        vow: vowPayout, curse, vowCount,
       });
+      window.__svSetVows = (n) => {
+        vowCount = Math.max(0, n | 0);
+        try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
+        fxCall('vow', vowCount);
+        return vowCount;
+      };
       window.__svPan = (x, y) => { player.x = x; player.y = y; };
       window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
       window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };
@@ -2277,6 +2664,7 @@
   }
 
   let last = 0;
+  const slowLog = [];
   function frame(now) {
     const raw = last ? (now - last) / 1000 : 0.016;
     const dt = Math.min(0.05, raw);
@@ -2285,13 +2673,43 @@
       const inst = 1 / dt;
       fpsSmooth = fpsSmooth ? fpsSmooth * 0.9 + inst * 0.1 : inst;
     }
+    fxUpdateMs = 0;
+    fxDrawMs = 0;
+    const updateStart = nowMs();
     if (state === 'playing') sim(dt);
     else animT += dt;
+    const updateMs = nowMs() - updateStart;
+    const drawStart = nowMs();
+    draw();
+    const drawMs = nowMs() - drawStart;
     if (bench && state === 'playing' && !benchDone) {
       if (!benchStart) benchStart = now;
       const elapsed = now - benchStart;
       // Skip the first 2s (atlas and spawn), then sample about 10s of real frame gaps.
-      if (elapsed > 2000) benchFrames.push(raw);
+      if (elapsed > 2000) {
+        benchFrames.push(raw);
+        if (raw > 0.033) {
+          const gapMs = raw * 1000;
+          const work = updateMs + drawMs;
+          let cause = 'update';
+          if (work < gapMs * 0.45) cause = '?gc';
+          else if (spawnedThisFrame >= 3) cause = 'spawn';
+          else if (drawMs >= updateMs) cause = 'draw';
+          slowLog.push({
+            gap: Math.round(gapMs * 10) / 10,
+            spawn: spawnedThisFrame,
+            enemies: enemies.length,
+            shots: shots.length,
+            foeShots: foeShots.length,
+            particles: particles.length,
+            drops: gems.length,
+            update: Math.round(updateMs * 10) / 10,
+            draw: Math.round(drawMs * 10) / 10,
+            fx: Math.round((fxUpdateMs + fxDrawMs) * 10) / 10,
+            cause: cause,
+          });
+        }
+      }
       if (elapsed > 12000 && benchFrames.length) {
         benchDone = true;
         let sum = 0;
@@ -2309,44 +2727,77 @@
         const sw = (window.screen && window.screen.width) || canvas.width;
         const sh = (window.screen && window.screen.height) || canvas.height;
         const dpr = window.devicePixelRatio || 1;
+        const causes = { spawn: 0, draw: 0, '?gc': 0, update: 0 };
+        for (let i = 0; i < slowLog.length; i++) {
+          const key = slowLog[i].cause;
+          causes[key] = (causes[key] || 0) + 1;
+        }
+        const slowLine = 'slow: ' + slow + ' — spawn ' + (causes.spawn || 0) + ', draw ' + (causes.draw || 0) + ', ?gc ' + (causes['?gc'] || 0);
         window.__fps = {
           avg, min, slow, slowPct,
           enemies: enemies.length, frames: benchFrames.length,
           screen: sw + 'x' + sh, dpr,
+          slowLog: slowLog.slice(),
+          slowLine: slowLine,
         };
         const out = $('sv-bench');
         if (out) {
           out.classList.remove('hidden');
           out.textContent = 'Bench ' + enemies.length + ' foes\navg ' + avg.toFixed(1) + ' fps · min ' + min.toFixed(1) + ' fps\n'
             + slow + ' frames over 33ms (' + slowPct.toFixed(1) + '%)\n'
-            + sw + '×' + sh + ' · ' + dpr + ' dpr';
+            + sw + '×' + sh + ' · ' + dpr + ' dpr\n'
+            + slowLine;
         }
       }
     }
-    draw();
     hud();
     requestAnimationFrame(frame);
   }
 
-  function snapRun() {
-    let bossName = '';
+  function liveBoss() {
     for (let i = 0; i < enemies.length; i++) {
       const en = enemies[i];
-      if (en.boss && en.life > 0 && !(en.dying > 0)) bossName = en.name;
+      if (en.boss && en.life > 0 && !(en.dying > 0)) return en;
+    }
+    return null;
+  }
+
+  function snapRun() {
+    const boss = liveBoss();
+    let chest = false;
+    let bigGems = 0;
+    for (let i = 0; i < gems.length; i++) {
+      if (gems[i].kind === 'chest') chest = true;
+      if (gems[i].big) bigGems += 1;
     }
     return {
       state: state,
       time: time,
       life: player.life,
+      maxLife: player.maxLife,
+      x: player.x,
+      y: player.y,
       level: player.level,
       levelUps: levelUps,
       kills: kills,
+      gold: runGold,
       vowSeen: vowSeen,
+      vow: vowPayout,
       vowCount: vowCount,
+      curse: curse,
       hermit: hermit.on,
-      boss: bossName,
+      boss: boss ? boss.name : '',
+      bossLife: boss ? boss.life : 0,
+      bossMax: boss ? boss.maxLife : 0,
+      chest: chest,
       enemies: enemies.length,
+      gems: gems.length,
+      bigGems: bigGems,
+      evolved: Object.keys(evolved),
+      secondChance: secondChance,
+      banner: banner,
       novas: shots.filter((s) => s.kind === 'nova').length,
+      owned: Object.assign({}, owned),
     };
   }
 
@@ -2381,6 +2832,71 @@
     };
     window.__svSnap = () => snapRun();
     window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
+    window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
+    window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
+    window.__svRevive = () => { revivePlayer(); return snapRun(); };
+    window.__svDismiss = () => {
+      if (state === 'levelup') {
+        uiGuardUntil = 0;
+        hide('sv-level');
+        pickLeft = 0;
+        state = 'playing';
+      }
+      if (state === 'hermit') declineHermit();
+      return snapRun();
+    };
+    window.__svForceEvos = () => {
+      owned.orbit = 5;
+      owned.nova = 5;
+      owned.tempo = 1;
+      owned.cinder = 1;
+      checkEvolutions();
+      return snapRun();
+    };
+    window.__svEvoLog = () => evoLog.map((row) => ({ id: row.id, t: row.t, tick: row.tick }));
+    window.__svArmRevival = () => { revivalLeft = 1; player.life = player.maxLife; return snapRun(); };
+    window.__svOwned = () => Object.assign({}, owned);
+    window.__svPummel = () => {
+      let boss = null;
+      let trash = null;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (en.life <= 0 || en.dying > 0) continue;
+        if (en.boss && !boss) boss = en;
+        else if (!en.boss && !en.elite && !trash) trash = en;
+      }
+      if (!boss || !trash) return { bossFlashes: -1, trashFlashes: -1 };
+      let bossFlashes = 0;
+      let trashFlashes = 0;
+      for (let n = 0; n < 20; n++) {
+        const mark = boss.flashAt || 0;
+        damageEnemy(boss, 1);
+        if ((boss.flashAt || 0) !== mark) bossFlashes += 1;
+        trash.hitFlash = 0;
+        damageEnemy(trash, 1);
+        if (trash.hitFlash > 0) trashFlashes += 1;
+        time += 0.05;
+      }
+      return { bossFlashes: bossFlashes, trashFlashes: trashFlashes };
+    };
+    window.__svSeedGems = (count, dist) => {
+      const away = dist || 8;
+      for (let i = 0; i < (count || 6); i++) {
+        const g = gemPool.pop() || {};
+        g.x = player.x + (i % 3) * 0.45;
+        g.y = player.y + away;
+        g.value = 2;
+        g.kind = 'gem';
+        g.item = null;
+        g.age = 15;
+        g.big = false;
+        g.fly = 0;
+        g.vx = 0;
+        g.vy = 0;
+        gems.push(g);
+      }
+      return snapRun();
+    };
     window.__svOffers = () => offers.map((o) => o.id);
     window.__svThreats = () => {
       const list = [];
@@ -2399,7 +2915,7 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=4');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=5');
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);
   }
