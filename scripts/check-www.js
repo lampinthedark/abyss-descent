@@ -56,6 +56,13 @@ assetTags.forEach((url) => {
 });
 const indexSurvivor = /href="survivor\.html\?v=([^"]+)"/.exec(rootHtml);
 if (!indexSurvivor || indexSurvivor[1] !== cacheV) fail('index.html survivor link ?v= does not match survivor.html');
+const survivorSrc = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
+if (!survivorSrc.includes('dungeon-tileset-ii.png?v=' + cacheV)) {
+  fail('sprite sheet is missing ?v=' + cacheV);
+}
+if (!survivorSrc.includes('assets/ui/vow_badge.png?v=' + cacheV)) {
+  fail('vow badge is missing ?v=' + cacheV);
+}
 if (!wwwHtml.includes('mobile/shell.css') || !wwwHtml.includes('mobile/shell.js')) {
   fail('www/index.html is missing the Capacitor shell');
 }
