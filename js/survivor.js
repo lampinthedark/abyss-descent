@@ -3404,7 +3404,7 @@
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
     partnerPulse += 1;
-    offers = SurvivorData.pickOffers(owned, null, { forcePartner: true });
+    offers = SurvivorData.pickOffers(owned, null, { forcePartner: true, evolved: evolved });
     const title = $('sv-level-title');
     if (title) title.textContent = pickLeft > 0 ? 'Vow reward' : ('Level ' + player.level);
     const lv = $('sv-level-lv');
@@ -3551,15 +3551,14 @@
     const partner = partnerId ? catalogItem(partnerId) : null;
     const weaponReady = (owned[weaponId] || 0) >= (weapon ? weapon.maxLevel : 5);
     const partnerReady = !!(partnerId && (owned[partnerId] || 0) > 0);
-    if (weaponReady && partnerReady) return 'Ready';
-    // The partner card is the missing half. Never tell Battle Tempo it needs itself.
-    if (item.id === partnerId) {
-      if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
-      return 'Ready';
-    }
-    if (!partnerReady && partner) return 'Needs: ' + partner.name;
-    if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
-    return 'Ready';
+    let text = 'Ready';
+    if (weaponReady && partnerReady) text = 'Ready';
+    else if (item.id === partnerId) {
+      text = !weaponReady && weapon ? ('Needs: ' + weapon.name) : 'Ready';
+    } else if (!partnerReady && partner) text = 'Needs: ' + partner.name;
+    else if (!weaponReady && weapon) text = 'Needs: ' + weapon.name;
+    if (text.indexOf('Needs:') === 0 && text.slice(7) === item.name) return '';
+    return text;
   }
 
   function cardTag(item) {
@@ -3767,7 +3766,7 @@
     const before = prev.map((o) => o.id).sort().join(',');
     let next = prev;
     for (let n = 0; n < 8; n++) {
-      next = SurvivorData.pickOffers(owned, null, { forcePartner: true });
+      next = SurvivorData.pickOffers(owned, null, { forcePartner: true, evolved: evolved });
       const key = next.map((o) => o.id).sort().join(',');
       if (key !== before) return next;
     }

@@ -109,7 +109,7 @@ function boot(seed0, search, storage) {
   files.forEach((name) => {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
   });
-  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof FX !== "undefined") this.FX = FX;', context);
+  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof SurvivorData !== "undefined") this.SurvivorData = SurvivorData; if (typeof FX !== "undefined") this.FX = FX;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
   return context;
 }
@@ -1115,7 +1115,11 @@ function evoNeeds() {
   game.__svGive('nova', 3);
   if (game.__svHint('nova') !== 'Needs: Cinder Heart') fail('nova hint ' + game.__svHint('nova'));
   game.__svGive('cinder', 1);
-  if (game.__svHint('nova') !== 'Needs: Star Nova') fail('nova rank hint ' + game.__svHint('nova'));
+  if (game.__svHint('nova') !== '') fail('nova named itself ' + game.__svHint('nova'));
+  game.__svGive('tempo', 1);
+  game.__svGive('orbit', 3);
+  if (game.__svHint('orbit').indexOf('Orbiting Blade') >= 0) fail('orbit named itself ' + game.__svHint('orbit'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself ' + game.__svHint('tempo'));
   game.__svGive('nova', 5);
   if (game.__svHint('nova') !== 'Ready') fail('nova ready ' + game.__svHint('nova'));
   if (game.__svHint('cinder') !== 'Ready') fail('cinder ready ' + game.__svHint('cinder'));
@@ -1127,7 +1131,31 @@ function evoNeeds() {
   game.__svGive('pierce', 2);
   if (game.__svCardTag('pierce') !== '') fail('pierce tagged ' + game.__svCardTag('pierce') + ' while it is in the row');
   if (game.__svCardTag('haste') !== 'New') fail('unowned haste tag ' + game.__svCardTag('haste'));
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  Object.keys(names).forEach((id) => {
+    const hint = game.__svHint(id);
+    if (hint && hint.indexOf(names[id]) >= 0) fail(id + ' hint names itself: ' + hint);
+  });
   console.log('evolution hints name the missing piece');
+}
+
+function evolvedOffers() {
+  const game = boot(4, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svForceEvos();
+  game.__svOpenLevel();
+  const ids = game.__svOffers();
+  ['orbit', 'tempo', 'nova', 'cinder'].forEach((id) => {
+    if (ids.indexOf(id) >= 0) fail('evolved hand still offered ' + id + ' in ' + ids.join(','));
+  });
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  Object.keys(names).forEach((id) => {
+    const hint = game.__svHint(id);
+    if (hint && hint.indexOf(names[id]) >= 0) fail('after evo ' + id + ' hint names itself: ' + hint);
+  });
+  console.log('evolved weapons and partners stay out of the level-up hand');
 }
 
 function freshAndFlags() {
@@ -1704,6 +1732,7 @@ if (process.env.BALANCE === '1') {
 
 tapGuards();
 evoNeeds();
+evolvedOffers();
 freshAndFlags();
 bossLook();
 saveOnQuit();

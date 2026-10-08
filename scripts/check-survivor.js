@@ -92,6 +92,37 @@ for (let i = 0; i < 12; i++) {
     if (c.maxLevel && lv >= c.maxLevel) fail('maxed card offered ' + c.id);
   });
 }
+D.CATALOG.forEach((card) => {
+  const owned = {};
+  D.CATALOG.forEach((item) => { owned[item.id] = item.maxLevel; });
+  for (let n = 0; n < 8; n++) {
+    const cards = D.pickOffers(owned, () => (n * 0.17 + card.maxLevel * 0.01) % 1, { forcePartner: true });
+    if (cards.filter((c) => c.id === 'purse').length > 1) fail('purse offered twice for ' + card.id);
+    cards.forEach((c) => {
+      if (!c || c.kind === 'reward') return;
+      if ((owned[c.id] || 0) >= (c.maxLevel || 1)) fail('maxed card offered ' + c.id);
+    });
+  }
+});
+Object.keys(D.EVOLUTIONS).forEach((weaponId) => {
+  const weapon = D.CATALOG.find((c) => c.id === weaponId);
+  const partnerId = weapon.evolvesWith;
+  [1, partnerId ? 5 : 1].forEach((partnerRank) => {
+    const owned = { bolt: 1 };
+    owned[weaponId] = weapon.maxLevel;
+    owned[partnerId] = partnerRank;
+    const evolved = {};
+    evolved[weaponId] = partnerId;
+    for (let n = 0; n < 12; n++) {
+      const cards = D.pickOffers(owned, () => (n * 0.13) % 1, { forcePartner: true, evolved: evolved });
+      cards.forEach((c) => {
+        if (c.id === weaponId || c.id === partnerId) {
+          fail('after ' + weaponId + ' evolved, offered ' + c.id + ' at partner rank ' + partnerRank);
+        }
+      });
+    }
+  });
+});
 const heal = D.pickOffers({ bolt: 1 }, () => 0).find((c) => c.id === 'heal');
 if (heal && !/6 life/.test(heal.blurb)) fail('heal blurb ' + heal.blurb);
 if (!filler.some((c) => /6 life a second/.test(c.blurb || ''))) fail('filler heal should say +6 life a second');
