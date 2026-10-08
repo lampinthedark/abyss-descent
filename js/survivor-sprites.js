@@ -44,6 +44,18 @@ const SurvivorSprites = (() => {
     return [clamp(g0 * 1.04), clamp(g0), clamp(g0 * 0.94)];
   }
 
+  function mossInk(r, g, b) {
+    if (r < 40 && g < 40 && b < 40) return [16, 18, 14];
+    const l = (r + g + b) / 3;
+    return [clamp(l * 0.52), clamp(l * 0.74), clamp(l * 0.46)];
+  }
+
+  function duskInk(r, g, b) {
+    if (r < 40 && g < 40 && b < 40) return [18, 14, 22];
+    const l = (r + g + b) / 3 / 255;
+    return [clamp(78 + l * 70), clamp(58 + l * 55), clamp(96 + l * 70)];
+  }
+
   function ogreInk(r, g, b) {
     if (r < 48 && g < 48 && b < 48) return null;
     if (isWarm(r, g, b)) {
@@ -94,6 +106,21 @@ const SurvivorSprites = (() => {
       idle: rects(368, 225, 16, 23, 4),
       run: rects(368, 225, 16, 23, 4),
     },
+    charger: {
+      mode: 'moss',
+      idle: rects(368, 112, 16, 16, 4),
+      run: rects(432, 112, 16, 16, 4),
+    },
+    shooter: {
+      mode: 'dusk',
+      idle: rects(368, 176, 16, 16, 4),
+      run: rects(432, 176, 16, 16, 4),
+    },
+    warden: {
+      mode: 'moss',
+      idle: rects(16, 380, 32, 36, 4, 32),
+      run: rects(144, 380, 32, 36, 4, 32),
+    },
   };
 
   function paintSheetFrame(img, rect, mode) {
@@ -120,6 +147,8 @@ const SurvivorSprites = (() => {
       if (mode === 'hero' && isRobe(r, gc, b)) next = ember(r, gc, b);
       else if (mode === 'imp' && isWarm(r, gc, b)) next = violet(r, gc, b);
       else if (mode === 'ogre') next = ogreInk(r, gc, b);
+      else if (mode === 'moss') next = mossInk(r, gc, b);
+      else if (mode === 'dusk') next = duskInk(r, gc, b);
       else if (mode === 'skel') next = skelInk(r, gc, b);
       if (next) {
         d[o] = next[0];
@@ -428,7 +457,7 @@ const SurvivorSprites = (() => {
 
   function drawFoe(ctx, x, y, o) {
     if (!ready) return drawFoeFallback(ctx, x, y, o);
-    const id = o.boss ? 'boss' : (o.eid === 'brute' ? 'brute' : o.eid === 'imp' ? 'imp' : 'skel');
+    const id = o.sprite || (o.boss ? 'boss' : (o.eid === 'brute' ? 'brute' : o.eid === 'imp' ? 'imp' : o.eid === 'charger' ? 'charger' : o.eid === 'shooter' ? 'shooter' : 'skel'));
     const dying = o.dying > 0;
     const clip = dying ? 'idle' : 'run';
     const fr = frameAt(id + ':' + clip, o.time || 0);
@@ -572,7 +601,7 @@ const SurvivorSprites = (() => {
     const r = o.boss ? 16 : o.eid === 'brute' ? 13 : 10;
     ctx.beginPath();
     ctx.arc(x, y - r, r, 0, Math.PI * 2);
-    ctx.fillStyle = o.flash ? '#ffffff' : (o.eid === 'imp' ? '#7b4fd4' : o.boss ? '#da4e38' : o.eid === 'brute' ? '#6d8a72' : '#8a847c');
+    ctx.fillStyle = o.flash ? '#ffffff' : (o.eid === 'imp' || o.eid === 'shooter' ? '#7b4fd4' : o.boss ? '#da4e38' : o.eid === 'charger' ? '#6d8a62' : o.eid === 'brute' ? '#6d8a72' : '#8a847c');
     ctx.fill();
   }
 
@@ -603,11 +632,19 @@ const SurvivorSprites = (() => {
 
   function useSheet() {}
 
+  function frameRect(id, clip, time) {
+    const fr = frameAt(id + ':' + clip, time);
+    if (!fr) return null;
+    return { sx: fr.x, sy: fr.y, sw: fr.w, sh: fr.h };
+  }
+
   return {
     FRAME,
     load,
     setZoom,
     ready: () => ready,
+    get atlas() { return atlas; },
+    frameRect,
     useSheet,
     drawHeroRing,
     drawHero,
@@ -618,3 +655,5 @@ const SurvivorSprites = (() => {
     drawGround,
   };
 })();
+
+const Sprites = SurvivorSprites;

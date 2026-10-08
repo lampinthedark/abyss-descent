@@ -12,8 +12,9 @@
   const search = (typeof location !== 'undefined' && location.search) || '';
   const debug = /(?:^|[?&])debug=1(?:&|$)/.test(search);
   const bench = /(?:^|[?&])bench=1(?:&|$)/.test(search);
+  const headless = /(?:^|[?&])headless=1(?:&|$)/.test(search);
   const adsOn = /(?:^|[?&])adtest=1(?:&|$)/.test(search);
-  const previewMatch = /(?:^|[?&])preview=([a-z]+)/.exec(search);
+  const previewMatch = /(?:^|[?&])preview=([a-z0-9]+)/.exec(search);
   let previewOnce = previewMatch ? previewMatch[1] : '';
 
   const canvas = document.getElementById('game');
@@ -53,6 +54,25 @@
   let curse = 0;
   let pickLeft = 0;
   let vowPayout = false;
+  let vowCount = 0;
+  let nextVowAt = 32;
+  let vowSeen = false;
+  let spawnSerial = 0;
+  let eliteWarned = false;
+  let eliteSpawned = false;
+  let demonWarned = false;
+  let banner = '';
+  let bannerT = 0;
+  let evolveFreeze = 0;
+  let evolvePending = '';
+  let uiGuardUntil = 0;
+  let regen = 0;
+  let revivalLeft = 0;
+  let scriptMove = null;
+  let chestReady = false;
+  const evolved = {};
+  const foeShots = [];
+  const foeShotPool = [];
   let rerollUsed = false;
   let foeSeq = 1;
   let novaSeq = 0;
@@ -82,12 +102,19 @@
   let benchStart = 0;
   let benchDone = false;
 
+  function shopRank(id) {
+    try { return SurvivorSave.rank(id); } catch (e) { return 0; }
+  }
+
   function blankPlayer() {
+    let bonusLife = 0;
+    try { bonusLife = SurvivorSave.itemBonus().life + shopRank('vitality') * 12; } catch (e) {}
+    const maxLife = hero.base.life + bonusLife;
     return {
       x: 0, y: 0,
       classId: hero.id,
-      life: hero.base.life,
-      maxLife: hero.base.life,
+      life: maxLife,
+      maxLife: maxLife,
       facing: 1,
       moving: false,
       swing: 0,
@@ -134,41 +161,57 @@
     shakeMag = Math.min(5.5, shakeMag + amount);
   }
 
-  function hpFor(id, bossFlag) {
-    const wave = 1 + Math.floor(time / 60) * 0.18;
-    let hp = id === 'imp' ? 14 : id === 'brute' ? 36 : T.earlyHp;
-    hp = Math.round(hp * wave);
-    if (bossFlag) hp = Math.round(520 * (1 + Math.max(0, time - MINI_AT) / 600));
+  function hpFor(id, bossKind) {
+    const wave = 1 + Math.floor(time / 60) * 0.12;
+    let hp = T.earlyHp;
+    if (id === 'imp') hp = 16;
+    else if (id === 'charger') hp = 28;
+    else if (id === 'shooter') hp = 18;
+    else if (id === 'brute') hp = 40;
+    if (bossKind === 'warden') hp = 860;
+    else if (bossKind === 'demon') hp = 1500;
+    else hp = Math.round(hp * wave);
     if (curse > 0) hp = Math.round(hp * 1.5);
     return hp;
   }
 
+  typeById.charger = { id: 'charger', name: 'Charger', speed: 1.25, radius: 0.34, behaviour: 'charger' };
+  typeById.shooter = { id: 'shooter', name: 'Shooter', speed: 1.05, radius: 0.3, behaviour: 'shooter' };
+
   function spawnEnemy(id, x, y, opts) {
     const type = typeById[id] || typeById.skel;
     const en = enemyPool.pop() || {};
-    const bossFlag = !!(opts && opts.boss);
+    const bossKind = (opts && opts.bossKind) || '';
+    const bossFlag = !!bossKind || !!(opts && opts.boss);
     en.alive = true;
     en.eid = type.id;
     en.name = (opts && opts.name) || type.name;
-    en.color = type.id === 'imp' ? '#7b4fd4' : type.id === 'brute' ? '#8e97a3' : type.id === 'wraith' ? '#8a7498' : '#d7dbe3';
+    en.color = type.id === 'imp' || type.id === 'shooter' ? '#7b4fd4' : type.id === 'charger' ? '#6d8a62' : type.id === 'brute' ? '#8e97a3' : '#d7dbe3';
     en.x = x;
     en.y = y;
     en.radius = type.radius || 0.32;
-    en.speed = (type.speed || 1) * (bossFlag ? 0.28 : 0.42);
-    en.dmg = bossFlag ? 14 : (type.id === 'brute' ? 8 : type.id === 'imp' ? 5 : 4);
-    en.maxLife = bench ? 99999 : hpFor(type.id, bossFlag);
+    en.speed = (type.speed || 1) * (bossFlag ? 0.34 : 0.5);
+    en.dmg = bossFlag ? 12 : (type.id === 'brute' ? 8 : type.id === 'charger' ? 7 : type.id === 'imp' ? 5 : type.id === 'shooter' ? 4 : 5);
+    en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
     en.boss = bossFlag;
+    en.bossKind = bossKind || (bossFlag ? 'demon' : '');
+    en.sprite = bossKind === 'warden' ? 'warden' : '';
+    en.elite = bossFlag || type.id === 'brute';
+    en.behaviour = bossFlag ? 'boss' : (type.behaviour || 'seek');
+    en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
     en.hitFlash = 0;
     en.dying = 0;
     en.kx = 0;
     en.ky = 0;
-    en.touchCd = 0.3;
+    en.touchCd = 0.25;
     en.facing = x < player.x ? 1 : -1;
     en.fid = ++foeSeq;
-    en.scale = bossFlag ? 1 : (type.id === 'brute' ? 0.625 : 1);
-    en.gold = bossFlag ? SurvivorData.REWARDS.gold.mini : (SurvivorData.REWARDS.gold[type.id] || 1);
-    en.xp = type.id === 'brute' ? 5 : T.gemXp;
+    en.scale = bossKind === 'demon' || (bossFlag && !bossKind) ? 1 : bossKind === 'warden' ? 0.9 : (type.id === 'brute' ? 0.625 : 1);
+    const greed = 1 + shopRank('greed') * 0.08;
+    const baseGold = bossFlag ? SurvivorData.REWARDS.gold.mini : (SurvivorData.REWARDS.gold[type.id] || 1);
+    en.gold = Math.max(1, Math.round(baseGold * greed));
+    en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
     enemies.push(en);
     return en;
   }
@@ -190,6 +233,27 @@
     g.x = en.x;
     g.y = en.y;
     g.value = en.xp;
+    g.kind = 'gem';
+    g.item = null;
+    g.vx = 0;
+    g.vy = 0;
+    g.fly = 0;
+    gems.push(g);
+    if (en.boss) dropPickup(en, 'chest', null);
+    else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
+    if (en.boss || (en.elite && en.fid % 5 === 0)) {
+      try { dropPickup(en, 'item', SurvivorSave.mintDrop(en.boss ? 'boss' : 'elite')); } catch (e) {}
+    }
+  }
+
+  function dropPickup(en, kind, item) {
+    if (gems.length >= GEM_CAP) return;
+    const g = gemPool.pop() || {};
+    g.x = en.x + (kind === 'item' ? 0.45 : kind === 'heart' ? -0.35 : 0);
+    g.y = en.y + (kind === 'chest' ? 0.2 : 0);
+    g.kind = kind;
+    g.value = 0;
+    g.item = item || null;
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
@@ -242,6 +306,24 @@
     floats.push(f);
   }
 
+  function fxCall(name) {
+    const box = typeof FX !== 'undefined' ? FX : null;
+    const fn = box && box[name];
+    if (typeof fn !== 'function') return;
+    const args = [];
+    for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    fn.apply(box, args);
+  }
+
+  function foeVisual(en) {
+    const known = en.eid === 'brute' || en.eid === 'imp' || en.eid === 'skel' || en.eid === 'charger' || en.eid === 'shooter';
+    const id = en.sprite || (en.boss ? 'boss' : (known ? en.eid : 'skel'));
+    const clip = en.dying > 0 ? 'idle' : 'run';
+    let frame = null;
+    try { frame = SurvivorSprites.frameRect(id, clip, animT); } catch (e) {}
+    return { frame: frame, scale: en.scale || 1, flip: (en.facing || 1) > 0 };
+  }
+
   function spark(x, y, color, n, speed) {
     if (bench) return;
     for (let i = 0; i < n && particles.length < PARTICLE_CAP; i++) {
@@ -264,24 +346,44 @@
   }
 
   function power() {
-    return 1 + (owned.might || 0) * 0.12;
+    const steps = [0, 0.06, 0.1, 0.24, 0.3, 0.48];
+    const rank = Math.min(5, owned.might || 0);
+    let itemMight = 0;
+    try { itemMight = SurvivorSave.itemBonus().might; } catch (e) {}
+    return (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
   }
   function haste() {
-    return Math.pow(0.92, owned.haste || 0);
+    const steps = [1, 0.94, 0.9, 0.78, 0.74, 0.62];
+    const rank = Math.min(5, owned.haste || 0);
+    return steps[rank];
   }
   function area() {
-    return 1 + (owned.area || 0) * 0.12;
+    const steps = [0, 0.06, 0.1, 0.22, 0.28, 0.42];
+    const rank = Math.min(5, owned.area || 0);
+    return 1 + steps[rank];
+  }
+  function armorCut() {
+    const steps = [0, 1, 2, 3, 4, 6];
+    return steps[Math.min(5, owned.armor || 0)];
+  }
+  function moveSpeed() {
+    const hasteMove = 1 + Math.min(5, owned.haste || 0) * 0.02;
+    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04);
   }
   function boltDamage() {
-    const rank = Math.max(1, owned.bolt || 1);
-    return T.boltDamage * (1 + (rank - 1) * 0.22) * power();
+    const rank = Math.max(1, Math.min(5, owned.bolt || 1));
+    const steps = [1, 1.15, 1.35, 1.5, 1.85];
+    return T.boltDamage * steps[rank - 1] * power();
   }
   function pxToWorld(px) {
     return px / Math.max(1, TILE);
   }
   function magnetR() {
-    const fromPx = pxToWorld(120 + (owned.magnet || 0) * 48);
-    return Math.max(fromPx, 5 + (owned.magnet || 0) * 0.7);
+    const ranks = (owned.magnet || 0) + shopRank('magnet');
+    const fromPx = pxToWorld(160 + ranks * 48);
+    // The bolt kills past the old five-unit pull, so a gem from a normal
+    // shot still flies home instead of sitting where the hero will never walk.
+    return Math.max(fromPx, 9 + ranks * 0.7);
   }
   function pickupR() {
     return pxToWorld(36);
@@ -289,7 +391,7 @@
 
   function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    const dmg = Math.max(1, amount - (owned.armor || 0) * 2);
+    const dmg = Math.max(1, amount - armorCut());
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -297,6 +399,12 @@
     floatText(player.x, player.y - 0.4, String(dmg), '#ff8060', true);
     sfx('hurt');
     if (player.life <= 0) {
+      if (revivalLeft > 0) {
+        revivalLeft -= 1;
+        player.life = Math.max(1, Math.round(player.maxLife * 0.3));
+        player.invuln = 1.2;
+        return;
+      }
       player.life = 0;
       finish('dead');
     }
@@ -319,6 +427,7 @@
       const big = shown >= 18 || !!en.boss;
       floatText(en.x, en.y - 0.15, String(shown), '#ffffff', big, { fid: en.fid, amount: shown });
       spark(en.x, en.y, '#ffffff', 3, 2.2);
+      fxCall('hit', en.x, en.y, foeVisual(en));
       if (!en.boss && en.eid !== 'brute') {
         const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
         en.kx = ((en.x - player.x) / d) * 5;
@@ -334,6 +443,7 @@
       runGold += en.gold;
       dropGem(en);
       burst(en.x, en.y, '#ffffff');
+      fxCall('death', en.x, en.y, en.eid, foeVisual(en));
       if (en.boss) addShake(4.5);
       else if (en.eid === 'brute') addShake(2.6);
     }
@@ -378,12 +488,31 @@
     return best;
   }
 
+  // Bolts and pierce clear the ring first so a boss doesn't soak every shot
+  // and the crowd doesn't pile up for one late burst of experience.
+  function aimEnemy(x, y, rad) {
+    let best = null;
+    let bd = rad;
+    let boss = null;
+    let bossD = rad;
+    nearby(x, y, rad, (en) => {
+      if (en.life <= 0) return;
+      const d = Math.hypot(en.x - x, en.y - y);
+      if (en.boss) {
+        if (d < bossD) { bossD = d; boss = en; }
+        return;
+      }
+      if (d < bd) { bd = d; best = en; }
+    });
+    return best || boss;
+  }
+
   function openingPack() {
-    const n = 7;
+    const n = 4;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
-      const dist = 3.3 + (i % 3) * 0.3;
-      spawnEnemy('skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
+      const dist = 7.2;
+      spawnEnemy(i === 0 ? 'imp' : 'skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
     }
   }
 
@@ -405,39 +534,102 @@
     }
   }
 
+  function raiseBanner(text) {
+    banner = text;
+    bannerT = 2;
+    const el = $('sv-warn');
+    if (el) {
+      el.textContent = text;
+      el.classList.remove('hidden');
+    }
+    sfx('portal');
+  }
+
+  function spawnRing(pad) {
+    spawnSerial += 1;
+    const ang = spawnSerial * 2.399963;
+    const ring = Math.max(4.4, 9.2 - time * 0.016) + (pad || 0);
+    return {
+      x: player.x + Math.cos(ang) * ring,
+      y: player.y + Math.sin(ang) * ring,
+    };
+  }
+
+  function spawnKind() {
+    const n = spawnSerial;
+    if (time < 70) return n % 4 === 0 ? 'imp' : 'skel';
+    if (time < 100) return n % 10 === 0 ? 'charger' : n % 4 === 0 ? 'imp' : 'skel';
+    if (time > 105 && n % 8 === 0) return 'shooter';
+    if (time > 95 && n % 6 === 0) return 'charger';
+    if (time > 55 && n % 11 === 0) return 'brute';
+    if (n % 3 === 0) return 'imp';
+    return 'skel';
+  }
+
+  function spawnRate() {
+    if (time < 50) return 0.4;
+    if (time < 95) return 0.78;
+    if (time < 125) return 1.65;
+    if (time < 155) return 2.15;
+    return 2.7;
+  }
+
+  function spawnCap() {
+    if (time < 40) return 9;
+    if (time < 80) return 20;
+    if (time < 120) return 32;
+    if (time < 170) return 44;
+    return 56;
+  }
+
   function director(dt) {
     if (bench) return;
     cullFarEnemies();
+    if (bannerT > 0) {
+      bannerT = Math.max(0, bannerT - dt);
+      if (bannerT <= 0) {
+        const el = $('sv-warn');
+        if (el) el.classList.add('hidden');
+      }
+    }
+    if (!eliteWarned && time >= 148) {
+      eliteWarned = true;
+      raiseBanner('Grave Warden');
+    }
+    if (!eliteSpawned && time >= 150) {
+      eliteSpawned = true;
+      const spot = spawnOffscreen(1.6);
+      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
+    }
+    if (!demonWarned && time >= MINI_AT - 2) {
+      demonWarned = true;
+      raiseBanner('Risen Demon');
+    }
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
       const spot = spawnOffscreen(1.8);
-      spawnEnemy('brute', spot.x, spot.y, {
-        boss: true, name: 'Risen Demon',
-      });
-      sfx('portal');
+      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
     }
-    if (!hermit.used && !hermit.on && time >= 75) {
-      hermit.on = true;
-      hermit.x = player.x + 2.6;
-      hermit.y = player.y + 1.4;
+    if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt) {
+      hermit.x = player.x + 2.4;
+      hermit.y = player.y + 1.2;
+      vowSeen = true;
+      fxCall('vow', vowCount);
+      openHermit();
+      return;
     }
     if (time >= RUN_SECONDS) {
       runGold += SurvivorData.REWARDS.gold.win;
       finish('won');
       return;
     }
-    const rate = time < 20 ? 1.3 : time < 60 ? 2.1 : time < 180 ? 4.2 : time < MINI_AT ? 6.5 : 9;
-    const cap = time < 40 ? 16 : time < 120 ? 42 : time < MINI_AT ? 90 : 150;
-    spawnAcc += rate * dt;
+    const cap = spawnCap();
+    spawnAcc += spawnRate() * dt;
     let guard = 0;
-    while (spawnAcc >= 1 && enemies.length < cap && guard++ < 8) {
+    while (spawnAcc >= 1 && enemies.length < cap && guard++ < 6) {
       spawnAcc -= 1;
-      const roll = Math.random();
-      let id = 'skel';
-      if (time > 35 && roll > 0.58) id = 'imp';
-      if (time > 80 && roll > 0.84) id = 'brute';
-      const spot = spawnOffscreen(1.15);
-      spawnEnemy(id, spot.x, spot.y);
+      const spot = spawnRing(0);
+      spawnEnemy(spawnKind(), spot.x, spot.y);
     }
   }
 
@@ -452,54 +644,94 @@
     return { x: player.x + (Math.random() * 2 - 1) * halfW, y: player.y + halfH };
   }
 
+  let novaQueue = 0;
+
+  function fireNova(rank) {
+    const dmg = (12 + rank * 6) * power();
+    const life = rank >= 5 ? 0.7 : rank >= 4 ? 0.58 : 0.48;
+    const evolvedNova = !!evolved.nova;
+    spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
+    const radius = life * (evolvedNova ? 9.2 : 7.2) * area();
+    fxCall('cast', 'nova', player.x, player.y, { radius: radius, rank: rank });
+    sfx('cast');
+    return radius;
+  }
+
   function tickWeapons(dt) {
     cds.bolt -= dt;
     cds.nova -= dt;
     cds.pierce -= dt;
+    if (novaQueue > 0) {
+      novaQueue -= dt;
+      if (novaQueue <= 0) fireNova(owned.nova || 1);
+    }
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
     const aimReach = Math.max(8.5, Math.min(halfW, halfH) * 0.92);
-    const aim = nearestEnemy(player.x, player.y, aimReach);
+    const aim = aimEnemy(player.x, player.y, aimReach);
+    const boltRank = Math.max(1, Math.min(5, owned.bolt || 1));
     if (owned.bolt && cds.bolt <= 0 && aim) {
       const dx = aim.x - player.x;
       const dy = aim.y - player.y;
       const d = Math.hypot(dx, dy) || 1;
-      const sp = T.boltSpeed * (1 + (owned.area || 0) * 0.04);
-      spawnShot('bolt', player.x, player.y, (dx / d) * sp, (dy / d) * sp, boltDamage(), 1.4);
+      const sp = T.boltSpeed * (1 + (boltRank >= 4 ? 0.12 : 0));
+      const base = boltDamage();
+      const volley = boltRank >= 5 ? 3 : boltRank >= 3 ? 2 : 1;
+      for (let i = 0; i < volley; i++) {
+        const spread = (i - (volley - 1) / 2) * 0.22;
+        const ang = Math.atan2(dy, dx) + spread;
+        spawnShot('bolt', player.x, player.y, Math.cos(ang) * sp, Math.sin(ang) * sp, base * (i === 0 ? 1 : 0.65), 1.4);
+      }
       player.swing = 0.16;
-      cds.bolt = (0.58 - Math.min(0.28, (owned.bolt - 1) * 0.05)) * haste();
+      const cd = [0.62, 0.56, 0.5, 0.42, 0.36][boltRank - 1];
+      cds.bolt = cd * haste();
       player.facing = dx >= 0 ? 1 : -1;
       sfx('cast');
     }
-    if (owned.nova && cds.nova <= 0) {
-      const dmg = (10 + owned.nova * 4) * power();
-      spawnShot('nova', player.x, player.y, 0, 0, dmg, 0.45);
-      cds.nova = (3.4 - owned.nova * 0.25) * haste();
-      sfx('cast');
+    const novaRank = Math.max(0, Math.min(5, owned.nova || 0));
+    if (novaRank && cds.nova <= 0) {
+      fireNova(novaRank);
+      if (novaRank >= 3) novaQueue = 0.18;
+      if (novaRank >= 5 || evolved.nova) novaQueue = Math.min(novaQueue || 0.16, 0.16);
+      const table = [3.15, 2.7, 2.35, 2.05, 1.75];
+      cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1));
     }
-    if (owned.pierce && cds.pierce <= 0 && aim) {
+    const pierceRank = Math.max(0, Math.min(5, owned.pierce || 0));
+    if (pierceRank && cds.pierce <= 0 && aim) {
       const dx = aim.x - player.x;
       const dy = aim.y - player.y;
       const d = Math.hypot(dx, dy) || 1;
-      const sp = 11;
-      const dmg = (16 + owned.pierce * 5) * power();
-      spawnShot('pierce', player.x, player.y, (dx / d) * sp, (dy / d) * sp, dmg, 1.1);
-      cds.pierce = (2.4 - owned.pierce * 0.15) * haste();
+      const sp = pierceRank >= 4 ? 12.5 : 11;
+      const dmg = (14 + pierceRank * 6) * power() * (pierceRank >= 3 ? 1.15 : 1);
+      const lines = pierceRank >= 5 ? 2 : 1;
+      for (let i = 0; i < lines; i++) {
+        const side = (i === 0 ? -1 : 1) * (lines > 1 ? 0.28 : 0);
+        const px = player.x + (-dy / d) * side;
+        const py = player.y + (dx / d) * side;
+        spawnShot('pierce', px, py, (dx / d) * sp, (dy / d) * sp, dmg, 1.15);
+      }
+      cds.pierce = Math.max(0.7, (2.5 - pierceRank * 0.18) * haste());
       sfx('swing');
     }
     if (owned.orbit) {
-      orbitAngle += dt * (2.2 + owned.orbit * 0.25);
-      const count = Math.min(owned.orbit, 4);
-      const rad = (1.55 + owned.orbit * 0.12) * area();
-      const dmg = (8 + owned.orbit * 3) * power() * dt * 2.2;
+      const orbitRank = Math.max(1, Math.min(5, owned.orbit));
+      const storm = !!evolved.orbit;
+      const spin = (storm ? 3.4 : 2.1) + orbitRank * 0.22;
+      orbitAngle += dt * spin;
+      const count = storm ? 5 : (orbitRank >= 5 ? 3 : orbitRank >= 3 ? 2 : 1);
+      const rad = ((storm ? 2.15 : 1.45) + (orbitRank >= 4 ? 0.45 : 0.12)) * area();
+      const dmg = (7 + orbitRank * 3) * power() * dt * (storm ? 2.8 : 2.2);
+      const positions = [];
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
         const bx = player.x + Math.cos(a) * rad;
         const by = player.y + Math.sin(a) * rad;
+        positions.push({ x: bx, y: by, angle: a });
         nearby(bx, by, 1.2, (en) => {
-          if (Math.hypot(en.x - bx, en.y - by) < 0.7) damageEnemy(en, dmg, { tick: true });
+          if (Math.hypot(en.x - bx, en.y - by) < 0.72) damageEnemy(en, dmg, { tick: true });
         });
       }
+      fxCall('cast', 'blade', player.x, player.y, { radius: rad, positions: positions });
     }
   }
 
@@ -508,15 +740,21 @@
       const s = shots[i];
       s.life -= dt;
       if (s.kind === 'nova') {
-        s.r += dt * 7.5 * area();
-        nearby(s.x, s.y, s.r + 0.6, (en) => {
-          if (en._nova === s.seq) return;
-          const d = Math.hypot(en.x - s.x, en.y - s.y);
-          if (d < s.r && d > s.r - 0.85) {
-            en._nova = s.seq;
-            damageEnemy(en, s.dmg);
-          }
-        });
+        const grow = dt * (evolved.nova ? 8.6 : 7.2) * area();
+        const steps = Math.max(1, Math.ceil(grow / 0.35));
+        const slice = grow / steps;
+        const band = s.life > 0.2 && (owned.nova || 0) >= 5 ? 1.15 : 0.9;
+        for (let k = 0; k < steps; k++) {
+          s.r += slice;
+          nearby(s.x, s.y, s.r + 0.6, (en) => {
+            if (en._nova === s.seq) return;
+            const dist = Math.hypot(en.x - s.x, en.y - s.y);
+            if (dist < s.r && dist > s.r - band) {
+              en._nova = s.seq;
+              damageEnemy(en, s.dmg);
+            }
+          });
+        }
       } else {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
@@ -542,6 +780,170 @@
     }
   }
 
+  function spawnFoeShot(x, y, vx, vy, dmg) {
+    const s = foeShotPool.pop() || {};
+    s.x = x;
+    s.y = y;
+    s.vx = vx;
+    s.vy = vy;
+    s.dmg = dmg;
+    s.life = 3.2;
+    foeShots.push(s);
+  }
+
+  function tickFoeShots(dt) {
+    for (let i = foeShots.length - 1; i >= 0; i--) {
+      const s = foeShots[i];
+      s.life -= dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      if (Math.hypot(s.x - player.x, s.y - player.y) < 0.46) {
+        hurt(s.dmg, false);
+        s.life = 0;
+      }
+      if (s.life <= 0) {
+        foeShots.splice(i, 1);
+        foeShotPool.push(s);
+      }
+    }
+  }
+
+  function steer(en, dt, speed) {
+    const dx = player.x - en.x;
+    const dy = player.y - en.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    en.x += (dx / dist) * speed * dt;
+    en.y += (dy / dist) * speed * dt;
+    en.facing = dx >= 0 ? 1 : -1;
+    return dist;
+  }
+
+  function touchPlayer(en, dist, dmg, dt) {
+    if (en.touchCd > 0) en.touchCd -= dt;
+    if (dist < en.radius + 0.48 && en.touchCd <= 0) {
+      en.touchCd = 0.7;
+      hurt(dmg == null ? en.dmg : dmg, en.boss);
+    }
+  }
+
+  function tickCharger(en, dt) {
+    const ai = en.ai;
+    const dx = player.x - en.x;
+    const dy = player.y - en.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (ai.mode === 'seek') {
+      steer(en, dt, en.speed);
+      if (dist < 4.6) {
+        ai.mode = 'tell';
+        ai.t = 0.6;
+        ai.vx = dx / dist;
+        ai.vy = dy / dist;
+      }
+    } else if (ai.mode === 'tell') {
+      ai.t -= dt;
+      en.facing = ai.vx >= 0 ? 1 : -1;
+      if (ai.t <= 0) {
+        ai.mode = 'dash';
+        ai.t = 0.38;
+      }
+    } else if (ai.mode === 'dash') {
+      ai.t -= dt;
+      en.x += ai.vx * 8.2 * dt;
+      en.y += ai.vy * 8.2 * dt;
+      en.facing = ai.vx >= 0 ? 1 : -1;
+      const hit = Math.hypot(player.x - en.x, player.y - en.y);
+      if (hit < en.radius + 0.5 && en.touchCd <= 0) {
+        en.touchCd = 0.8;
+        hurt(en.dmg + 3, false);
+      }
+      if (ai.t <= 0) {
+        ai.mode = 'recover';
+        ai.t = 0.85;
+      }
+    } else {
+      ai.t -= dt;
+      if (ai.t <= 0) ai.mode = 'seek';
+    }
+    if (ai.mode === 'seek') touchPlayer(en, dist, en.dmg, dt);
+  }
+
+  function tickShooter(en, dt) {
+    const ai = en.ai;
+    const dx = player.x - en.x;
+    const dy = player.y - en.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    en.facing = dx >= 0 ? 1 : -1;
+    if (ai.mode === 'tell') {
+      ai.t -= dt;
+      if (ai.t <= 0) {
+        const sp = 2.7;
+        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, 5);
+        ai.mode = 'recover';
+        ai.t = 2.6;
+      }
+      return;
+    }
+    if (ai.mode === 'recover') {
+      ai.t -= dt;
+      if (dist < 3.4) steerAway(en, dt, dx, dy, dist);
+      if (ai.t <= 0) ai.mode = 'seek';
+      return;
+    }
+    if (dist < 3.6) steerAway(en, dt, dx, dy, dist);
+    else if (dist > 6.4) steer(en, dt, en.speed * 0.85);
+    if (dist < 8.5 && dist > 2.8) {
+      ai.mode = 'tell';
+      ai.t = 0.7;
+    }
+  }
+
+  function steerAway(en, dt, dx, dy, dist) {
+    en.x -= (dx / dist) * en.speed * dt;
+    en.y -= (dy / dist) * en.speed * dt;
+  }
+
+  function tickBoss(en, dt) {
+    const ai = en.ai;
+    const dx = player.x - en.x;
+    const dy = player.y - en.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    en.facing = dx >= 0 ? 1 : -1;
+    if (ai.mode === 'tell') {
+      ai.t -= dt;
+      if (ai.t <= 0) {
+        if (ai.kind === 'slam') {
+          if (dist < 2.15) hurt(en.dmg + 6, true);
+          ai.mode = 'recover';
+          ai.t = 1.1;
+        } else {
+          const base = Math.atan2(dy, dx);
+          for (let i = -1; i <= 1; i++) {
+            const ang = base + i * 0.32;
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, 7);
+          }
+          ai.mode = 'recover';
+          ai.t = 1.3;
+        }
+      }
+      return;
+    }
+    if (ai.mode === 'recover') {
+      ai.t -= dt;
+      steer(en, dt, en.speed * 0.8);
+      touchPlayer(en, dist, en.dmg, dt);
+      if (ai.t <= 0) ai.mode = 'seek';
+      return;
+    }
+    steer(en, dt, en.speed);
+    touchPlayer(en, dist, en.dmg, dt);
+    ai.t += dt;
+    if (ai.t > 2.4) {
+      ai.mode = 'tell';
+      ai.kind = ai.kind === 'slam' ? 'volley' : 'slam';
+      ai.t = ai.kind === 'slam' ? 0.75 : 0.55;
+    }
+  }
+
   function tickEnemies(dt) {
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
@@ -559,16 +961,18 @@
         en.kx *= damp;
         en.ky *= damp;
       }
-      const dx = player.x - en.x;
-      const dy = player.y - en.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      en.x += (dx / dist) * en.speed * dt;
-      en.y += (dy / dist) * en.speed * dt;
-      en.facing = dx >= 0 ? 1 : -1;
-      if (en.touchCd > 0) en.touchCd -= dt;
-      if (dist < en.radius + 0.48 && en.touchCd <= 0) {
-        en.touchCd = 0.7;
-        hurt(en.dmg, en.boss);
+      if (!en.ai) en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
+      if (en.behaviour === 'charger') tickCharger(en, dt);
+      else if (en.behaviour === 'shooter') tickShooter(en, dt);
+      else if (en.behaviour === 'boss') tickBoss(en, dt);
+      else {
+        const dx = player.x - en.x;
+        const dy = player.y - en.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        en.x += (dx / dist) * en.speed * dt;
+        en.y += (dy / dist) * en.speed * dt;
+        en.facing = dx >= 0 ? 1 : -1;
+        touchPlayer(en, dist, en.dmg, dt);
       }
     }
   }
@@ -589,8 +993,19 @@
       }
       const left = Math.hypot(player.x - g.x, player.y - g.y);
       if (left <= grab || (g.fly && left < 0.08)) {
-        player.xp += g.value;
+        const kind = g.kind || 'gem';
+        if (kind === 'heart') {
+          player.life = Math.min(player.maxLife, player.life + 16);
+        } else if (kind === 'chest') {
+          runGold += 18;
+          chestReady = true;
+        } else if (kind === 'item' && g.item) {
+          try { SurvivorSave.addItem(g.item); } catch (e) {}
+        } else {
+          player.xp += g.value || 0;
+        }
         spark(player.x, player.y, '#ffffff', 3, 2.6);
+        fxCall('pickup', g.x, g.y, kind === 'item' && g.item ? g.item.rarity : kind);
         gems.splice(i, 1);
         g.fly = 0;
         g.vx = 0;
@@ -611,6 +1026,7 @@
     player.xp -= need;
     player.level += 1;
     levelUps += 1;
+    fxCall('levelUp');
     openLevel();
   }
 
@@ -622,6 +1038,18 @@
   }
 
   function sim(dt) {
+    if (evolveFreeze > 0) {
+      evolveFreeze = Math.max(0, evolveFreeze - dt);
+      animT += dt;
+      fxCall('update', dt);
+      if (evolveFreeze <= 0 && evolvePending) {
+        player.invuln = Math.max(player.invuln, 0.5);
+        const evolvedId = evolvePending;
+        evolvePending = '';
+        fxCall('evolve', evolvedId);
+      }
+      return;
+    }
     time += dt;
     const minuteNow = Math.floor(time / 60);
     while (minuteMark < minuteNow && minuteMark < 10) {
@@ -629,9 +1057,14 @@
       track(SurvivorData.minuteReachedEvent(minuteMark));
     }
     animT += dt;
+    fxCall('update', dt);
     if (player.hitFlash > 0) player.hitFlash -= dt;
     if (player.swing > 0) player.swing = Math.max(0, player.swing - dt);
     if (player.invuln > 0) player.invuln -= dt;
+    if (regen > 0) {
+      regen = Math.max(0, regen - dt);
+      player.life = Math.min(player.maxLife, player.life + 6 * dt);
+    }
     if (shakeMag > 0) {
       shakeMag = Math.max(0, shakeMag - dt * 12);
       shakePhase += dt * 46;
@@ -652,8 +1085,14 @@
     tickWeapons(dt);
     tickShots(dt);
     tickEnemies(dt);
+    tickFoeShots(dt);
     if (state !== 'playing') return;
     tickGems(dt);
+    if (chestReady && state === 'playing') {
+      chestReady = false;
+      openLevel();
+      return;
+    }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.life -= dt;
@@ -683,18 +1122,23 @@
   function movePlayer(dt) {
     let sx = 0;
     let sy = 0;
-    if (keys.w || keys.arrowup) sy -= 1;
-    if (keys.s || keys.arrowdown) sy += 1;
-    if (keys.a || keys.arrowleft) sx -= 1;
-    if (keys.d || keys.arrowright) sx += 1;
-    if (joy.on) {
-      const jx = joy.x - joy.ox;
-      const jy = joy.y - joy.oy;
-      const mag = Math.hypot(jx, jy);
-      if (mag > 14) {
-        const scale = Math.min(1, (mag - 14) / 64);
-        sx = (jx / mag) * scale;
-        sy = (jy / mag) * scale;
+    if (scriptMove) {
+      sx = scriptMove.x || 0;
+      sy = scriptMove.y || 0;
+    } else {
+      if (keys.w || keys.arrowup) sy -= 1;
+      if (keys.s || keys.arrowdown) sy += 1;
+      if (keys.a || keys.arrowleft) sx -= 1;
+      if (keys.d || keys.arrowright) sx += 1;
+      if (joy.on) {
+        const jx = joy.x - joy.ox;
+        const jy = joy.y - joy.oy;
+        const mag = Math.hypot(jx, jy);
+        if (mag > 14) {
+          const scale = Math.min(1, (mag - 14) / 64);
+          sx = (jx / mag) * scale;
+          sy = (jy / mag) * scale;
+        }
       }
     }
     if (sx === 0 && sy === 0) {
@@ -703,7 +1147,7 @@
     }
     player.moving = true;
     const len = Math.hypot(sx, sy) || 1;
-    const sp = hero.base.move * (1 + (owned.haste || 0) * 0.03);
+    const sp = moveSpeed();
     player.x += (sx / len) * sp * dt;
     player.y += (sy / len) * sp * dt;
     if (sx !== 0) player.facing = sx > 0 ? 1 : -1;
@@ -713,6 +1157,7 @@
     enemies.length = 0;
     gems.length = 0;
     shots.length = 0;
+    foeShots.length = 0;
     particles.length = 0;
     floats.length = 0;
     grid.clear();
@@ -735,6 +1180,8 @@
     boss5 = false;
     curse = 0;
     vowPayout = false;
+    vowCount = 0;
+    Object.keys(evolved).forEach((k) => { delete evolved[k]; });
     pickLeft = 0;
     rerollUsed = false;
     hits = 0;
@@ -744,13 +1191,42 @@
     hermit.on = false;
     hermit.used = false;
     joy.on = false;
+    nextVowAt = 32;
+    vowSeen = false;
+    spawnSerial = 0;
+    eliteWarned = false;
+    eliteSpawned = false;
+    demonWarned = false;
+    banner = '';
+    bannerT = 0;
+    evolveFreeze = 0;
+    evolvePending = '';
+    novaQueue = 0;
+    regen = 0;
+    chestReady = false;
+    scriptMove = null;
+    revivalLeft = shopRank('revival') > 0 ? 1 : 0;
+    uiGuardUntil = 0;
   }
 
   function startRun() {
     const preview = previewOnce;
     previewOnce = '';
     resetRun();
-    if (preview === 'crowd' || preview === 'boss') time = MINI_AT - 1;
+    if (preview === 'crowd' || preview === 'boss' || preview === 'minute3' || preview === 'warden' || preview === 'tells' || preview === 'build') {
+      nextVowAt = 1e9;
+    }
+    if (preview === 'crowd' || preview === 'boss') {
+      time = MINI_AT - 1;
+      eliteWarned = true;
+      eliteSpawned = true;
+      demonWarned = true;
+    }
+    if (preview === 'minute3') {
+      time = 178;
+      eliteWarned = true;
+      eliteSpawned = true;
+    }
     state = 'playing';
     hide('sv-title');
     hide('sv-level');
@@ -790,6 +1266,43 @@
       }
       spawnEnemy('brute', 1.7, 0.15, { boss: true, name: 'Risen Demon' });
       boss5 = true;
+    } else if (preview === 'minute3') {
+      player.invuln = 8;
+      for (let i = 0; i < 46; i++) {
+        const ang = (i / 46) * Math.PI * 2;
+        const dist = 1.15 + (i % 5) * 0.55;
+        const id = i % 9 === 0 ? 'charger' : i % 7 === 0 ? 'shooter' : i % 5 === 0 ? 'brute' : i % 2 === 0 ? 'imp' : 'skel';
+        const en = spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
+        en.maxLife = 240;
+        en.life = 240;
+      }
+    } else if (preview === 'warden') {
+      time = 151;
+      eliteWarned = true;
+      eliteSpawned = true;
+      player.invuln = 8;
+      raiseBanner('Grave Warden');
+      bannerT = 30;
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        spawnEnemy(i % 2 ? 'imp' : 'skel', Math.cos(ang) * 3.2, Math.sin(ang) * 3.2);
+      }
+      const warden = spawnEnemy('brute', 2.5, 0.15, { bossKind: 'warden', name: 'Grave Warden' });
+      warden.life = Math.round(warden.maxLife * 0.72);
+    } else if (preview === 'tells') {
+      time = 112;
+      player.invuln = 8;
+      const charger = spawnEnemy('charger', 2.5, -0.15);
+      charger.ai.mode = 'tell';
+      charger.ai.t = 30;
+      charger.ai.vx = -1;
+      charger.ai.vy = 0.08;
+      const shooter = spawnEnemy('shooter', -3.2, 1.15);
+      shooter.ai.mode = 'tell';
+      shooter.ai.t = 30;
+      spawnFoeShot(-1.7, 0.55, 0.15, -0.02, 5);
+      spawnFoeShot(-0.55, 0.9, 0.12, 0.02, 5);
+      spawnEnemy('skel', 3.4, 1.5);
     } else if (preview === 'juice') {
       cds.bolt = 0.05;
       for (let i = 0; i < 28; i++) {
@@ -828,6 +1341,22 @@
       finish('dead');
     } else if (preview === 'hermit') {
       openHermit();
+    } else if (preview === 'build') {
+      owned.bolt = 2;
+      owned.orbit = 4;
+      owned.nova = 1;
+      owned.might = 2;
+      player.level = 8;
+      time = 96;
+      kills = 84;
+      for (let n = 0; n < 40; n++) {
+        openLevel();
+        const hinted = offers.some((item) => {
+          const evo = SurvivorData.evolutionFor(item.id);
+          return !!(evo && (item.evolveName || item.evolveOf || item.evolvesWith));
+        });
+        if (hinted) break;
+      }
     }
     sfx('ui');
   }
@@ -844,15 +1373,42 @@
     else track(SurvivorData.deathEvent(time));
     sfx(kind === 'won' ? 'clear' : 'defeat');
     syncBank();
+    let record = { isBest: false, previous: 0, gold: runGold, next: null };
+    try { record = SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
     const title = $('sv-end-title');
-    if (title) title.textContent = kind === 'won' ? 'You survived' : 'You have fallen';
-    const stats = $('sv-end-stats');
-    if (stats) {
-      const m = Math.floor(time / 60);
-      const s = Math.floor(time % 60);
-      const clock = m + ':' + String(s).padStart(2, '0');
-      stats.textContent = 'Time ' + clock + '  ·  Kills ' + kills + '  ·  Level ' + player.level + '  ·  Gold ' + runGold;
+    if (title) title.textContent = kind === 'won' ? 'You survived' : 'You fell';
+    const best = $('sv-best');
+    if (best) best.classList.toggle('hidden', !record.isBest);
+    const prev = $('sv-prev');
+    if (prev) {
+      if (record.previous > 0) {
+        const pm = Math.floor(record.previous / 60);
+        const ps = Math.floor(record.previous % 60);
+        prev.textContent = 'Previous best: ' + pm + ':' + String(ps).padStart(2, '0');
+      } else prev.textContent = 'Previous best: none';
     }
+    const m = Math.floor(time / 60);
+    const s = Math.floor(time % 60);
+    const clock = m + ':' + String(s).padStart(2, '0');
+    const endTime = $('sv-end-time');
+    const endKills = $('sv-end-kills');
+    const endLevel = $('sv-end-level');
+    const endGold = $('sv-end-gold');
+    if (endTime) endTime.textContent = clock;
+    if (endKills) endKills.textContent = String(kills);
+    if (endLevel) endLevel.textContent = String(player.level);
+    if (endGold) endGold.textContent = '+' + runGold + ' gold banked';
+    const next = $('sv-next');
+    const fill = $('sv-next-fill');
+    if (next) {
+      if (record.next) next.textContent = 'Next upgrade, ' + record.next.label + ': ' + record.next.away + ' gold away';
+      else next.textContent = 'Every upgrade is yours';
+    }
+    if (fill && record.next) {
+      const span = Math.max(1, record.next.cost);
+      fill.style.width = Math.round(100 * (1 - record.next.away / span)) + '%';
+    }
+    uiGuardUntil = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) + 300;
     const reviveBtn = $('sv-revive');
     if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived);
     const goldBtn = $('sv-double');
@@ -863,30 +1419,138 @@
     show('sv-end');
   }
 
+  function iconSvg(id) {
+    const paths = {
+      bolt: '<path d="M13 2 L6 13 H11 L9 22 L18 10 H13 Z"/>',
+      blade: '<path d="M5 19 L15 4 L18 7 L8 21 Z"/>',
+      nova: '<circle cx="12" cy="12" r="3"/><path d="M12 2 V6 M12 18 V22 M2 12 H6 M18 12 H22 M5 5 L7.5 7.5 M16.5 16.5 L19 19 M19 5 L16.5 7.5 M7.5 16.5 L5 19"/>',
+      pierce: '<path d="M3 12 H18 L14 8 M18 12 L14 16"/>',
+      might: '<path d="M7 20 V10 L12 4 L17 10 V20 Z"/>',
+      haste: '<path d="M13 3 L6 13 H11 L9 21 L18 10 H13 Z"/>',
+      magnet: '<path d="M7 4 V12 A5 5 0 0 0 17 12 V4 M7 4 H10 V11 M14 4 H17 V11"/>',
+      heart: '<path d="M12 19 L5 12 A4 4 0 0 1 12 8 A4 4 0 0 1 19 12 Z"/>',
+      area: '<circle cx="12" cy="12" r="7"/>',
+      armor: '<path d="M12 3 L19 6 V12 C19 16 12 20 12 20 C12 20 5 16 5 12 V6 Z"/>',
+      tempo: '<path d="M4 16 L9 8 L13 14 L20 4"/>',
+      cinder: '<circle cx="12" cy="13" r="4"/>',
+    };
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[id] || paths.bolt) + '</svg>';
+  }
+
+  function pipHtml(next, max) {
+    let html = '<span class="sv-pips">';
+    for (let i = 1; i <= max; i++) html += '<i class="' + (i <= next ? 'on' : '') + '"></i>';
+    html += '</span><span class="sv-rank">' + next + '/' + max + '</span>';
+    return html;
+  }
+
+  function buildRowHtml() {
+    let html = '<div class="sv-build-set">';
+    SurvivorData.WEAPONS.forEach((w) => {
+      const lv = owned[w.id] || 0;
+      html += '<i class="sv-ico' + (lv ? ' on' : '') + '" title="' + w.name + '">' + (lv ? iconSvg(w.icon || w.id) : '') + '</i>';
+    });
+    html += '<i class="sv-ico"></i><i class="sv-ico"></i></div><div class="sv-build-set">';
+    SurvivorData.PASSIVES.forEach((p) => {
+      const lv = owned[p.id] || 0;
+      if (!lv) return;
+      html += '<i class="sv-ico on" title="' + p.name + '">' + iconSvg(p.icon || p.id) + '</i>';
+    });
+    const empty = Math.max(0, 4 - SurvivorData.PASSIVES.filter((p) => owned[p.id]).length);
+    for (let i = 0; i < Math.min(4, empty); i++) html += '<i class="sv-ico"></i>';
+    return html + '</div>';
+  }
+
+  let shopReturn = 'title';
+
+  function openShop(from) {
+    shopReturn = from || 'title';
+    const list = $('sv-shop-list');
+    const goldEl = $('sv-shop-gold');
+    let purse = 0;
+    try { purse = SurvivorSave.gold(); } catch (e) {}
+    if (goldEl) goldEl.textContent = purse + ' gold';
+    if (list) {
+      list.innerHTML = '';
+      let rows = [];
+      try { rows = SurvivorSave.shopList(); } catch (e) {}
+      rows.forEach((u) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sv-shop-buy';
+        btn.disabled = u.soldOut || purse < u.cost;
+        btn.textContent = u.soldOut ? u.name + ' maxed' : u.label + ' · ' + u.cost + 'g';
+        btn.addEventListener('click', () => {
+          let res = { ok: false };
+          try { res = SurvivorSave.buy(u.id); } catch (e) {}
+          if (res.ok) openShop(shopReturn);
+        });
+        const note = document.createElement('small');
+        note.textContent = u.blurb + (u.rank ? ' · rank ' + u.rank + '/' + u.max : '');
+        list.appendChild(btn);
+        list.appendChild(note);
+      });
+    }
+    hide('sv-title');
+    show('sv-shop');
+  }
+
+  function closeShop() {
+    hide('sv-shop');
+    if (shopReturn === 'end') show('sv-end');
+    else show('sv-title');
+  }
+
   function openLevel() {
     state = 'levelup';
     joy.on = false;
+    uiGuardUntil = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) + 300;
     offers = SurvivorData.pickOffers(owned);
+    const title = $('sv-level-title');
+    if (title) title.textContent = 'Level ' + player.level;
+    const lv = $('sv-level-lv');
+    if (lv) lv.textContent = 'Lv ' + player.level;
+    const clock = $('sv-level-clock');
+    if (clock) {
+      const m = Math.floor(time / 60);
+      const s = Math.floor(time % 60);
+      clock.textContent = m + ':' + String(s).padStart(2, '0') + ' · ' + kills + ' kills';
+    }
+    const build = $('sv-build');
+    if (build) build.innerHTML = buildRowHtml();
     const box = $('sv-cards');
-    box.innerHTML = '';
-    offers.forEach((item, i) => {
-      const lv = owned[item.id] || 0;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'sv-card';
-      btn.dataset.choice = String(i);
-      const rank = item.kind === 'reward' ? '' : '<span>Rank ' + (lv + 1) + '</span>';
-      btn.innerHTML = '<b>' + item.name + '</b>' + rank + '<small>' + item.blurb + '</small>';
-      box.appendChild(btn);
-    });
+    if (box) {
+      box.innerHTML = '';
+      offers.forEach((item, i) => {
+        const have = owned[item.id] || 0;
+        const next = have + 1;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.choice = String(i);
+        const evo = SurvivorData.evolutionFor(item.id);
+        const showEvo = !!(evo && (item.evolveName || item.evolveOf || item.evolvesWith));
+        btn.className = 'sv-card' + (showEvo ? ' evolves' : '');
+        const tag = showEvo ? '<em class="sv-tag">Evolves</em>' : (!have && item.kind !== 'reward' ? '<em class="sv-tag new">New</em>' : '');
+        const hint = showEvo ? '<small class="sv-evo">→ ' + evo.name + ' ?</small>' : '';
+        const blurb = item.kind === 'reward' ? item.blurb : SurvivorData.rankText(item, next);
+        const rank = item.maxLevel && item.kind !== 'reward' ? pipHtml(Math.min(next, item.maxLevel), item.maxLevel) : '';
+        btn.innerHTML = '<span class="sv-card-ico">' + iconSvg(item.icon || item.id) + '</span><span class="sv-card-copy"><b>' + item.name + '</b>' + rank + hint + '<small>' + blurb + '</small></span>' + tag;
+        box.appendChild(btn);
+      });
+    }
     const reroll = $('sv-reroll');
     if (reroll) {
       const spent = rerollUsed && !adsOn;
       reroll.disabled = spent;
-      reroll.textContent = spent ? 'used' : 'Reroll';
+      reroll.textContent = spent ? 'used' : (adsOn ? 'Reroll' : 'Reroll  1 free');
     }
     show('sv-level');
     sfx('level');
+  }
+
+  function grantEvolve(id) {
+    evolveFreeze = 0.12;
+    evolvePending = id;
   }
 
   function applyChoice(item) {
@@ -897,17 +1561,36 @@
     }
     if (item.id === 'heal') {
       player.life = Math.min(player.maxLife, player.life + player.maxLife * 0.3);
+      regen = Math.max(regen, 3);
       return;
     }
     owned[item.id] = (owned[item.id] || 0) + 1;
     if (item.id === 'vitality') {
-      player.maxLife += 15;
-      player.life += 15;
+      const rank = owned.vitality;
+      const gain = rank === 3 ? 20 : rank === 5 ? 28 : 12;
+      player.maxLife += gain;
+      player.life += gain;
+    }
+    checkEvolutions();
+  }
+
+  function checkEvolutions() {
+    const weapons = SurvivorData.WEAPONS;
+    for (let i = 0; i < weapons.length; i++) {
+      const w = weapons[i];
+      if (!w.evolvesWith || evolved[w.id]) continue;
+      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
+        evolved[w.id] = w.evolvesWith;
+        const evo = SurvivorData.evolutionFor(w.id);
+        grantEvolve(evo ? evo.id : w.id);
+      }
     }
   }
 
   function choose(index) {
     if (state !== 'levelup') return;
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (now < uiGuardUntil) return;
     applyChoice(offers[index]);
     hide('sv-level');
     if (pickLeft > 1) {
@@ -957,6 +1640,9 @@
       en.life = Math.round(en.life * 1.5);
     }
     state = 'playing';
+    vowCount += 1;
+    nextVowAt = time + 150;
+    fxCall('vow', vowCount);
     const vow = $('sv-vow');
     if (vow) {
       vow.classList.remove('hidden');
@@ -966,6 +1652,7 @@
 
   function declineHermit() {
     hide('sv-hermit');
+    nextVowAt = time + 75;
     state = 'playing';
   }
 
@@ -1082,6 +1769,21 @@
       vow.classList.toggle('hidden', curse <= 0);
       vow.textContent = 'Vow ' + Math.ceil(curse) + 's';
     }
+    let liveBoss = null;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.boss && en.life > 0 && en.dying <= 0) liveBoss = en;
+    }
+    const bossBar = $('sv-boss');
+    if (bossBar) {
+      bossBar.classList.toggle('hidden', !liveBoss);
+      if (liveBoss) {
+        const name = $('sv-boss-name');
+        const hp = $('sv-boss-hp');
+        if (name) name.textContent = liveBoss.name;
+        if (hp) hp.style.width = (100 * liveBoss.life / liveBoss.maxLife) + '%';
+      }
+    }
     const fps = $('sv-fps');
     if (fps && debug) {
       fps.classList.remove('hidden');
@@ -1120,6 +1822,7 @@
     if (s.x < -96 || s.y < -120 || s.x > canvas.width + 96 || s.y > canvas.height + 40) return;
     SurvivorSprites.drawFoe(ctx, s.x, s.y, {
       eid: en.eid,
+      sprite: en.sprite,
       boss: en.boss,
       facing: en.facing,
       scale: en.scale,
@@ -1129,12 +1832,99 @@
       crowd: crowd,
       time: animT,
     });
+    drawTell(en, s.x, s.y);
+  }
+
+  function drawTell(en, x, y) {
+    const ai = en.ai;
+    if (!ai || ai.mode !== 'tell') return;
+    ctx.save();
+    if (en.behaviour === 'charger') {
+      ctx.strokeStyle = '#d0b4ff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + ai.vx * 36, y + ai.vy * 36);
+      ctx.stroke();
+    } else if (en.behaviour === 'shooter') {
+      const grow = ai.t > 0.7 ? 0.72 : (1 - Math.max(0, ai.t) / 0.7);
+      ctx.fillStyle = '#d0b4ff';
+      ctx.globalAlpha = 0.35 + grow * 0.65;
+      ctx.beginPath();
+      ctx.arc(x, y - 18, 4 + grow * 8, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (en.behaviour === 'boss' && ai.kind === 'slam') {
+      ctx.strokeStyle = '#d0b4ff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.15 * TILE, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (en.behaviour === 'boss') {
+      ctx.fillStyle = '#f4efe0';
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(x - 3, y - 28, 6, 6);
+    }
+    ctx.restore();
   }
 
   function drawGem(g) {
     const s = worldToScreen(g.x, g.y);
-    if (s.x < -20 || s.y < -20 || s.x > canvas.width + 20 || s.y > canvas.height + 20) return;
-    SurvivorSprites.drawGem(ctx, s.x, s.y);
+    if (s.x < -30 || s.y < -30 || s.x > canvas.width + 30 || s.y > canvas.height + 30) return;
+    const kind = g.kind || 'gem';
+    if (kind === 'gem') {
+      SurvivorSprites.drawGem(ctx, s.x, s.y);
+      return;
+    }
+    if (kind === 'heart') {
+      ctx.fillStyle = '#14120f';
+      ctx.fillRect(s.x - 6, s.y - 6, 12, 12);
+      ctx.fillStyle = '#5ed37a';
+      ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
+      ctx.fillStyle = '#102014';
+      ctx.fillRect(s.x - 1, s.y - 3, 2, 6);
+      ctx.fillRect(s.x - 3, s.y - 1, 6, 2);
+      return;
+    }
+    if (kind === 'chest') {
+      ctx.fillStyle = '#2a2418';
+      ctx.fillRect(s.x - 8, s.y - 7, 16, 14);
+      ctx.strokeStyle = '#d0b4ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(s.x - 8, s.y - 7, 16, 14);
+      return;
+    }
+    drawRaritySquare(s.x, s.y, g.item);
+  }
+
+  function drawRaritySquare(x, y, item) {
+    const rarity = (item && item.rarity) || 'common';
+    const colors = {
+      common: '#8a857d',
+      uncommon: '#5ed37a',
+      rare: '#4c7cff',
+      epic: '#d0b4ff',
+      legendary: '#e7eef8',
+    };
+    const big = rarity === 'epic' || rarity === 'legendary';
+    const size = big ? 19 : 10;
+    const half = size / 2;
+    if (big) {
+      const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(animT * Math.PI * 2 * 1.6));
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = colors[rarity];
+      ctx.fillRect(x - 1, y - half - 14, 2, 12);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = '#141018';
+    ctx.fillRect(x - half, y - half, size, size);
+    ctx.strokeStyle = colors[rarity];
+    ctx.lineWidth = rarity === 'legendary' ? 2 : 2;
+    ctx.strokeRect(x - half, y - half, size, size);
+    if (rarity === 'legendary') {
+      ctx.strokeStyle = '#4c7cff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - half - 2, y - half - 2, size + 4, size + 4);
+    }
   }
 
   function drawHermit() {
@@ -1173,6 +1963,18 @@
       } else {
         SurvivorSprites.drawBolt(ctx, s.x, s.y, Math.atan2(shot.vy, shot.vx));
       }
+    }
+    for (let i = 0; i < foeShots.length; i++) {
+      const shot = foeShots[i];
+      const s = worldToScreen(shot.x, shot.y);
+      ctx.fillStyle = '#1a1020';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#d0b4ff';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -1272,6 +2074,7 @@
     ctx.globalAlpha = 1;
     drawWeapons();
     drawFloats();
+    fxCall('draw', ctx, { x: camX, y: camY, zoom: zoom });
     ctx.restore();
     drawJoy();
   }
@@ -1289,9 +2092,17 @@
     $('sv-pause-btn').addEventListener('click', () => openPause());
     $('sv-quit').addEventListener('click', () => quitToTitle());
     $('sv-restart').addEventListener('click', () => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (now < uiGuardUntil) return;
       track('survivor-restart');
       startRun();
     });
+    const titleShop = $('sv-title-shop');
+    if (titleShop) titleShop.addEventListener('click', () => openShop('title'));
+    const endShop = $('sv-end-shop');
+    if (endShop) endShop.addEventListener('click', () => openShop('end'));
+    const shopClose = $('sv-shop-close');
+    if (shopClose) shopClose.addEventListener('click', () => closeShop());
     $('sv-revive').addEventListener('click', () => {
       if (state !== 'dead' || revived) return;
       try { Ads.offerRevive(); } catch (e) {}
@@ -1406,6 +2217,7 @@
       window.__svPan = (x, y) => { player.x = x; player.y = y; };
       window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
       window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };
+      window.__svGuard = () => { uiGuardUntil = (performance.now ? performance.now() : Date.now()) + 300; return state; };
       let gemToken = 1;
       window.__svGem = (px) => {
         const token = ++gemToken;
@@ -1516,11 +2328,79 @@
     requestAnimationFrame(frame);
   }
 
-  bind();
-  if (bench) {
-    try { document.body.classList.add('sv-bench-run'); } catch (e) {}
+  function snapRun() {
+    let bossName = '';
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.boss && en.life > 0 && !(en.dying > 0)) bossName = en.name;
+    }
+    return {
+      state: state,
+      time: time,
+      life: player.life,
+      level: player.level,
+      levelUps: levelUps,
+      kills: kills,
+      vowSeen: vowSeen,
+      vowCount: vowCount,
+      hermit: hermit.on,
+      boss: bossName,
+      enemies: enemies.length,
+      novas: shots.filter((s) => s.kind === 'nova').length,
+    };
   }
-  SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=3');
-  if (bench || previewOnce) startRun();
-  requestAnimationFrame(frame);
+
+  bind();
+  if (headless) {
+    window.__svStart = () => { startRun(); return snapRun(); };
+    window.__svStep = (dt) => {
+      if (state === 'playing') sim(Math.min(0.05, dt || 0.05));
+      return snapRun();
+    };
+    window.__svIdleStep = (dt) => {
+      if (state === 'hermit') declineHermit();
+      if (state === 'levelup') {
+        uiGuardUntil = 0;
+        hide('sv-level');
+        pickLeft = 0;
+        state = 'playing';
+      }
+      if (state === 'playing') sim(Math.min(0.05, dt || 0.05));
+      return snapRun();
+    };
+    window.__svMove = (x, y) => { scriptMove = { x: x, y: y }; };
+    window.__svChoose = (i) => { uiGuardUntil = 0; choose(i); return snapRun(); };
+    window.__svNova = (rank) => {
+      owned.nova = rank;
+      cds.nova = 0;
+      novaQueue = 0;
+      shots.length = 0;
+      if (state !== 'playing') state = 'playing';
+      sim(0.05);
+      return snapRun();
+    };
+    window.__svSnap = () => snapRun();
+    window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
+    window.__svOffers = () => offers.map((o) => o.id);
+    window.__svThreats = () => {
+      const list = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (en.life > 0 && !(en.dying > 0)) list.push({ x: en.x - player.x, y: en.y - player.y });
+      }
+      for (let i = 0; i < foeShots.length; i++) {
+        const s = foeShots[i];
+        list.push({ x: s.x - player.x, y: s.y - player.y });
+      }
+      list.sort((a, b) => (a.x * a.x + a.y * a.y) - (b.x * b.x + b.y * b.y));
+      return list.slice(0, 16);
+    };
+  } else {
+    if (bench) {
+      try { document.body.classList.add('sv-bench-run'); } catch (e) {}
+    }
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=4');
+    if (bench || previewOnce) startRun();
+    requestAnimationFrame(frame);
+  }
 })();

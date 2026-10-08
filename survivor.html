@@ -17,8 +17,8 @@
   </script>
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="css/style.css?v=3" />
-  <link rel="stylesheet" href="css/survivor.css?v=3" />
+  <link rel="stylesheet" href="css/style.css?v=4" />
+  <link rel="stylesheet" href="css/survivor.css?v=4" />
 </head>
 <body class="survivor">
   <div id="game-wrap">
@@ -27,6 +27,10 @@
     <div id="sv-hud" class="hidden">
       <div class="sv-top">
         <div class="sv-vitals">
+          <div id="sv-boss" class="sv-boss hidden">
+            <span id="sv-boss-name">Grave Warden</span>
+            <div class="bar-wrap"><div id="sv-boss-hp" class="bar"></div></div>
+          </div>
           <div class="bar-wrap hp-wrap"><div id="sv-hp" class="bar"></div><span id="sv-hp-text">90/90</span></div>
           <div class="bar-wrap xp-wrap"><div id="sv-xp" class="bar"></div><span id="sv-xp-text">Lv 1</span></div>
         </div>
@@ -37,6 +41,7 @@
           <span id="sv-vow" class="hidden">Vow</span>
         </div>
       </div>
+      <div id="sv-warn" class="sv-warn hidden">Grave Warden</div>
       <button type="button" id="sv-pause-btn" aria-label="Pause">❚❚</button>
       <div id="sv-fps" class="hidden">0 fps</div>
       <div id="sv-bench" class="hidden"></div>
@@ -52,6 +57,7 @@
           <li>No attack button. Ash fire finds the nearest demon.</li>
         </ul>
         <button type="button" id="sv-play" class="big-btn">Play</button>
+        <button type="button" id="sv-title-shop" class="big-btn secondary">Shop</button>
         <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
         <p class="mode-link"><a href="index.html">Back to Abyss Descent</a></p>
       </div>
@@ -59,7 +65,13 @@
 
     <div id="sv-level" class="overlay hidden">
       <div class="panel sv-level-panel">
-        <h2>Level up</h2>
+        <div class="sv-level-meta">
+          <span id="sv-level-lv">Lv 1</span>
+          <span id="sv-level-clock">0:00 · 0 kills</span>
+        </div>
+        <h2 id="sv-level-title">Level 1</h2>
+        <p class="sv-pick">Pick one</p>
+        <div id="sv-build" class="sv-build"></div>
         <div id="sv-cards"></div>
         <button type="button" id="sv-reroll" class="big-btn secondary">Reroll</button>
       </div>
@@ -84,12 +96,36 @@
     </div>
 
     <div id="sv-end" class="overlay hidden">
-      <div class="panel">
-        <h2 id="sv-end-title">You have fallen</h2>
-        <p id="sv-end-stats" class="lore">Time 0:00</p>
-        <button type="button" id="sv-restart" class="big-btn">Restart</button>
-        <button type="button" id="sv-revive" class="big-btn secondary hidden">Revive</button>
-        <button type="button" id="sv-double" class="big-btn secondary hidden">Double gold</button>
+      <div class="panel sv-end-panel">
+        <div id="sv-best" class="sv-best hidden">NEW BEST!</div>
+        <h2 id="sv-end-title">You fell</h2>
+        <p id="sv-prev" class="lore">Previous best: none</p>
+        <div class="sv-end-stats" id="sv-end-stats">
+          <div><b id="sv-end-time">0:00</b><span>survived</span></div>
+          <div><b id="sv-end-kills">0</b><span>kills</span></div>
+          <div><b id="sv-end-level">1</b><span>level</span></div>
+        </div>
+        <div class="sv-gold-row">
+          <span id="sv-end-gold">+0 gold banked</span>
+          <button type="button" id="sv-end-shop" class="big-btn secondary">Shop</button>
+        </div>
+        <p id="sv-next" class="sv-next">Next upgrade: —</p>
+        <div class="sv-next-bar"><div id="sv-next-fill"></div></div>
+        <div class="sv-ad-row">
+          <button type="button" id="sv-revive" class="big-btn secondary hidden">Revive</button>
+          <button type="button" id="sv-double" class="big-btn secondary hidden">Double gold</button>
+        </div>
+        <button type="button" id="sv-restart" class="big-btn sv-restart">Restart</button>
+      </div>
+    </div>
+
+    <div id="sv-shop" class="overlay hidden">
+      <div class="panel sv-shop-panel">
+        <h2>Shop</h2>
+        <p id="sv-shop-gold" class="lore">0 gold</p>
+        <div id="sv-shop-list"></div>
+        <button type="button" class="big-btn secondary" disabled>Cosmetics: coming soon</button>
+        <button type="button" id="sv-shop-close" class="big-btn">Back</button>
       </div>
     </div>
 
@@ -109,14 +145,16 @@
     </div>
   </div>
 
-  <script src="js/utils.js?v=3"></script>
-  <script src="js/classes.js?v=3"></script>
-  <script src="js/entities.js?v=3"></script>
-  <script src="js/audio.js?v=3"></script>
-  <script src="js/analytics.js?v=3"></script>
-  <script src="js/ads.js?v=3"></script>
-  <script src="js/survivor-data.js?v=3"></script>
-  <script src="js/survivor-sprites.js?v=3"></script>
-  <script src="js/survivor.js?v=3"></script>
+  <script src="js/utils.js?v=4"></script>
+  <script src="js/classes.js?v=4"></script>
+  <script src="js/entities.js?v=4"></script>
+  <script src="js/audio.js?v=4"></script>
+  <script src="js/analytics.js?v=4"></script>
+  <script src="js/ads.js?v=4"></script>
+  <script src="js/survivor-items.js?v=4"></script>
+  <script src="js/survivor-data.js?v=4"></script>
+  <script src="js/survivor-sprites.js?v=4"></script>
+  <script src="js/survivor-fx.js?v=4"></script>
+  <script src="js/survivor.js?v=4"></script>
 </body>
 </html>

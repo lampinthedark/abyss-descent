@@ -21,6 +21,7 @@ function load(names, extra) {
       return {
         getItem: (k) => (k in bag ? bag[k] : null),
         setItem: (k, v) => { bag[k] = String(v); },
+        removeItem: (k) => { delete bag[k]; },
       };
     })(),
     document: extra && extra.document ? extra.document : {
@@ -42,13 +43,13 @@ function load(names, extra) {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
   }
   vm.runInContext(
-    ['SurvivorData', 'Ads'].map(n => 'if (typeof ' + n + ' !== "undefined") this.' + n + ' = ' + n + ';').join('\n'),
+    ['SurvivorData', 'Ads', 'SurvivorSave'].map(n => 'if (typeof ' + n + ' !== "undefined") this.' + n + ' = ' + n + ';').join('\n'),
     context
   );
   return context;
 }
 
-const game = load(['js/survivor-data.js']);
+const game = load(['js/survivor-items.js', 'js/survivor-data.js']);
 const D = game.SurvivorData;
 if (D.HERO !== 'sorcerer') fail('hero should be the sorcerer');
 const ids = {};
@@ -87,20 +88,34 @@ if (D.levelReachedEvent(21) !== 'survivor-level-21-plus') fail('level 21 bucket'
 if (D.levelUpCountEvent(0) !== 'survivor-levelups-0') fail('no level-ups');
 if (D.levelUpCountEvent(8) !== 'survivor-levelups-8-plus') fail('many level-ups');
 
-const meta = D.emptyMeta();
-if (meta.version !== 1 || !meta.cosmetics || !('skin' in meta.cosmetics) || !('effect' in meta.cosmetics)) {
-  fail('meta save is missing version or cosmetics');
-}
-if (!meta.upgrades || typeof meta.upgrades !== 'object') fail('meta save needs an upgrades slot');
+const Save = game.SurvivorSave;
+if (!Save || Save.SCHEMA !== 1) fail('save schema missing');
+const profile = Save.loadProfile();
+if (!profile.playerId || !profile.cosmetics || !('skin' in profile.cosmetics)) fail('profile save is missing id or cosmetics');
+const progress = Save.loadProgress();
+if (progress.version !== 1 || !progress.upgrades) fail('progress save needs a version and upgrades');
 const banked = D.bankGold(D.REWARDS.gold.win);
 if (banked !== D.REWARDS.gold.win) fail('banked gold mismatch');
 if (D.loadMeta().gold !== D.REWARDS.gold.win) fail('gold did not persist');
+const legacyBag = game.localStorage;
+legacyBag.setItem('abyss-survivor-meta', JSON.stringify({ version: 1, gold: 9, upgrades: { vitality: 1 }, cosmetics: { skin: 'ash', effect: null } }));
+legacyBag.removeItem('abyss-survivor-profile');
+legacyBag.removeItem('abyss-survivor-inventory');
+legacyBag.removeItem('abyss-survivor-progress');
+const again = load(['js/survivor-items.js', 'js/survivor-data.js'], { localStorage: legacyBag });
+if (again.SurvivorSave.gold() !== 9) fail('legacy meta did not migrate');
+if ((again.SurvivorSave.loadProgress().upgrades || {}).vitality !== 1) fail('legacy upgrades did not migrate');
 
 const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
-if (!html.includes('survivor.js?v=3')) fail('cache bust');
-if (!html.includes('survivor-sprites.js?v=3')) fail('sprite module');
+if (!html.includes('survivor.js?v=4')) fail('cache bust');
+if (!html.includes('survivor-fx.js')) fail('fx hooks should load');
+const fxSrc = fs.readFileSync(path.join(root, 'js/survivor-fx.js'), 'utf8');
+if (!fxSrc.includes('hit:') || !fxSrc.includes('evolve:') || !fxSrc.includes('draw:')) fail('fx stub is missing a hook');
+if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file should not hold game logic');
+if (!html.includes('survivor-sprites.js?v=4')) fail('sprite module');
+if (!html.includes('survivor-items.js?v=4')) fail('items module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
@@ -126,7 +141,9 @@ if (!html.includes('id="sv-revive" class="big-btn secondary hidden"')) fail('rev
 if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
 if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
-if (!src.includes('dungeon-tileset-ii.png?v=3')) fail('tileset is not cache-busted');
+if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.includes("fxCall('cast', 'nova'") || !src.includes("fxCall('cast', 'blade'")) fail('fx hit, death, and cast hooks');
+if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
+if (!src.includes('dungeon-tileset-ii.png?v=4')) fail('tileset is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
 if (!sprites.includes('#5fd8ff')) fail('gems should be light cyan');
@@ -134,6 +151,8 @@ if (!sprites.includes('#7b4fd4')) fail('imps should be violet');
 if (!sprites.includes('#e8ff6a')) fail('bolts should be lime');
 if (!sprites.includes('#e07a28')) fail('hero robe should be warm');
 if (!sprites.includes('#f4efe0')) fail('hero outline should be cream');
+if (!sprites.includes('frameRect') || !sprites.includes('get atlas')) fail('atlas frame should be exposed for fx');
+if (!sprites.includes('const Sprites = SurvivorSprites')) fail('Sprites.atlas alias');
 
 function fakeDocument() {
   const nodes = {};
