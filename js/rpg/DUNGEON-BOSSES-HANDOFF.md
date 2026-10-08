@@ -50,19 +50,14 @@ Atk on the mob (core's hit chance reads `mob.atk`): rat 1, goblin 8, skeleton 14
 
 If `RPGContent.Dungeon` is missing, `sample()` returns a thin `rustbound-crypt` fallback (`fallback: true`) so a headless boot still has a zone. That crypt is not the Ash Stair. `RPG.dungeon.fallbackSample()` is the same object. `RPG.dungeon.load(RPGContent.Dungeon)` also works.
 
-Ashmaw can-drop nameplate (rumour copy belongs to Skills & Quests; do not build it here):
+Ashmaw can-drop nameplate uses the shared UI helper only. Skills & Quests draws the rumour screen with the same call and the same preview list. This slice does not map, recolor, or sort those rows.
 
 ```js
-RPG.ui.showCanDrop = function (panel) {
-  // panel.title === 'Can drop'
-  // panel.drops is Loot.preview order: { name, icon, rarity, beamColor, label, source }
-  // Wyrmfang beamColor is #ff9a2e. Other rows keep preview beamColor / rarity colour.
-  // Icons are preview.icon (rsc-look/icons/rpg32/: icon_wyrmfang, icon_gravewarden_crown, icon_wyrm_scale).
-};
-const panel = RPG.boss.canDropPanel('ashmaw');
+RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'));
+// RPG.boss.canDropPanel(ctx, x, y) is that call.
 ```
 
-Spawning Ashmaw calls that hook when it exists and stores the same object on `mob.canDrop` and `RPG.bossPanel`. Call `RPG.boss.canDropPanel('ashmaw')` again when the nameplate opens so the list is whatever `Loot.preview` returns at that moment. If no UI hook is installed, draw `panel.drops` from that return value.
+`RPG.ui.drawDropRows` owns layout, icons (`icon_wyrmfang`, `icon_gravewarden_crown`, `icon_wyrm_scale` in `rsc-look/icons/rpg32/`), and rarity colours (Wyrmfang `#ff9a2e`). If `drawDropRows` is missing at runtime, `canDropPanel` no-ops. Do not add a second row renderer here.
 
 `RPG.ai.tick(dtSeconds)` is also registered as system `'ai'`. Pass **seconds**. The stepper splits frames so a leash is not tunneled.
 
@@ -80,7 +75,7 @@ Spawning Ashmaw calls that hook when it exists and stores the same object on `mo
 
 6. **`RPG.fx(name, ...tileCoords)`**. Clip key is `${mob.sprite}_${suffix}`: melee and ranged use `_attack` (Ashmaw claw is `mob_ashmaw_attack`), slam uses `_slam` (`mob_brute_slam`, `mob_ashmaw_slam`), charge uses `_charge`. Hold `animFrame` 0 for the whole live `windupMs` (content windup is the tell, and it is always at least sheet `ms[0]`). Charge holds frame 1 for the whole dash. Brute jab is `_attack`; the ring slam is `_slam` plus `fx('telegraph', x, y, radius, {id, ms, kind})`. Ashmaw slam is the same telegraph. Charge is `fx('telegraphLine', x1, y1, x2, y2, {id, ms, kind})`. Both clear with `fx('telegraphOff', id)`. Beams are `fx('beam', x, y, rarity, drop)` only when `drop.beam` is set.
 
-7. **Loot.** `Loot.rollDrop(monsterId, rng, x, y)` (or `RPG.Loot` / `RPG.items.rollDrop`). Return a drop, an array, `{drops}`, or `{item, beam}`. This slice spawns `kind: 'drop'` entities and `registerTappable`s them. **Items must make `ashmaw` always return a beamed rare, epic, or legendary.** Until that table exists, `drops.js` adds a placeholder `{ name: 'Ashmaw Cache', rarity: 'rare', beam: true, placeholder: true }`. The nameplate reads `Loot.preview('ashmaw')` through `RPG.boss.canDropPanel` and does not invent drop names. Order is the preview order. Wyrmfang is drawn `#ff9a2e`.
+7. **Loot.** `Loot.rollDrop(monsterId, rng, x, y)` (or `RPG.Loot` / `RPG.items.rollDrop`). Return a drop, an array, `{drops}`, or `{item, beam}`. This slice spawns `kind: 'drop'` entities and `registerTappable`s them. **Items must make `ashmaw` always return a beamed rare, epic, or legendary.** Until that table exists, `drops.js` adds a placeholder `{ name: 'Ashmaw Cache', rarity: 'rare', beam: true, placeholder: true }`. The nameplate does not read a private drop list. Paint it with `RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'))` and pass that array through unchanged. `Loot.preview` must be the items global.
 
 8. **Sheets.** Field rats and goblins stay on the lighter `mobs` atlas (`mob.sheetPack === 'mobs'`, keys `mob_rat_*` / `mob_goblin_*`). Dungeon packs read `mobs2` (`mob_skeleton_*`, `mob_imp_*`, `mob_brute_attack`, `mob_brute_slam`, `mob_brute_charge`, `mob_ashmaw_attack`, `mob_ashmaw_slam`, `mob_ashmaw_charge`). Put those atlases on `RPG.sheet.mobs` and `RPG.sheet.mobs2` (or `RPG.sheets`). A clip is drawn when its key is in that atlas; otherwise `render.mode` is `'box'` with `render.label`. Frame timing is `anim.ms[0]` for the windup pose. Live windup is `RPGContent.MONSTERS[id].attacks[].windupMs` (a keyed `RPG.content.monsters[id]` still overrides one attack). Sheet `ms[0]` can only raise that number. Floors: field melee/ranged ≥ 400, brute slam and charge ≥ 600, every Ashmaw attack ≥ 600. Hold frame 0 until `windupMs` elapses. Charge holds frame 1 for the dash. `cooldownMs` is per attack, and a mob rests `RPGContent.REST_MS` (500) between swings. Ashmaw enrage (`belowHpPct` 30, `cooldownMult` 0.75) shortens those cooldowns. Core still owns the hit-chance formula; this slice sets `mob.atk` / `mob.def` and applies `attack.dmg` when a tell connects.
 
@@ -96,4 +91,4 @@ node scripts/check-rpg-ai.js
 
 `npm test` runs that script after the existing checks. The headless stub covers pack aggro, leash return, every melee windup ≥ 400ms, and Ashmaw slam/charge windups ≥ 600ms, plus kill/beam and the 3-hit recap.
 
-In the browser, after the scripts are pasted: load Ash Stair with `RPG.dungeon.load(RPG.dungeon.sample())` and open the Ashmaw can-drop panel (`RPG.boss.canDropPanel('ashmaw')`, Wyrmfang first in `#ff9a2e`). Also call `spawnPack` for a goblin pack, walk one member into sight (the others should chase on `world.path`), kite past the leash (they walk home), stand in melee and confirm frame 0 of `mob_goblin_attack` holds for the whole windup, kill one and confirm a drop plus a beam when `d.beam`, die and confirm the last three hero hits. On the stair, check a brute jab (`mob_brute_attack`) against its ring slam (`mob_brute_slam`) and line charge (`mob_brute_charge`), then Ashmaw's claw (`mob_ashmaw_attack`), slam (`mob_ashmaw_slam`), and charge (`mob_ashmaw_charge` frame 0, then frame 1 for the dash). Missing mobs2 keys stay labelled boxes.
+In the browser, after the scripts are pasted: load Ash Stair with `RPG.dungeon.load(RPG.dungeon.sample())` and paint the Ashmaw can-drop list with `RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'))` (same call as the rumour screen). Also call `spawnPack` for a goblin pack, walk one member into sight (the others should chase on `world.path`), kite past the leash (they walk home), stand in melee and confirm frame 0 of `mob_goblin_attack` holds for the whole windup, kill one and confirm a drop plus a beam when `d.beam`, die and confirm the last three hero hits. On the stair, check a brute jab (`mob_brute_attack`) against its ring slam (`mob_brute_slam`) and line charge (`mob_brute_charge`), then Ashmaw's claw (`mob_ashmaw_attack`), slam (`mob_ashmaw_slam`), and charge (`mob_ashmaw_charge` frame 0, then frame 1 for the dash). Missing mobs2 keys stay labelled boxes.

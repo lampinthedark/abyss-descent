@@ -39,6 +39,10 @@ for (const rel of files) {
   assert(!/Math\.random/.test(text), rel + ' must not call Math.random');
   assert(!/runescape|jagex|osrs/i.test(text), rel + ' must not use those trademark names');
   assert(!/shield phase/i.test(text) || /do not add/i.test(text), rel + ' must not implement a boss shield');
+  if (rel === 'js/rpg/boss-ashmaw.js') {
+    assert(text.indexOf("RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'))") !== -1, 'can-drop uses drawDropRows on the raw preview');
+    assert(!/dropColor|showCanDrop|RARITY_COLOR/.test(text), 'can-drop does not map preview rows');
+  }
 }
 
 const fxLog = [];
@@ -512,26 +516,29 @@ const stairBoss = stairLoad.spawned.filter((m) => m.monsterId === 'ashmaw');
 assert(stairSkel.length === 2 && stairSkel[0].hp === 123 && stairSkel[0].atk === 14 && stairSkel[0].room === 'hall_1', 'skeleton pack comes from the content record');
 assert(stairBoss.length === 1 && stairBoss[0].boss && stairBoss[0].hp === 961 && stairBoss[0].atk === 30, 'ashmaw is not spawned twice from the boss rect');
 
-let shown = null;
-RPG.ui.showCanDrop = function (panel) { shown = panel; };
+const preview = [
+  { name: 'Wyrmfang', rarity: 'legendary', beamColor: '#ff9a2e', icon: 'icon_wyrmfang', source: 'monster' },
+  { name: "Gravewarden's Crown", rarity: 'very rare', beamColor: '#c070ff', icon: 'icon_gravewarden_crown', source: 'monster' },
+  { name: 'Wyrmscale armour', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrmscale_armour', source: 'monster' },
+  { name: 'Wyrm Scale', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrm_scale', source: 'shared' },
+];
 context.Loot.preview = function (id) {
   assert(id === 'ashmaw', 'preview asked for ashmaw');
-  return [
-    { name: 'Wyrmfang', rarity: 'legendary', icon: 'icon_wyrmfang', source: 'monster' },
-    { name: "Gravewarden's Crown", rarity: 'very rare', beamColor: '#c070ff', icon: 'icon_gravewarden_crown', source: 'monster' },
-    { name: 'Wyrmscale armour', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrmscale_armour', source: 'monster' },
-    { name: 'Wyrm Scale', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrm_scale', source: 'shared' },
-  ];
+  return preview;
 };
-const panel = RPG.boss.canDropPanel('ashmaw');
-assert(shown === panel && panel.drawn === true, 'nameplate hook receives the can-drop panel');
-assert(panel.title === 'Can drop', 'panel title');
-assert(panel.drops.map((d) => d.name).join('|') === "Wyrmfang|Gravewarden's Crown|Wyrmscale armour|Wyrm Scale", 'preview order is kept');
-assert(panel.drops[0].beamColor === '#ff9a2e' && panel.drops[0].icon === 'icon_wyrmfang', 'Wyrmfang is legendary orange');
-assert(panel.drops[1].beamColor === '#c070ff' && panel.drops[1].icon === 'icon_gravewarden_crown', 'crown keeps its rarity colour and icon');
-assert(panel.drops[2].beamColor === '#5aa0ff' && panel.drops[2].icon === 'icon_wyrmscale_armour', 'wyrmscale armour colour and icon');
-assert(panel.drops[3].icon === 'icon_wyrm_scale' && panel.drops[3].beamColor === '#5aa0ff', 'wyrm scale icon');
-assert(stairBoss[0].canDrop && stairBoss[0].canDrop.drops, 'spawn attaches a can-drop list');
+const ctx = { kind: '2d' };
+assert(RPG.boss.canDropPanel(ctx, 12, 40) === undefined, 'missing drawDropRows is a no-op');
+const drawn = [];
+RPG.ui.drawDropRows = function (drawCtx, x, y, rows) {
+  drawn.push({ drawCtx, x, y, rows });
+  return 'drawn';
+};
+assert(RPG.boss.canDropPanel(ctx, 12, 40) === 'drawn', 'can-drop panel draws through the shared helper');
+assert(drawn.length === 1 && drawn[0].drawCtx === ctx && drawn[0].x === 12 && drawn[0].y === 40, 'drawDropRows gets ctx, x, y');
+assert(drawn[0].rows === preview, 'preview array is passed through raw');
+assert(drawn[0].rows.map((d) => d.name).join('|') === "Wyrmfang|Gravewarden's Crown|Wyrmscale armour|Wyrm Scale", 'preview order is kept');
+assert(drawn[0].rows[0].beamColor === '#ff9a2e' && drawn[0].rows[0].icon === 'icon_wyrmfang', 'Wyrmfang row is untouched');
+assert(!stairBoss[0].canDrop, 'spawn does not build a private drop panel');
 
 if (failed) {
   console.error(failed + ' rpg ai check(s) failed');

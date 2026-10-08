@@ -457,9 +457,6 @@
     };
     decorate(mob, spec);
     mob.takeHit = function (dmg, info) { return takeHit(mob, dmg, info); };
-    if (mob.boss && RPG.boss && typeof RPG.boss.canDropPanel === 'function') {
-      try { mob.canDrop = RPG.boss.canDropPanel(mob.monsterId); } catch (err) {}
-    }
     return mob;
   }
 
