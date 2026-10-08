@@ -1,7 +1,8 @@
 /**
  * RPG items: loot on the ground (spawn from kills, pickup, despawn).
  *
- *   world.Loot.rollDrop(monsterId, rng, x, y)  roll + spawn; returns ground entries to render
+ *   world.Loot.rollDrop(monsterId, rng, x, y, opts?)  roll + spawn; returns ground entries to render
+ *     opts = { questFinish: true|false } (default false): the kill completes Q2's objective (set by drops.js)
  *   world.Ground.pickup(gid)             walk-over pickup; refuses cleanly when full
  *
  * Kill rolls use a deterministic per-kill seed (lootSeed, kills) and the
@@ -132,19 +133,23 @@
         Loot: {
           MONSTERS: RPG.Loot.MONSTERS,
           /**
-           * THE kill hook core calls: Loot.rollDrop(monsterId, rng?, x?, y?).
+           * THE kill hook core calls: Loot.rollDrop(monsterId, rng?, x?, y?, opts?).
+           * opts = { questFinish: true|false } (optional, default false): drops.js sets
+           * questFinish on the kill that completes Q2's objective (Skills & Quests'
+           * RPG.quests.completesOnKill). If this save has no first Rare yet, that
+           * kill's slot roll is upgraded to one beamed Rare and firstRare is marked done.
            * Rolls with the persisted pity counters, spawns the result on the
            * ground with provisional ids and returns { ok, drops:[...], best }.
            * rng is optional (pass a seeded one for UAT seeded runs); default is
            * a deterministic per-kill seed from the save.
            */
-          rollDrop: function (monsterId, rng, x, y) {
+          rollDrop: function (monsterId, rng, x, y, opts) {
             if (!RPG.Loot.MONSTERS[monsterId]) return { ok: false, reason: 'unknown_monster', drops: [] };
             var s = w.state();
             var r0 = rng || Core.makeRng(Core.mixSeed(s.lootSeed, 'kill', s.kills));
-            var d = RPG.Loot.rollDrop(monsterId, r0, { pity: s.pity, firstRare: s.firstRare });
+            var d = RPG.Loot.rollDrop(monsterId, r0, { pity: s.pity, firstRare: s.firstRare, questFinish: !!(opts && opts.questFinish === true) });
             var r = w.commit('loot.spawn', { monster: monsterId, x: x, y: y, gold: d.gold, items: d.items });
-            if (r.ok) { r.best = d.best; r.pityUsed = d.pityUsed; r.firstRareUsed = !!d.firstRareUsed; }
+            if (r.ok) { r.best = d.best; r.pityUsed = d.pityUsed; r.firstRareUsed = !!d.firstRareUsed; r.questFinishUsed = !!d.questFinishUsed; }
             return r;
           },
           /** Notable drops for UI copy ("Can drop: Wyrmfang"); see RPGItems.Loot.preview. */

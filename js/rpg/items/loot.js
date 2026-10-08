@@ -147,18 +147,22 @@
    * (rat / goblin packs on the goblin field) until the player's first
    * Rare-or-better drop; `all` counts every kill. On a near-town kill, from
    * near-town kill RAMP_START the chance of a forced Rare escalates linearly up
-   * to RAMP_MAX, and near-town kill GUARANTEE always gives one. GUARANTEE (12)
-   * sits at or below the fewest near-town kills any play style makes before the
-   * Ash Stair (Q2's 4 goblins + the grind to Cinderiron's Attack/Defence 3:
-   * about 14 for an all-on-Attack player, 17-33 by the content model), so it
-   * always fires on the goblin field. BACKUP_GUARANTEE is a safety net for a
-   * player who skips the field: any kill number 40 forces one (dungeon tiers).
+   * to RAMP_MAX (kill GUARANTEE-1), and near-town kill GUARANTEE always gives
+   * one. GUARANTEE (10) leaves a cushion under the fewest near-town kills any
+   * grinding style makes before the Ash Stair (12, all-on-Attack).
+   * Q2 safety (opts.questFinish): the caller (drops.js, via Skills & Quests'
+   * RPG.quests.completesOnKill) flags the kill that completes Q2's objective; if
+   * the save has no first Rare yet, that kill's slot roll is upgraded to a beamed
+   * Rare, so everyone who finishes Q2 leaves the field with one (incl. a player
+   * who goes straight into the dungeon in Rustbound gear). Loot never reads quest state.
+   * BACKUP_GUARANTEE is a safety net for a player who skips the field and Q2:
+   * any kill number 40 forces one (dungeon tiers).
    * The state lives in the item save now and on the server account later
    * (see docs/rpg-items.md, "Pity").
    */
-  var FIRST_RARE = { RAMP_START: 4, RAMP_MAX: 0.25, GUARANTEE: 12, BACKUP_GUARANTEE: 40, TIERS: ['rustbound'] };
+  var FIRST_RARE = { RAMP_START: 3, RAMP_MAX: 0.25, GUARANTEE: 10, BACKUP_GUARANTEE: 40, TIERS: ['rustbound'] };
 
-  /** Forced-Rare chance on the k-th near-town kill. */
+  /** Forced-Rare chance on the k-th near-town kill: RAMP_START .. GUARANTEE-1 rise linearly to RAMP_MAX; GUARANTEE+ is 1. */
   function firstRareChance(k) {
     if (k >= FIRST_RARE.GUARANTEE) return 1;
     if (k < FIRST_RARE.RAMP_START) return 0;
@@ -230,6 +234,12 @@
    * Roll one kill. rng: RPG.Core.makeRng(...) | () => float | seed. Defaults to Math.random.
    * opts.pity: kills since the last Rare+ (from the world); triggers a forced Rare at PITY_KILLS.
    * opts.firstRare: { done, kills (near-town), all } one-time new-player pity (fires on the goblin field; any-kill backup at 40).
+   * opts.questFinish: true on the kill that completes Q2's objective (set by the caller). If firstRare is
+   *   not done, the kill's slot roll becomes exactly one beamed Rare and firstRare is marked done:
+   *   - the roll already holds a Rare+  -> nothing changes, firstRare is marked done;
+   *   - the slot rolled common/uncommon gear -> that item is upgraded to Rare in place (same base + seed);
+   *   - the slot rolled nothing, gold or a non-gear item -> one Rare (near-town Rustbound gear) takes the slot.
+   *   No-op when firstRare is done or not passed.
    */
   function rollDrop(monsterId, rng, opts) {
     opts = opts || {};
@@ -242,6 +252,7 @@
     if (m.gold && rng.chance(m.gold.chance)) out.gold += rng.int(m.gold.min, m.gold.max);
     for (i = 0; i < m.always.length; i++) rollEntry(m.always[i], rng, m, 'always', out);
     // One slot roll: very_rare, rare, uncommon, common, else nothing.
+    var slotFrom = out.items.length;
     var r = rng.next(), s = m.slots, acc = 0;
     var order = ['very_rare', 'rare', 'uncommon', 'common'];
     for (i = 0; i < order.length; i++) {
@@ -252,6 +263,7 @@
       var e = rng.weighted(m.table[out.slot]);
       if (e) rollEntry(e, rng, m, out.slot, out);
     }
+    var slotTo = out.items.length;
     if (m.rareTable && rng.chance(m.rareTable)) {
       out.rareTable = true;
       rollEntry(rng.weighted(SHARED_RARE), rng, m, 'rare', out);
@@ -261,11 +273,30 @@
     out.best = bestRarity(out.items);
     var fr = opts.firstRare;
     if (fr && !fr.done && rarityRank(out.best) < 1) {
-      var p = Math.max(m.nearTown ? firstRareChance(fr.kills + 1) : 0, allKills(fr) + 1 >= FIRST_RARE.BACKUP_GUARANTEE ? 1 : 0);
-      if (p >= 1 || (p > 0 && rng.chance(p))) {
-        rollEntry({ gear: { tiers: m.nearTown ? FIRST_RARE.TIERS : pityTiers(m) }, rarity: 'rare', promote: 0 }, rng, m, 'first_rare', out);
+      if (opts.questFinish) {
+        // Q2 safety: upgrade this kill's slot roll to exactly one Rare (one drop, one beam).
+        var gi = -1;
+        for (i = slotFrom; i < slotTo; i++) if (Db.canRollAffixes(Db.getBase(out.items[i].base))) { gi = i; break; }
+        var rare;
+        if (gi >= 0) {
+          var old = out.items[gi];
+          rare = Gen.createInstance(old.base, { rarity: 'rare', seed: old.seed, origin: old.origin });
+        } else {
+          var tmp = { gold: 0, items: [] };
+          rollEntry({ gear: { tiers: m.nearTown ? FIRST_RARE.TIERS : pityTiers(m) }, rarity: 'rare', promote: 0 }, rng, m, 'quest_finish', tmp);
+          rare = tmp.items[0];
+        }
+        out.items.splice(slotFrom, slotTo - slotFrom, rare);
         out.firstRareUsed = true;
+        out.questFinishUsed = true;
         out.best = bestRarity(out.items);
+      } else {
+        var p = Math.max(m.nearTown ? firstRareChance(fr.kills + 1) : 0, allKills(fr) + 1 >= FIRST_RARE.BACKUP_GUARANTEE ? 1 : 0);
+        if (p >= 1 || (p > 0 && rng.chance(p))) {
+          rollEntry({ gear: { tiers: m.nearTown ? FIRST_RARE.TIERS : pityTiers(m) }, rarity: 'rare', promote: 0 }, rng, m, 'first_rare', out);
+          out.firstRareUsed = true;
+          out.best = bestRarity(out.items);
+        }
       }
     }
     if (fr) out.firstRare = nextFirstRare(fr, monsterId, out.best);

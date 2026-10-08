@@ -90,26 +90,28 @@ Ashmaw chase rolls: Wyrmfang 1/150, Gravewarden's Crown 1/40, a Wyrmscale armour
 
 ## Pity (owned by Loot, persisted in the item save)
 
-- **First Rare (one-time per account):** fires on the goblin field. `kills` counts **near-town kills only** (rat and goblin packs) until the first Rare-or-better drop. Near-town kills 1-3 add nothing extra; from kill 4 the chance of a forced beamed Rare climbs linearly to 25% at kill 11, and near-town kill 12 always gives one (Rustbound gear). 12 is at or below the fewest near-town kills any play style makes before the Ash Stair (Q2's 4 goblins + the grind to Attack/Defence 3, after Q2's 55 Defence XP: 12 for an all-on-Attack player), so 100% of simulated players get it on the field, by about 10 min after starting Q1 with new-player slack (content test, `dev/content/gear-path.js`). 12 kills is 3 min at 4 kills/min and 6 min at 2 kills/min. Backup: `all` counts every kill, and any kill number 40 forces one (dungeon tiers) for a player who skips the field. Stored as `firstRare: {done, kills, all, at, kill}`; older saves without `all` use `kills` for it. Once `done`, it never resets.
+- **First Rare (one-time per account):** fires on the goblin field. `kills` counts **near-town kills only** (rat and goblin packs) until the first Rare-or-better drop. Near-town kills 1-2 add nothing extra; from kill 3 the chance of a forced beamed Rare climbs linearly to 25% at kill 9, and near-town kill 10 always gives one (Rustbound gear). 10 leaves a cushion of 2 under the fewest near-town kills any grinding route makes before the Ash Stair (12, all-on-Attack after Q2's 55 Defence XP; typical 20, even 22). 10 kills is 2.5 min at 4 kills/min and 5 min at 2 kills/min.
+- **Q2 safety (`questFinish`):** `Loot.rollDrop(monsterId, rng, x, y, opts)` takes an optional 5th argument `opts = { questFinish: true|false }` (default false; 4-argument calls are unchanged). drops.js sets `questFinish` on the kill that completes Q2's objective (Skills & Quests' `RPG.quests.completesOnKill`); RPGItems never reads quest state. If this save's first Rare is not done, that kill's slot roll is upgraded to **one** beamed Rare and `firstRare` is marked done: a roll that already holds a Rare+ just marks it done; common/uncommon gear from the slot is upgraded to Rare in place (same base and seed); an empty, gold-only or non-gear slot is replaced by one near-town Rustbound Rare. Nothing extra spawns (independent rolls such as the shared rare table's bonus are untouched). The result carries `questFinishUsed: true`. It never stacks with the kill-10 guarantee (one Rare on that kill), and once done nothing re-fires. The Ash Stair is not gated in content (Q2, gear and level are not required), and a player who does Q2 and walks straight in in Rustbound has only 4 field kills, which the ramp alone covers 19% of the time. With the safety, 100% of Q2 completers hold a field Rare at hand-in on every route (content test, `dev/content/gear-path.js`); 87% get it from the safety, 13% earlier from the ramp.
+- **Backup:** `all` counts every kill, and any kill number 40 forces one (dungeon tiers) for a player who skips both the field and Q2 (Q1, then straight to the stair: 0 field kills). Stored as `firstRare: {done, kills, all, at, kill}`; older saves without `all` use `kills` for it. Once `done`, it never resets.
 - **Drought:** after 75 kills with no Rare+, the next kill adds one.
 - **Server ownership:** today a player who clears local storage gets the first-Rare again. That is one Rustbound Rare, an accepted risk before the server exists. With the server, `firstRare` and `pity` move to the account row. The server rolls drops itself (same tables and seeds), and the client value is ignored, so clearing the save can't farm it.
 
 ## Simulation (same roller and pity rules)
 
-`node dev/rpg/loot-sim.js`: 4000 players per scenario. 15 min near town at 4 kills/min, then 20-min dungeon runs at 5 kills/min with an elite every 5 min and the boss at the end. Output at commit time:
+`node dev/rpg/loot-sim.js [--no-q2]`: 4000 players per scenario. 15 min near town at 4 kills/min (the 4th goblin completes Q2's objective; times count from the first field kill), then 20-min dungeon runs at 5 kills/min with an elite every 5 min and the boss at the end. Output at commit time:
 
 ```
 Week-1 loot sim: 4000 players/scenario, town 4 kills/min for 15 min, dungeon 5 kills/min, 20-min runs ending at the boss, seed 1
-First-Rare pity: near-town kills 4+ ramp to 25%, guaranteed at near-town kill 12 (any-kill backup 40); drought pity every 75 kills
+First-Rare pity: near-town kills 3+ ramp to 25% at kill 9, guaranteed at near-town kill 10, Q2 safety on the 4th field goblin (any-kill backup 40); drought pity every 75 kills
 
 scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h
-route_pity                       2.3 min  3.0 min  3.0 min   100.0% |   26.8 min 55.2 min   94.0% | 68.9%
+route_pity                       1.5 min  2.3 min  2.5 min   100.0% |   27.2 min 55.2 min   94.1% | 68.4%
 route_no_pity                    8.0 min 19.8 min 35.2 min    90.9% |   26.6 min 55.2 min   94.1% | 68.1%
-town_only_pity                   2.3 min  3.0 min  3.0 min   100.0% |   46.3 min    2.4 h   57.8% | 24.3%
+town_only_pity                   1.5 min  2.3 min  2.5 min   100.0% |   46.3 min    2.4 h   57.8% | 24.3%
 town_only_no_pity                7.8 min 25.5 min    2.0 h    83.3% |   46.5 min    2.4 h   57.7% | 24.1%
 
-First 20-min dungeon run (with pity): Rare+ before the boss 98.3%, Very Rare+ anywhere in the run 69.5%, boss Rare+ 100% (guaranteed entry).
-Share of players whose first Rare came from the first-Rare pity: 81.1% (town only).
+First 20-min dungeon run (with pity): Rare+ before the boss 98.3%, Very Rare+ anywhere in the run 69.6%, boss Rare+ 100% (guaranteed entry).
+Share of players whose first Rare came from the first-Rare pity: 86.9% (town only).
 Wyrmfang (1/150 per Ashmaw kill): median 102 boss kills = 34.0 h of 20-min runs; p90 333 kills = 111.0 h.
 ```
 
@@ -119,9 +121,9 @@ The slow case, at 2 kills/min near town (1500 players):
 Week-1 loot sim: 1500 players/scenario, town 2 kills/min for 15 min, dungeon 5 kills/min, 20-min runs ending at the boss, seed 1
 
 scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h
-route_pity                       4.5 min  6.0 min  6.0 min   100.0% |   28.2 min 55.2 min   94.0% | 70.3%
+route_pity                       3.0 min  4.5 min  5.0 min   100.0% |   28.2 min 55.2 min   94.3% | 69.6%
 route_no_pity                   15.2 min 22.4 min 35.2 min    80.9% |   28.8 min 55.2 min   93.1% | 68.3%
-town_only_pity                   4.5 min  6.0 min  6.0 min   100.0% |      1.3 h    3.2 h   33.3% | 12.7%
+town_only_pity                   3.0 min  4.5 min  5.0 min   100.0% |      1.2 h    3.1 h   33.5% | 13.0%
 town_only_no_pity               16.0 min 52.0 min    2.9 h    59.6% |      1.3 h    3.1 h   33.0% | 12.5%
 
 ```

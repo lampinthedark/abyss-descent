@@ -45,7 +45,7 @@ RPGItems.installGlobals(Items);                    // window.Loot, Inventory, Eq
 
 | Call | When | Returns |
 |---|---|---|
-| `Loot.rollDrop(monsterId, rng?, x, y)` | On kill (rat/goblin packs, skeleton, imp, elite `brute`, boss `ashmaw`) | `{ ok, drops:[{ gid, kind:'item'|'gold', name, rarity, color, beam, qty, amount, x, y }], best, firstRareUsed, pityUsed }` |
+| `Loot.rollDrop(monsterId, rng?, x, y, opts?)` | On kill (rat/goblin packs, skeleton, imp, elite `brute`, boss `ashmaw`). Optional `opts = { questFinish: true\|false }`, default false; 4-arg calls are unchanged. See "Q2 safety" below | `{ ok, drops:[{ gid, kind:'item'|'gold', name, rarity, color, beam, qty, amount, x, y }], best, firstRareUsed, questFinishUsed, pityUsed }` |
 | `Loot.preview(monsterId)` | Boss nameplate and the questgiver's rumour line: "Can drop: Wyrmfang" | `[{ name, base, rarity, color, beamColor, icon, label:'legendary'|'very rare'|'rare find'|'guaranteed', source:'monster'|'shared' }]`. Render in array order and use `color` for the text (every entry has it: rarity colour, materials in the panel gold `#e8c84a`); `beamColor` is the ground beam. Order: chase legendaries, chase gear, chase materials, guaranteed, Very Rare table, then shared. For `ashmaw` the first four are locked by a test: Wyrmfang `#ff9a2e`, Gravewarden's Crown `#ff9a2e` (it is Legendary in the data), Wyrmscale armour `#c070ff`, Wyrm Scale `#e8c84a`. No exact odds. |
 | `Ground.pickup(gid, { goldMult })` | Walk-over auto-pickup | `{ ok, kind, slot, uid, amount }` or `{ ok:false, reason:'inventory_full' }`. The item stays on the ground. |
 | `Ground.tick()` | Every few seconds | Removes drops older than 3 min |
@@ -61,6 +61,17 @@ RPGItems.installGlobals(Items);                    // window.Loot, Inventory, Eq
 | `Bank.open()` / `Shop.open(shopId)` | NPC `act` | View object. Also emits `bank:open` / `shop:open` for the UI. |
 | `ItemSave.load()` / `ItemSave.save()` / `ItemSave.flush()` | Boot / manual / core's own save points | `{ ok, ... }` |
 | `ItemIds.next()` | **Only** if core ever needs an item-style id | `"item_<clientId>_<n>"` (provisional, untrusted) |
+
+**Q2 safety (`Loot.rollDrop` 5th argument):** `opts = { questFinish: true|false }`, optional, default `false`. drops.js sets `questFinish: true` on the kill that completes Q2's objective (Skills & Quests' `RPG.quests.completesOnKill(id, ev)`); RPGItems does not look at quest state. When `questFinish` is true and this save's first Rare is not done, that kill's slot roll becomes exactly one beamed Rare and `firstRare` is marked done:
+- the roll already produced a Rare+: nothing changes, `firstRare` is marked done;
+- the slot rolled common/uncommon gear: that item is upgraded to Rare in place (same base and seed);
+- the slot rolled nothing, gold only or a non-gear item: one near-town Rustbound Rare takes the slot.
+
+One drop and one beam from that roll; nothing extra spawns (independent rolls such as the shared rare table's bonus stay as rolled). No-op once `firstRare` is done. It never stacks with the near-town kill-10 guarantee, and the guarantee does not fire after. The result has `questFinishUsed: true` when the upgrade happened.
+
+```js
+const r = Loot.rollDrop(mob.lootId, null, mob.x, mob.y, { questFinish: RPG.quests.completesOnKill('q2_field', ev) });
+```
 
 Shop ids: `general_store`, `smithy`, `tackle`. Recipe ids: `smelt_<tier>`, `smith_<baseId>` (e.g. `smith_rustbound_sword`), `cook_mudminnow`, `cook_brookfin`, `fire_pine_logs`, `fire_ashwood_logs` (lighting a fire returns `effect:'fire'` and core places it). Monster ids are table keys in `RPGItems.Loot.MONSTERS`. Rename them freely, or tell me the ids core uses.
 

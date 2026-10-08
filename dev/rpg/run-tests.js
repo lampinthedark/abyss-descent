@@ -181,8 +181,8 @@ test('first-Rare pity: guaranteed by near-town kill GUARANTEE on rats/goblins fo
     maxK = Math.max(maxK, k);
   }
   ok(maxK <= Loot.FIRST_RARE.GUARANTEE, 'first rare at kill ' + maxK);
-  eq(Loot.FIRST_RARE.GUARANTEE, 12); eq(Loot.FIRST_RARE.RAMP_START, 4);
-  eq(Loot.firstRareChance(3), 0); ok(Loot.firstRareChance(10) > Loot.firstRareChance(5)); eq(Loot.firstRareChance(12), 1);
+  eq(Loot.FIRST_RARE.GUARANTEE, 10); eq(Loot.FIRST_RARE.RAMP_START, 3); eq(Loot.FIRST_RARE.BACKUP_GUARANTEE, 40);
+  eq(Loot.firstRareChance(2), 0); ok(Loot.firstRareChance(9) > Loot.firstRareChance(4)); eq(Loot.firstRareChance(9), 0.25); eq(Loot.firstRareChance(10), 1);
   const done = Loot.nextFirstRare({ done: true, kills: 9 }, 'rat', null);
   ok(done.done, 'never resets');
 });
@@ -199,6 +199,72 @@ test('first-Rare: only near-town kills count toward the field guarantee; dungeon
     maxK = Math.max(maxK, k);
   }
   ok(maxK <= Loot.FIRST_RARE.BACKUP_GUARANTEE, 'dungeon-only backup at ' + maxK);
+});
+test('questFinish (Q2 safety): upgrades the kill\'s slot roll to exactly one beamed Rare and marks firstRare done (all three branches)', () => {
+  const fresh = () => ({ done: false, kills: 0, all: 0 });
+  const seen = { already: 0, inPlace: 0, replaced: 0 };
+  for (let sd = 0; sd < 4000; sd++) {
+    const plain = Loot.rollDrop('goblin', Core.makeRng(Core.mixSeed('qf', sd)), { firstRare: fresh() });
+    const qf = Loot.rollDrop('goblin', Core.makeRng(Core.mixSeed('qf', sd)), { firstRare: fresh(), questFinish: true });
+    ok(qf.firstRare.done, 'done ' + sd);
+    eq(qf.gold, plain.gold, 'gold untouched');
+    const rares = qf.items.filter((it) => Loot.rarityRank(it.rarity) >= 1);
+    const beams = qf.items.filter((it) => Db.beamFor(it.rarity));
+    if (Loot.rarityRank(plain.best) >= 1) {           // already Rare+: just mark done
+      seen.already++; deq(qf.items, plain.items); ok(!qf.questFinishUsed);
+      continue;
+    }
+    ok(qf.questFinishUsed && qf.firstRareUsed);
+    eq(rares.length, 1, 'one Rare'); eq(beams.length, 1, 'one beam'); eq(rares[0].rarity, 'rare');
+    // nothing extra: every other item is an unchanged non-slot roll (e.g. the shared rare table's stew bonus)
+    const others = qf.items.filter((it) => it !== rares[0]);
+    for (const o of others) ok(plain.items.some((p) => p.base === o.base && p.seed === o.seed && p.rarity === o.rarity && p.qty === o.qty), 'extra ' + o.base);
+    ok(qf.items.length <= plain.items.length + 1);
+    if (!plain.slot && !plain.rareTable) eq(qf.items.length, 1, 'empty roll -> one drop');
+    const gear = plain.items.find((it) => Db.canRollAffixes(Db.getBase(it.base)));
+    if (gear) { seen.inPlace++; eq(rares[0].base, gear.base); eq(rares[0].seed, gear.seed, 'upgraded in place'); eq(qf.items.length, plain.items.length, 'in place'); }
+    else { seen.replaced++; eq(rares[0].tier, 'rustbound', 'near-town Rustbound gear'); }
+  }
+  ok(seen.already > 0 && seen.inPlace > 0 && seen.replaced > 0, JSON.stringify(seen));
+});
+test('questFinish: no-op once firstRare is done; omitted / false opts leave every roll unchanged', () => {
+  for (let sd = 0; sd < 1500; sd++) {
+    const rng = () => Core.makeRng(Core.mixSeed('qf-noop', sd));
+    const doneFr = { done: true, kills: 4, all: 4, at: 1, kill: 4 };
+    deq(Loot.rollDrop('goblin', rng(), { firstRare: doneFr, questFinish: true }), Loot.rollDrop('goblin', rng(), { firstRare: doneFr }));
+    const fr = { done: false, kills: 5, all: 5 };
+    deq(Loot.rollDrop('goblin', rng(), { firstRare: fr, questFinish: false }), Loot.rollDrop('goblin', rng(), { firstRare: fr }));
+    deq(Loot.rollDrop('rat', rng(), { questFinish: true }), Loot.rollDrop('rat', rng(), {}), 'no firstRare state: no-op');
+  }
+  // world hook: 4-arg calls unchanged; questFinish:false == omitted
+  const a = mkWorld({}), b = mkWorld({});
+  for (let i = 0; i < 30; i++) {
+    const ra = a.Loot.rollDrop(i % 2 ? 'rat' : 'goblin', null, 1, 2);
+    const rb = b.Loot.rollDrop(i % 2 ? 'rat' : 'goblin', null, 1, 2, { questFinish: false });
+    deq(ra.drops.map((d) => [d.kind, d.base, d.rarity, d.amount]), rb.drops.map((d) => [d.kind, d.base, d.rarity, d.amount]));
+  }
+  deq(a.Loot.firstRare(), b.Loot.firstRare());
+});
+test('questFinish vs the 10th-kill guarantee: one Rare on that kill, and the guarantee never re-fires after', () => {
+  for (let sd = 0; sd < 1500; sd++) {
+    const rng = Core.makeRng(Core.mixSeed('qf-n', sd));
+    const d = Loot.rollDrop('goblin', rng, { firstRare: { done: false, kills: Loot.FIRST_RARE.GUARANTEE - 1, all: 9 }, questFinish: true });
+    ok(d.firstRare.done);
+    if (d.questFinishUsed) {
+      eq(d.items.filter((it) => Loot.rarityRank(it.rarity) >= 1).length, 1, 'no double Rare on kill 10');
+      eq(d.items.filter((it) => Db.beamFor(it.rarity)).length, 1, 'one beam');
+    }
+    let fr = d.firstRare;
+    for (let k = 0; k < 40; k++) { const n = Loot.rollDrop('goblin', rng, { firstRare: fr }); ok(!n.firstRareUsed, 'guarantee re-fired'); fr = n.firstRare; }
+  }
+  // world: questFinish on the first kill, then 40 more kills never force another first Rare
+  const w = mkWorld({});
+  const r = w.Loot.rollDrop('goblin', null, 0, 0, { questFinish: true });
+  ok(r.ok && w.Loot.firstRare().done && w.Loot.firstRare().kill === 1);
+  const items = r.drops.filter((v) => v.kind === 'item');
+  ok(items.some((v) => Loot.rarityRank(v.rarity) >= 1 && v.beam), 'beamed Rare on the ground');
+  if (r.questFinishUsed) eq(r.drops.filter((v) => v.beam).length, 1, 'one beam');
+  for (let i = 0; i < 40; i++) ok(!w.Loot.rollDrop('goblin', null, 0, 0).firstRareUsed);
 });
 test('first-Rare pity persists in the world save and is not re-granted after load', () => {
   const st = R.Modules.itemSave.memoryStorage();

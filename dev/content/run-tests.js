@@ -433,20 +433,42 @@ test('Q1 estimate < 10 min (gate 2)', () => {
   ok(Q[0].totalS < 600, Q[0].totalS);
   ok(Q[0].totalS * 2.5 < 600, 'even at 2.5x new-player slack');
 });
-test('first-Rare guarantee fires ON THE FIELD for 100% of players within 20 min, every style (typical / even / all-on-Attack)', () => {
+test('first Rare: N=10 near-town kills (ramp 3 -> 25% at 9), cushion under the fewest grinding-route kills; 40-kill backup kept', () => {
   const FR = R.Loot.FIRST_RARE;
   ok(R.Loot.MONSTERS.goblin.nearTown && R.Loot.MONSTERS.rat.nearTown);
   for (const s of C.FIELD_SPAWNS) ok(R.Loot.MONSTERS[s.monsterId].nearTown, s.monsterId);
-  ok(FR.RAMP_START < FR.GUARANTEE && FR.GUARANTEE < FR.BACKUP_GUARANTEE, 'ramp < guarantee < dungeon backup');
+  deq([FR.RAMP_START, FR.RAMP_MAX, FR.GUARANTEE, FR.BACKUP_GUARANTEE], [3, 0.25, 10, 40]);
+  eq(R.Loot.firstRareChance(2), 0); ok(R.Loot.firstRareChance(3) > 0); eq(R.Loot.firstRareChance(9), 0.25); eq(R.Loot.firstRareChance(10), 1);
+  const rk = require('./gear-path.js').routeKills();
+  const grinding = rk.routes.filter(r => / \(Q2 \+ grind\)$/.test(r.route));
+  eq(grinding.length, 3);
+  for (const r of grinding) ok(r.kills >= FR.GUARANTEE + 2, r.route + ' ' + r.kills + ' kills: cushion of >= 2 under N=' + FR.GUARANTEE);
+});
+test('dungeon entry is not gated in content; the minimal routes are mapped (skip Q2: 0 field kills, Q2 no-grind: 4)', () => {
+  const rk = require('./gear-path.js').routeKills();
+  eq(rk.gated, false);
+  ok(rk.gateNorthOfField && rk.spawnGap > rk.maxAggro, 'the gate is reachable without pulling a field pack');
+  eq(rk.routes[0].kills, 0); eq(rk.routes[1].kills, C.quest('q2_field').steps.find(x => x.done.type === 'kill').done.count);
+});
+test('Q2\'s objective kill (what drops.js flags as questFinish) is the 4th goblin of the "Defeat goblins" step', () => {
+  const q = C.quest('q2_field'), ks = q.steps.findIndex(x => x.done.type === 'kill');
+  deq(q.steps[ks].done, { type: 'kill', target: 'goblin', count: 4 });
+  let prog = { questId: 'q2_field', step: ks, n: 0 }, finishedAt = null;
+  for (let i = 1; i <= 6 && finishedAt == null; i++) { const a = C.advance(prog, { type: 'kill', target: 'goblin' }); if (a.stepDone) finishedAt = i; prog = a.progress; }
+  eq(finishedAt, 4);
+  eq(C.advance({ questId: 'q2_field', step: ks, n: 3 }, { type: 'kill', target: 'rat' }).stepDone, false, 'rats never finish it');
+});
+test('100% of Q2 completers hold a field Rare at hand-in, and 100% get it on the field within 20 min: every style + the no-grind route', () => {
   const GP = require('./gear-path.js');
-  const res = ['typical', 'even', 'attack'].map(st => GP.fieldFirstRare(st, QUICK ? 400 : 2000));
-  const fewest = Math.min(...res.map(r => r.kills));
-  ok(FR.GUARANTEE <= fewest, 'guarantee N=' + FR.GUARANTEE + ' must be <= fewest field kills ' + fewest);
-  for (const r of res) {
-    eq(r.hitRate, 1, r.style + ' field hit rate');
-    ok(r.maxKill <= FR.GUARANTEE, r.style + ' latest kill ' + r.maxKill);
-    ok(r.maxS <= 20 * 60, r.style + ' latest ' + (r.maxS / 60).toFixed(1) + ' min');
+  for (const route of ['nogrind', 'attack', 'typical', 'even']) {
+    const r = GP.fieldFirstRare(route, QUICK ? 400 : 2000);
+    eq(r.hitRate, 1, route + ' field');
+    eq(r.atHandIn, 1, route + ' held at Q2 hand-in');
+    ok(r.maxKill <= r.q2Kills, route + ' latest kill ' + r.maxKill);
+    ok(r.maxS <= 20 * 60, route + ' latest ' + (r.maxS / 60).toFixed(1) + ' min');
   }
+  // without the Q2 safety the no-grind route would miss (why it exists)
+  ok(GP.fieldFirstRare('nogrind', 400, { safety: false }).hitRate < 0.5);
 });
 test('post-Q2 path into the dungeon in Cinderiron (weapon + body) < ~10 min for a cold player, every style', () => {
   const GP = require('./gear-path.js');

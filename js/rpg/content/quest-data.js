@@ -103,6 +103,8 @@
         // chance at Cooking 1 never stalls the quest.
         { text: 'Cook fish at the range ({n}/{count})', arrowTo: 'prop_range_0', done: { type: 'craft', target: 'cook_mudminnow', count: 2 } },
         { text: 'Head to the Goblin Field', arrowTo: 'goblin_field', done: { type: 'enter', target: 'goblin_field', count: 1 } },
+        // The kill that completes this step is Q2's objective kill: drops.js passes
+        // Loot.rollDrop(..., { questFinish: true }) for it (first-Rare safety, RPGItems).
         { text: 'Defeat goblins ({n}/{count})', arrowTo: 'goblin_field', done: { type: 'kill', target: 'goblin', count: 4 } },
         { text: 'Report to Warden Ilse', arrowTo: 'questgiver', done: { type: 'talk', target: 'questgiver', count: 1 } },
       ],

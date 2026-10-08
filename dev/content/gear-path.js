@@ -155,38 +155,72 @@ function expectedGold(grindDmg) {
 }
 
 /**
- * Near-town kill timeline for a cold player of a style (fewest kills: Q2's 4
- * goblins in two packs of 2, no rats; then the grind's goblins), with times
- * from the quest legs and the grind (x new-player slack), and the seeded
- * first-Rare roll over it. Returns { kills, fieldEndS, hit, maxKill, maxS, perSeed }.
+ * Near-town kill timeline for a cold player on a route, and the seeded
+ * first-Rare roll over it. Routes: a grinding style (typical / even / attack:
+ * Q2's 4 goblins in two packs, no rats, then the grind to Attack/Defence 3) or
+ * 'nogrind' (Q2's 4 goblins, then straight into the Ash Stair in Rustbound).
+ * Q2's goblin kills run through RPGContent.advance(); the kill that completes
+ * the step passes { questFinish: true } (what drops.js does via Skills &
+ * Quests' completesOnKill), unless opts.safety === false. Times: quest legs + grind, x new-player slack.
+ * Returns { route, kills, q2Kills, grindKills, hitRate, atHandIn, maxKill, maxS, medianS, viaSafety, viaRamp }.
  */
-function fieldFirstRare(styleId, seeds) {
+function fieldFirstRare(route, seeds, opts) {
   const B = require('./balance-sim.js');
   const Q = QT.estimates(), k = QT.NEW_PLAYER_SLACK;
-  const st = B.STYLES[styleId];
+  const n = seeds || 2000, safety = !(opts && opts.safety === false);
   const q2 = Q[1];
   let t = Q[0].totalS, times = [];
   for (const [label, s] of q2.legs) {
     if (/^defeat 4 goblins/.test(label)) { for (let i = 1; i <= 4; i++) times.push(t + s * i / 4); }
     t += s;
   }
-  const grindKills = Math.ceil(B.grindDamage(st) / C.MONSTERS.goblin.hp);
-  const grindS = B.fieldGrindMinutes(B.grindDamage(st), 'rustbound') * 60;
+  const q2Kills = times.length;
+  const grindDmg = route === 'nogrind' ? 0 : B.grindDamage(B.STYLES[route]);
+  const grindKills = Math.ceil(grindDmg / C.MONSTERS.goblin.hp);
+  const grindS = B.fieldGrindMinutes(grindDmg, 'rustbound') * 60;
   for (let i = 1; i <= grindKills; i++) times.push(t + grindS * i / grindKills);
   times = times.map(x => x * k);
-  const FR = R.Loot.FIRST_RARE;
-  let hit = 0, maxKill = 0, maxS = 0;
-  for (let sd = 0; sd < (seeds || 2000); sd++) {
+  const Q2 = C.quest('q2_field'), killStep = Q2.steps.findIndex(x => x.done.type === 'kill');
+  let hit = 0, handIn = 0, maxKill = 0, maxS = 0, viaSafety = 0, viaRamp = 0; const at = [];
+  for (let sd = 0; sd < n; sd++) {
     const rng = M.rng32(31337 + sd * 7919);
-    let fr = { done: false, kills: 0, all: 0 }, at = null;
+    let fr = { done: false, kills: 0, all: 0 }, prog = { questId: 'q2_field', step: killStep, n: 0 }, idx = null;
     for (let i = 0; i < times.length && !fr.done; i++) {
-      fr = R.Loot.rollDrop('goblin', rng, { firstRare: fr }).firstRare;
-      if (fr.done) at = i;
+      const ev = { type: 'kill', target: 'goblin' };
+      const adv = i < q2Kills ? C.advance(prog, ev) : null;
+      const questFinish = safety && !!(adv && adv.stepDone);
+      const d = R.Loot.rollDrop('goblin', rng, { firstRare: fr, questFinish });
+      if (adv) prog = adv.progress;
+      fr = d.firstRare;
+      if (fr.done) { idx = i; if (d.questFinishUsed) viaSafety++; else viaRamp++; }
     }
-    if (at != null) { hit++; maxKill = Math.max(maxKill, at + 1); maxS = Math.max(maxS, times[at]); }
+    if (idx != null) { hit++; at.push(times[idx]); maxKill = Math.max(maxKill, idx + 1); maxS = Math.max(maxS, times[idx]); if (idx < q2Kills) handIn++; }
   }
-  return { style: styleId, kills: times.length, q2Kills: 4, grindKills, fieldEndS: times[times.length - 1], guarantee: FR.GUARANTEE,
-    hitRate: hit / (seeds || 2000), maxKill, maxS };
+  at.sort((a, b) => a - b);
+  return { route, style: route, kills: times.length, q2Kills, grindKills, guarantee: R.Loot.FIRST_RARE.GUARANTEE, safety,
+    hitRate: hit / n, atHandIn: handIn / n, maxKill, maxS, medianS: at.length ? at[Math.floor(at.length / 2)] : null,
+    viaSafety: viaSafety / n, viaRamp: viaRamp / n };
+}
+
+/**
+ * Fewest near-town kills on a route that reaches the Ash Stair entrance. Nothing
+ * in content gates the stair (the ash_stair_gate zone travels unconditionally;
+ * Q3 requires Q2 only as a quest offer), and the gate (y 26-27) is north of the
+ * field rect (y 32-37), out of rat (3) / goblin (4) aggro from the field spawns.
+ */
+function routeKills() {
+  const B = require('./balance-sim.js');
+  const gate = C.ZONES.ash_stair_gate.rect, field = C.ZONES.goblin_field.rect;
+  const gap = Math.min(...C.FIELD_SPAWNS.map(sp => sp.y - (gate.y + gate.h - 1)));
+  const aggro = Math.max(...C.FIELD_SPAWNS.map(sp => C.MONSTERS[sp.monsterId].aggro));
+  return {
+    gated: !!(C.ZONES.ash_stair_gate.requires || C.ZONES.ash_stair_gate.gate),
+    gateNorthOfField: gate.y + gate.h <= field.y, spawnGap: gap, maxAggro: aggro,
+    routes: [
+      { route: 'skip Q2 (Q1, then the stair)', kills: 0 },
+      { route: 'Q2, then straight in (no grind, Rustbound)', kills: 4 },
+    ].concat(['attack', 'typical', 'even'].map(st => ({ route: st + ' (Q2 + grind)', kills: 4 + Math.ceil(B.grindDamage(B.STYLES[st]) / C.MONSTERS.goblin.hp) }))),
+  };
 }
 
 const BEFORE_SHOP = ['sword'];   // smithy stock before this change: Cinderiron sword only
@@ -198,8 +232,8 @@ function report() {
 }
 if (require.main === module) {
   const rows = report();
-  const fr = ['typical', 'even', 'attack'].map(x => fieldFirstRare(x));
-  if (process.argv.includes('--json')) { console.log(JSON.stringify({ rows, firstRare: fr }, null, 1)); process.exit(0); }
+  const fr = ['nogrind', 'attack', 'typical', 'even'].map(x => fieldFirstRare(x));
+  if (process.argv.includes('--json')) { console.log(JSON.stringify({ rows, firstRare: fr, routes: routeKills() }, null, 1)); process.exit(0); }
   const cs = coldStart();
   console.log('Cold player after Q2: Mining ' + cs.mining + ' XP (L' + xpLvl(cs.mining) + '), Smithing ' + cs.smithing + ' XP (L' + xpLvl(cs.smithing) + '), quest gold ' + cs.gold + '.');
   console.log('Smithy Cinderiron stock now: ' + SET.map(k => k + ' ' + (shopPrice('cinderiron_' + k) != null ? shopPrice('cinderiron_' + k) + 'g' : '-')).join(', ') + '.');
@@ -211,10 +245,14 @@ if (require.main === module) {
     console.log('| ' + [o.when, g.label, o.style, g.gold, (g.bought || []).join('+') || '-', (g.smithPieces || []).join('+') || '-', g.plan ? g.plan.r : '-', g.plan ? g.plan.cOre : '-',
       g.plan ? g.plan.smelts : '-', g.plan ? g.plan.smiths : '-', g.feasible ? (g.totalS / 60).toFixed(1) : 'n/a', (o.grindS / 60).toFixed(1), (o.rawS / 60).toFixed(1), (o.slackS / 60).toFixed(1)].join(' | ') + ' |');
   }
-  const FR = R.Loot.FIRST_RARE;
-  console.log('\nFirst Rare on the goblin field (RPGItems FIRST_RARE: ramp from near-town kill ' + FR.RAMP_START + ' to ' + (FR.RAMP_MAX * 100) + '%, guaranteed at near-town kill ' + FR.GUARANTEE + '; any-kill backup at ' + FR.BACKUP_GUARANTEE + '). Fewest-kill timeline per style (Q2: 4 goblins, no rats; then the grind), x' + QT.NEW_PLAYER_SLACK + ' slack, 2000 seeds:\n');
-  console.log('| style | near-town kills before the dungeon | first Rare on the field | latest kill | latest time from Q1 start |');
-  console.log('|---|---|---|---|---|');
-  fr.forEach(f => console.log('| ' + [f.style, f.kills + ' (Q2 ' + f.q2Kills + ' + grind ' + f.grindKills + ')', (f.hitRate * 100).toFixed(1) + '%', f.maxKill, (f.maxS / 60).toFixed(1) + ' min'].join(' | ') + ' |'));
+  const FR = R.Loot.FIRST_RARE, rk = routeKills();
+  console.log('\nRoutes to the Ash Stair (Ash Stair entry gated in content: ' + (rk.gated ? 'yes' : 'no') + '; gate north of the field: ' + rk.gateNorthOfField + ', nearest field spawn ' + rk.spawnGap + ' tiles vs aggro ' + rk.maxAggro + '): fewest near-town kills ' + rk.routes.map(r => r.route + ' ' + r.kills).join('; ') + '.');
+  console.log('\nFirst Rare on the goblin field (RPGItems FIRST_RARE: ramp from near-town kill ' + FR.RAMP_START + ' to ' + (FR.RAMP_MAX * 100) + '% at kill ' + (FR.GUARANTEE - 1) + ', guaranteed at near-town kill ' + FR.GUARANTEE + '; Q2 safety: the kill completing Q2\'s goblin objective forces it; any-kill backup at ' + FR.BACKUP_GUARANTEE + '). Fewest-kill timeline per route (Q2: 4 goblins, no rats; then the grind), x' + QT.NEW_PLAYER_SLACK + ' slack, 2000 seeds:\n');
+  console.log('| route | near-town kills before the dungeon | first Rare on the field | held at Q2 hand-in | via Q2 safety / ramp | latest kill | median time | latest time (from Q1 start) |');
+  console.log('|---|---|---|---|---|---|---|---|');
+  fr.forEach(f => console.log('| ' + [f.route, f.kills + ' (Q2 ' + f.q2Kills + ' + grind ' + f.grindKills + ')', (f.hitRate * 100).toFixed(1) + '%', (f.atHandIn * 100).toFixed(1) + '%',
+    (f.viaSafety * 100).toFixed(0) + '% / ' + (f.viaRamp * 100).toFixed(0) + '%', f.maxKill, (f.medianS / 60).toFixed(1) + ' min', (f.maxS / 60).toFixed(1) + ' min'].join(' | ') + ' |'));
+  const ns = ['nogrind', 'attack', 'typical', 'even'].map(x => fieldFirstRare(x, 2000, { safety: false }));
+  console.log('\nWithout the Q2 safety (ramp + N only): ' + ns.map(f => f.route + ' ' + (f.hitRate * 100).toFixed(1) + '% on the field, ' + (f.atHandIn * 100).toFixed(1) + '% by hand-in').join('; ') + '.');
 }
-module.exports = { TARGETS, BEFORE_SHOP, fieldFirstRare, coldStart, shopPrice, bestPlan, postQ2, expectedGold, simulatePlan, report };
+module.exports = { TARGETS, BEFORE_SHOP, fieldFirstRare, routeKills, coldStart, shopPrice, bestPlan, postQ2, expectedGold, simulatePlan, report };

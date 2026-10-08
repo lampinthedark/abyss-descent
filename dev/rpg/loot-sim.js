@@ -21,7 +21,7 @@ function arg(name, def) {
   return i >= 0 ? Number(process.argv[i + 1]) : def;
 }
 const OPT = {
-  players: arg('players', 4000), townKpm: arg('town-kpm', 4), dungeonKpm: arg('dungeon-kpm', 5),
+  players: arg('players', 4000), townKpm: arg('town-kpm', 4), dungeonKpm: arg('dungeon-kpm', 5), q2: !process.argv.includes('--no-q2'),
   townMin: arg('town-min', 15), runMin: arg('run-min', 20), seed: arg('seed', 1), horizonMin: arg('horizon-min', 240),
 };
 
@@ -51,6 +51,8 @@ function* schedule(o, rng) {
   }
 }
 
+const Q2_GOBLINS = 4;   // Q2 "Defeat goblins (n/4)"
+
 /** One player. pity=false disables BOTH the first-Rare and drought pity. */
 function player(o, seed, pity, townOnly) {
   const rng = Core.makeRng(seed);
@@ -58,9 +60,12 @@ function player(o, seed, pity, townOnly) {
   const out = { rare: null, veryRare: null, legendary: null, firstRareForced: false };
   let firstRun = { rare: false, veryRare: false };
   const sched = townOnly ? (function* () { let t = 0; for (;;) { t += 1 / o.townKpm; yield { t, monster: rng.next() < 0.5 ? 'rat' : 'goblin' }; } })() : schedule(o, rng);
+  let goblins = 0;
   for (const k of sched) {
     if (k.t > o.horizonMin) break;
-    const d = Loot.rollDrop(k.monster, rng, pity ? { pity: st.pity, firstRare: st.firstRare } : {});
+    // Q2 safety: the player's 4th field goblin completes Q2's objective (drops.js passes questFinish)
+    const q2Kill = k.monster === 'goblin' && k.run == null && ++goblins === Q2_GOBLINS && o.q2;
+    const d = Loot.rollDrop(k.monster, rng, pity ? { pity: st.pity, firstRare: st.firstRare, questFinish: q2Kill } : {});
     const best = rank(d.best);
     st.pity = best >= 1 ? 0 : st.pity + 1;
     st.firstRare = Loot.nextFirstRare(st.firstRare, k.monster, d.best);
@@ -123,7 +128,7 @@ function print(r) {
   const o = r.options;
   console.log(`Week-1 loot sim: ${o.players} players/scenario, town ${o.townKpm} kills/min for ${o.townMin} min, ` +
     `dungeon ${o.dungeonKpm} kills/min, ${o.runMin}-min runs ending at the boss, seed ${o.seed}`);
-  console.log(`First-Rare pity: near-town kills ${Loot.FIRST_RARE.RAMP_START}+ ramp to ${Loot.FIRST_RARE.RAMP_MAX * 100}%, guaranteed at near-town kill ${Loot.FIRST_RARE.GUARANTEE} (any-kill backup ${Loot.FIRST_RARE.BACKUP_GUARANTEE}); drought pity every ${Loot.PITY_KILLS} kills\n`);
+  console.log(`First-Rare pity: near-town kills ${Loot.FIRST_RARE.RAMP_START}+ ramp to ${Loot.FIRST_RARE.RAMP_MAX * 100}% at kill ${Loot.FIRST_RARE.GUARANTEE - 1}, guaranteed at near-town kill ${Loot.FIRST_RARE.GUARANTEE}${o.q2 ? ', Q2 safety on the 4th field goblin' : ' (Q2 safety off)'} (any-kill backup ${Loot.FIRST_RARE.BACKUP_GUARANTEE}); drought pity every ${Loot.PITY_KILLS} kills\n`);
   console.log('scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h');
   for (const [k, s] of Object.entries(r.scenarios)) {
     console.log(`${k.padEnd(20)}            ${fmt(s.rare.median).padStart(8)} ${fmt(s.rare.p90).padStart(8)} ${fmt(s.rare.max).padStart(8)}  ${(s.rare.within20 * 100).toFixed(1).padStart(6)}% |` +
