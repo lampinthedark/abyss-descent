@@ -695,7 +695,7 @@ assert(stair.townGate && stair.townGate.x === 12 && stair.townGate.y === 27, 'to
 assert(stair.grid[0][0] === 1 && stair.grid[1][1] === 0 && stair.grid[1][2] === 1, 'rows and blocking props become a grid');
 const stairLoad = RPG.dungeon.load(stair);
 assert(zoneLoads[zoneLoads.length - 1].id === 'ash_stair', 'loadZone receives Ash Stair');
-assert(hero.x === 11 && hero.y === 3, 'hero stands on the stair entry');
+assert(hero.x === 11.5 && hero.y === 3.5, 'hero stands in the middle of the stair entry tile');
 const stairSkel = stairLoad.spawned.filter((m) => m.monsterId === 'skeleton');
 const stairBoss = stairLoad.spawned.filter((m) => m.monsterId === 'ashmaw');
 assert(stairSkel.length === 2 && stairSkel[0].hp === 123 && stairSkel[0].atk === 14 && stairSkel[0].room === 'hall_1', 'skeleton pack comes from the content record');

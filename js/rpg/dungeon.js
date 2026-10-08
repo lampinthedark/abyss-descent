@@ -111,6 +111,11 @@
     return grid;
   }
 
+  /** Content gives whole tile coords; entities stand on tile centres (tx + 0.5). */
+  function tileMid(v) {
+    return (typeof v === 'number' && Math.floor(v) === v) ? v + 0.5 : v;
+  }
+
   /** Copy a content dungeon into the zone object world.loadZone expects. */
   function normalize(zone) {
     if (!zone || typeof zone !== 'object' || !zone.rows) return zone;
@@ -192,8 +197,8 @@
       try { RPG.deathRecap.resetRun(); } catch (err) {}
     }
     if (zone.entry && RPG.hero) {
-      if (typeof zone.entry.x === 'number') RPG.hero.x = zone.entry.x;
-      if (typeof zone.entry.y === 'number') RPG.hero.y = zone.entry.y;
+      if (typeof zone.entry.x === 'number') RPG.hero.x = tileMid(zone.entry.x);
+      if (typeof zone.entry.y === 'number') RPG.hero.y = tileMid(zone.entry.y);
     }
     const spawned = [];
     const spawns = zone.spawns || [];
@@ -204,7 +209,7 @@
       const id = s.monsterId || s.id;
       if (id === 'ashmaw') bossFromSpawn = true;
       const count = packCount(id, s);
-      const pack = RPG.ai.spawnPack(id, s.x, s.y, count, s.leash);
+      const pack = RPG.ai.spawnPack(id, tileMid(s.x), tileMid(s.y), count, s.leash);
       for (let j = 0; j < pack.length; j++) {
         if (s.elite) pack[j].elite = true;
         if (s.room) pack[j].room = s.room;
@@ -212,7 +217,7 @@
       }
     }
     if (!bossFromSpawn && isPointBoss(zone.bossRoom) && RPG.ai && RPG.ai.boss && typeof RPG.ai.boss.spawn === 'function') {
-      const boss = RPG.ai.boss.spawn(zone.bossRoom.x, zone.bossRoom.y, zone.bossRoom);
+      const boss = RPG.ai.boss.spawn(tileMid(zone.bossRoom.x), tileMid(zone.bossRoom.y), zone.bossRoom);
       if (boss) spawned.push(boss);
     }
     emit('enter', { zone: zone });
