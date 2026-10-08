@@ -95,3 +95,7 @@ Branch base: #28 FX head c39b8d2. All code lives in js/rpg/. Units are tiles (fl
 
 ### Sheets
 - `assets/rpg/sheets.json` lists the sheets: phaseb, town, hero, mobs, icons (rpg32), icons_tinted. A later sheet wins on key clashes. Swap a PNG and JSON pair to drop in new art. Missing keys draw labelled placeholder boxes.
+
+## Hero sprite set
+- Core draws `hero_bare_*` whenever `Equipment.getStats().weapon` is null (fresh save, bread-only start) and `hero_rustbound_*` once a weapon is equipped (Q1's smithed sword). Re-checked every 250 ms. The current set is on `RPG.hero.spriteSet` ('hero_bare' | 'hero_rustbound') so combat can play `${spriteSet}_attack`.
+- Unarmed max hit is 1 (PM ruling): `RPG.combat.maxHit()` returns 1 while `Equipment.getStats().weapon` is null.

@@ -46,6 +46,7 @@
     },
     /** Max hit from Strength + gear power. D3 tunes this. */
     maxHit: function () {
+      if (!gear().weapon) return 1; // unarmed fist (PM ruling): Q1's sword is the payoff
       return Math.max(1, Math.floor(1 + (RPG.stats.level('strength') + (gear().power || 0)) / 4));
     },
     /** D3: swing at a mob entity. Stub: no-op. */

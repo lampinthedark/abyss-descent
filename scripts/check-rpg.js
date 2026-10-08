@@ -355,7 +355,7 @@ function coreCtx() {
   T.edges.forEach((r) => r.forEach((l) => (l || []).forEach((k) => used.add(k))));
   mk.ore.forEach((m) => used.add('node_ore_' + m.tier + '_full'));
   mk.tree.forEach((m) => used.add('node_tree_' + m.kind + '_full'));
-  ['node_fish_0', 'prop_furnace_0', 'prop_anvil_0', 'prop_range_0', 'prop_fire_0', 'hero_rustbound_idle', 'hero_rustbound_walk'].forEach((k) => used.add(k));
+  ['node_fish_0', 'prop_furnace_0', 'prop_anvil_0', 'prop_range_0', 'prop_fire_0', 'hero_rustbound_idle', 'hero_rustbound_walk', 'hero_bare_idle', 'hero_bare_walk'].forEach((k) => used.add(k));
   Object.values(W.MOBS).forEach((m) => [m.idle, m.walk, m.attack].forEach((k) => used.add(k)));
   const missing = [...used].filter((k) => !keys.has(k));
   ok(missing.length === 0, 'every key the town uses is in a sheet: missing ' + missing.join(', '));

@@ -7,7 +7,8 @@
   "tile_h": 18,
   "facing": "single front (camera-facing) view, sword on the viewer's left. Mirror horizontally when moving/attacking to the viewer's right; use the same frames for up/down. No back view yet.",
   "anchor": "draw at (feetX - footX, feetY - footY); footY 41 = feet anchor row (same anchor as the scene hero). Ring is NOT in the frames: GD draws the live ring (halo + cream stroke) before the hero.",
-  "frames_side_by_side": "frame i at x + i*w"
+  "frames_side_by_side": "frame i at x + i*w",
+  "unarmed": "core uses hero_bare_* when no weapon is equipped (empty fists, no sword, no shield; unarmed max hit 1). Same cell, anchor and mirroring as hero_rustbound_*."
  },
  "frames": {
   "hero_rustbound_idle": {
@@ -50,6 +51,49 @@
     90,
     60,
     90,
+    120
+   ],
+   "hit_frame": 1
+  },
+  "hero_bare_idle": {
+   "x": 0,
+   "y": 126,
+   "w": 36,
+   "h": 42,
+   "frames": 2,
+   "footY": 41,
+   "footX": 18,
+   "ms": [
+    500,
+    500
+   ]
+  },
+  "hero_bare_walk": {
+   "x": 0,
+   "y": 168,
+   "w": 36,
+   "h": 42,
+   "frames": 4,
+   "footY": 41,
+   "footX": 18,
+   "ms": [
+    120,
+    120,
+    120,
+    120
+   ]
+  },
+  "hero_bare_attack": {
+   "x": 0,
+   "y": 210,
+   "w": 36,
+   "h": 42,
+   "frames": 3,
+   "footY": 41,
+   "footX": 18,
+   "ms": [
+    80,
+    60,
     120
    ],
    "hit_frame": 1
