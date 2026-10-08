@@ -34,13 +34,20 @@
  * sweeps the lane; the last 120ms blinks once at 60% white. Reduced motion
  * keeps a static lane and a solid end outline, with no sweep and no blink.
  * FX.lootPull(id, x, y, toX, toY, ms, rarity) draws the trail of a flying
- * drop. Coordinates are tiles. GD moves the item; this only leaves 3 to 5
- * fading squares behind the point it passes, and a 4-spark pop when that
- * point reaches the hero. The same id updates the point and the hero, and
- * does not restart the clock. rarity is the item rarity string (uncommon
- * green, rare #4c7cff, epic #b48cff, legendary gold). Common, junk, and
- * anything rarityId does not know draw nothing. lootPullOff(id) cancels
- * with no pop. Reduced motion skips the trail and draws one ring on arrival.
+ * drop. Coordinates are tiles. GD moves the item. This draws four squares
+ * behind it (3, 3, 2, 2 art px, about 0.35 tiles apart, alpha 90/70/50/30,
+ * 1px #14120f edges at 70%) and a 1px rarity ring on the item. Legendary
+ * squares use a #ffb43c core and a #ffd27a edge. ms is the flight time, not
+ * a ground wait: the game flies an item in about 400ms, including a
+ * Rare-and-up auto-fly that starts after 10s on the ground. ms is clamped
+ * to 120-1200. The same id updates the point and the hero and does not
+ * restart the clock. The trail advances only in FX.update, so a pause,
+ * level-up, or background skips it, and slow-mo follows the dt passed in.
+ * rarity is cached per slot; rarityId runs only when that argument is not
+ * the same string as last time. Common, junk, and unknown names draw
+ * nothing. lootPullOff(id) and FX.reset() cancel with no pop. Reaching the
+ * hero plays a 4-spark pop. Reduced motion skips the trail and draws one
+ * ring on arrival.
  * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
  * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
  * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
@@ -244,32 +251,39 @@ const FX = (function () {
   }
 
   const LOOT_ARRIVE2 = 0.0225;
-  const lootFade = [1, 0.72, 0.48, 0.3, 0.16];
+  const LOOT_GAP = 0.35;
+  const LOOT_A0 = 0.9;
+  const LOOT_A1 = 0.7;
+  const LOOT_A2 = 0.5;
+  const LOOT_A3 = 0.3;
+  const LOOT_EDGE_A = 0.7;
+  const LOOT_INK = '#14120f';
+  const LOOT_GREEN = '#5ed37a';
+  const LOOT_RARE = '#4c7cff';
+  const LOOT_EPIC = '#b48cff';
+  const LOOT_GOLD = '#ffb43c';
+  const LOOT_GOLD_EDGE = '#ffd27a';
   const loots = new Array(LOOT_N);
   for (let i = 0; i < LOOT_N; i++) {
     const s = loots[i] = {
-      on: 0, id: null, x: 0.5, y: 0.5, toX: 0.5, toY: 0.5,
-      age: 0.5, dur: 0.5, r: 1, hn: 1, pop: 0, tag: null,
-      hx0: 0.5, hy0: 0.5, hx1: 0.5, hy1: 0.5,
-      hx2: 0.5, hy2: 0.5, hx3: 0.5, hy3: 0.5,
+      on: 0, id: null, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5,
+      toX: 0.5, toY: 0.5, ux: 0.5, uy: 0.5,
+      age: 0.5, dur: 0.5, r: 0, pop: 0, wait: 0, lit: 0, tag: null,
     };
-    s.x = 0;
-    s.y = 0;
-    s.toX = 0;
-    s.toY = 0;
-    s.age = 0;
+    s.x = -0;
+    s.y = -0;
+    s.nx = -0;
+    s.ny = -0;
+    s.toX = -0;
+    s.toY = -0;
+    s.ux = -0;
+    s.uy = -0;
+    s.age = -0;
     s.dur = 0.4;
     s.r = 0;
-    s.hn = 0;
     s.pop = 0;
-    s.hx0 = 0;
-    s.hy0 = 0;
-    s.hx1 = 0;
-    s.hy1 = 0;
-    s.hx2 = 0;
-    s.hy2 = 0;
-    s.hx3 = 0;
-    s.hy3 = 0;
+    s.wait = 0;
+    s.lit = 0;
   }
 
   const hexUx = new Array(6);
@@ -1350,16 +1364,24 @@ const FX = (function () {
     return 0;
   }
 
-  function lootRemember(s) {
-    s.hx3 = s.hx2;
-    s.hy3 = s.hy2;
-    s.hx2 = s.hx1;
-    s.hy2 = s.hy1;
-    s.hx1 = s.hx0;
-    s.hy1 = s.hy0;
-    s.hx0 = s.x;
-    s.hy0 = s.y;
-    if (s.hn < 4) s.hn += 1;
+  function lootDur(ms) {
+    let v = 400;
+    if (lootFinite(ms) && ms > 0) v = ms;
+    if (v < 120) v = 120;
+    if (v > 1200) v = 1200;
+    return v * 0.001;
+  }
+
+  function lootCore(r) {
+    if (r === 1) return LOOT_GREEN;
+    if (r === 2) return LOOT_RARE;
+    if (r === 3) return LOOT_EPIC;
+    return LOOT_GOLD;
+  }
+
+  function lootEdgeColor(r) {
+    if (r === 4) return LOOT_GOLD_EDGE;
+    return LOOT_INK;
   }
 
   function lootSparks(x, y, r) {
@@ -1383,12 +1405,18 @@ const FX = (function () {
     }
   }
 
+  function lootStop(s) {
+    s.on = 0;
+    s.pop = 0;
+    s.wait = 0;
+    s.lit = 0;
+  }
+
   function lootArrive(s) {
     const x = s.x;
     const y = s.y;
     const r = s.r;
-    s.on = 0;
-    s.hn = 0;
+    lootStop(s);
     if (reducedNow()) {
       s.pop = 1;
       s.x = x;
@@ -1396,17 +1424,12 @@ const FX = (function () {
       s.r = r;
       return;
     }
-    s.pop = 0;
     lootSparks(x, y, r);
   }
 
   function lootClear(id) {
     for (let i = 0; i < LOOT_N; i++) {
-      if (loots[i].id === id) {
-        loots[i].on = 0;
-        loots[i].pop = 0;
-        loots[i].hn = 0;
-      }
+      if (loots[i].id === id) lootStop(loots[i]);
     }
   }
 
@@ -1417,7 +1440,7 @@ const FX = (function () {
     lootSlot = null;
     lootFresh = 1;
     for (let i = 0; i < LOOT_N; i++) {
-      if (loots[i].id === id && (loots[i].on || loots[i].pop)) {
+      if (loots[i].id === id) {
         lootSlot = loots[i];
         lootFresh = loots[i].on ? 0 : 1;
         return;
@@ -1446,88 +1469,147 @@ const FX = (function () {
   function lootPullOn(id, x, y, toX, toY, ms, rarity) {
     if (!lootFinite(x) || !lootFinite(y) || !lootFinite(toX) || !lootFinite(toY)) return;
     lootTake(id);
-    let rid = 0;
-    if (lootSlot && !lootFresh && lootSlot.tag === rarity && lootSlot.r > 0) rid = lootSlot.r;
-    else rid = rarityId(rarity);
-    if (rid <= 0) {
-      lootClear(id);
-      return;
-    }
-    let dur = 0.4;
-    if (lootFinite(ms) && ms > 0) dur = ms * 0.001;
     if (!lootSlot) return;
     const slot = lootSlot;
-    const fresh = lootFresh;
-    if (!fresh) {
-      const dx = x - slot.x;
-      const dy = y - slot.y;
-      if (dx * dx + dy * dy > 0.0004) lootRemember(slot);
+    let rid = 0;
+    if (slot.tag === rarity) rid = slot.r;
+    else {
+      rid = rarityId(rarity);
+      slot.tag = rarity;
+      slot.r = rid;
     }
-    slot.on = 1;
-    slot.pop = 0;
+    if (!(rid > 0)) {
+      slot.id = id;
+      lootStop(slot);
+      return;
+    }
+    const dur = lootDur(ms);
+    const fresh = lootFresh;
     slot.id = id;
-    slot.x = x;
-    slot.y = y;
+    slot.r = rid;
+    slot.nx = x;
+    slot.ny = y;
     slot.toX = toX;
     slot.toY = toY;
-    slot.r = rid;
-    slot.tag = rarity;
+    slot.dur = dur;
+    slot.wait = 1;
+    slot.pop = 0;
     if (fresh) {
-      slot.age = 0;
-      slot.dur = dur;
-      slot.hn = 0;
-    } else if (lootFinite(ms) && ms > 0) {
-      slot.dur = dur;
+      slot.on = 1;
+      slot.x = x;
+      slot.y = y;
+      slot.ux = -0;
+      slot.uy = -0;
+      slot.age = -0;
+      slot.lit = 0;
+    } else {
+      slot.on = 1;
     }
-    const adx = toX - x;
-    const ady = toY - y;
-    if (adx * adx + ady * ady <= LOOT_ARRIVE2) lootArrive(slot);
   }
 
-  function lootHist(s, k) {
-    if (k === 0) return s.hx0;
-    if (k === 1) return s.hx1;
-    if (k === 2) return s.hx2;
-    return s.hx3;
+  function lootApply(s) {
+    const dx = s.nx - s.x;
+    const dy = s.ny - s.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 0.0000001) {
+      const inv = 1 / Math.sqrt(d2);
+      s.ux = dx * inv;
+      s.uy = dy * inv;
+      s.x = s.nx;
+      s.y = s.ny;
+    } else if (!(s.ux * s.ux + s.uy * s.uy > 0.25)) {
+      const tx = s.toX - s.x;
+      const ty = s.toY - s.y;
+      const t2 = tx * tx + ty * ty;
+      if (t2 > 0.0000001) {
+        const inv = 1 / Math.sqrt(t2);
+        s.ux = tx * inv;
+        s.uy = ty * inv;
+      }
+    }
+    s.wait = 0;
+    s.lit = 1;
   }
 
-  function lootHistY(s, k) {
-    if (k === 0) return s.hy0;
-    if (k === 1) return s.hy1;
-    if (k === 2) return s.hy2;
-    return s.hy3;
+  function lootPlot(ctx, x, y) {
+    ctx.fillRect(x, y, 1, 1);
   }
 
-  function paintLootSq(ctx, sx, sy, cell, half, color, alpha) {
-    const x0 = Math.round(sx) - half;
-    const y0 = Math.round(sy) - half;
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#14120f';
-    ctx.fillRect(x0 - 1, y0 - 1, cell + 2, cell + 2);
+  function paintLootRing(ctx, sx, sy, zoom, color) {
+    const z = zoom > 0 ? zoom : 1;
+    let rad = Math.round(3 * z);
+    if (rad < 2) rad = 2;
+    const cx = Math.round(sx);
+    const cy = Math.round(sy);
+    ctx.globalAlpha = 1;
     ctx.fillStyle = color;
-    ctx.fillRect(x0, y0, cell, cell);
+    let x = 0;
+    let y = rad;
+    let d = 1 - rad;
+    while (x <= y) {
+      lootPlot(ctx, cx + x, cy + y);
+      lootPlot(ctx, cx - x, cy + y);
+      lootPlot(ctx, cx + x, cy - y);
+      lootPlot(ctx, cx - x, cy - y);
+      lootPlot(ctx, cx + y, cy + x);
+      lootPlot(ctx, cx - y, cy + x);
+      lootPlot(ctx, cx + y, cy - x);
+      lootPlot(ctx, cx - y, cy - x);
+      x += 1;
+      if (d < 0) d += 2 * x + 1;
+      else {
+        y -= 1;
+        d += 2 * (x - y) + 1;
+      }
+    }
+  }
+
+  function paintLootMark(ctx, sx, sy, art, zoom, alpha, core, edge) {
+    const z = zoom > 0 ? zoom : 1;
+    let pix = Math.round(art * z);
+    if (pix < 1) pix = 1;
+    const x0 = Math.round(sx) - (pix >> 1);
+    const y0 = Math.round(sy) - (pix >> 1);
+    ctx.globalAlpha = LOOT_EDGE_A;
+    ctx.fillStyle = edge;
+    ctx.fillRect(x0 - 1, y0 - 1, pix + 2, pix + 2);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = core;
+    ctx.fillRect(x0, y0, pix, pix);
   }
 
   function paintLoot(ctx, zoom, camX, camY, calm) {
     const span = tileSpan(zoom);
-    const cell = telCell(zoom);
-    const half = cell >> 1;
     for (let i = 0; i < LOOT_N; i++) {
       const s = loots[i];
       if (s.pop) {
         ctx.globalAlpha = 1;
-        paintPixelRing(ctx, s.x * span + camX, s.y * span + camY, 4, zoom, rarityFill(s.r), 0);
+        paintPixelRing(ctx, s.x * span + camX, s.y * span + camY, 4, zoom, lootCore(s.r), 0);
         s.pop = 0;
         continue;
       }
-      if (!s.on || calm) continue;
-      const color = rarityFill(s.r);
-      const n = s.hn;
-      for (let k = n - 1; k >= 0; k--) {
-        const fade = lootFade[k + 1] || 0.16;
-        paintLootSq(ctx, lootHist(s, k) * span + camX, lootHistY(s, k) * span + camY, cell, half, color, fade);
+      if (!s.on || !s.lit || calm) continue;
+      const core = lootCore(s.r);
+      const edge = lootEdgeColor(s.r);
+      const ux = s.ux;
+      const uy = s.uy;
+      for (let k = 3; k >= 0; k--) {
+        let art = 2;
+        let alpha = LOOT_A3;
+        if (k === 0) {
+          art = 3;
+          alpha = LOOT_A0;
+        } else if (k === 1) {
+          art = 3;
+          alpha = LOOT_A1;
+        } else if (k === 2) {
+          art = 2;
+          alpha = LOOT_A2;
+        }
+        const back = LOOT_GAP * (k + 1);
+        paintLootMark(ctx, (s.x - ux * back) * span + camX, (s.y - uy * back) * span + camY, art, zoom, alpha, core, edge);
       }
-      paintLootSq(ctx, s.x * span + camX, s.y * span + camY, cell, half, color, lootFade[0]);
+      paintLootRing(ctx, s.x * span + camX, s.y * span + camY, zoom, core);
     }
     ctx.globalAlpha = 1;
   }
@@ -2087,13 +2169,14 @@ const FX = (function () {
       const s = loots[i];
       if (!s.on) continue;
       s.age += dt;
+      if (s.wait) lootApply(s);
       const dx = s.toX - s.x;
       const dy = s.toY - s.y;
       if (dx * dx + dy * dy <= LOOT_ARRIVE2) {
         lootArrive(s);
         continue;
       }
-      if (s.age >= s.dur) s.on = 0;
+      if (s.age + 0.0001 >= s.dur) lootStop(s);
     }
   }
 
@@ -2689,11 +2772,7 @@ const FX = (function () {
       }
       for (let i = 0; i < SP_N; i++) spawns[i].on = 0;
       for (let i = 0; i < BR_N; i++) breaks[i].on = 0;
-      for (let i = 0; i < LOOT_N; i++) {
-        loots[i].on = 0;
-        loots[i].pop = 0;
-        loots[i].hn = 0;
-      }
+      for (let i = 0; i < LOOT_N; i++) lootStop(loots[i]);
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
