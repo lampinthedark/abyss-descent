@@ -36,6 +36,9 @@
     { "id": "skeleton/body/elite", "tint": "none" },
     { "id": "skeleton/body/boss", "tint": "none", "outline": false },
     { "id": "wolf/body/base", "tint": "none" },
-    { "id": "caster/body/base", "tint": "none" }
+    { "id": "caster/body/base", "tint": "none" },
+    { "id": "slime/body/base", "tint": "none" },
+    { "id": "spider/body/base", "tint": "none" },
+    { "id": "goblin/body/base", "tint": "none" }
   ]
 }

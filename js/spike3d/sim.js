@@ -32,6 +32,10 @@ export function createSim(max, obstacles) {
   let boss = -1;
   let rng = 123456789;
   let pulse = 0;
+  let viewCx = 0;
+  let viewCz = 0;
+  let viewHx = 5;
+  let viewHz = 12;
   const sim = {
     x, z, dir, anim, frame, state, kind, elite, fade, hero,
     get count() { return count; },
@@ -40,6 +44,12 @@ export function createSim(max, obstacles) {
     update,
     setFrozen(v) { frozen = v; },
     setHold(v) { still = v; },
+    setView(cx, cz, hx, hz) {
+      viewCx = cx;
+      viewCz = cz;
+      viewHx = hx;
+      viewHz = hz;
+    },
   };
 
   function rand() {
@@ -47,7 +57,7 @@ export function createSim(max, obstacles) {
     return rng / 4294967296;
   }
 
-  function place(i, px0, pz0, k, isBoss) {
+  function place(i, px0, pz0, k, isBoss, asElite) {
     x[i] = px0;
     z[i] = pz0;
     kind[i] = k;
@@ -57,7 +67,7 @@ export function createSim(max, obstacles) {
     dir[i] = i & 7;
     animT[i] = rand();
     fade[i] = 1;
-    elite[i] = !isBoss && (i % 9 === 4) ? 1 : 0;
+    elite[i] = !isBoss && asElite ? 1 : 0;
     if (i + 1 > count) count = i + 1;
     if (isBoss) boss = i;
   }
@@ -182,6 +192,7 @@ export function createSim(max, obstacles) {
     const reach = heroH * 0.95;
     for (let i = 0; i < count; i++) {
       if (state[i] === DEAD) {
+        if (still) continue;
         animT[i] += dt;
         const u = animT[i] / 0.4;
         fade[i] = u >= 1 ? 0 : 1 - u;
@@ -193,6 +204,14 @@ export function createSim(max, obstacles) {
       if (still) {
         stepEnemy(i, dt);
         continue;
+      }
+      if (i !== boss) {
+        const ox = x[i] - viewCx;
+        const oz = z[i] - viewCz;
+        if (Math.abs(ox) > viewHx * 1.2 || Math.abs(oz) > viewHz * 1.2) {
+          respawn(i, heroH);
+          continue;
+        }
       }
       if (state[i] === HIT) {
         animT[i] += dt;
@@ -289,10 +308,16 @@ export function createSim(max, obstacles) {
   }
 
   function respawn(i, heroH) {
-    const ang = rand() * Math.PI * 2;
-    const rad = heroH * (8 + rand() * 6);
-    x[i] = hero.x + Math.cos(ang) * rad;
-    z[i] = hero.z + Math.sin(ang) * rad;
+    let ang = rand() * Math.PI * 2;
+    const ring = 0.96;
+    const hx = viewHx > 0.5 ? viewHx : Math.max(5, heroH * 2);
+    const hz = viewHz > 0.5 ? viewHz : hx * 2.16;
+    for (let k = 0; k < 4; k++) {
+      x[i] = viewCx + Math.cos(ang) * hx * ring;
+      z[i] = viewCz + Math.sin(ang) * hz * ring;
+      if (!blocked(x[i], z[i])) break;
+      ang += 1.1;
+    }
     state[i] = WALK;
     anim[i] = WALK;
     frame[i] = 0;

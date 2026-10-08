@@ -19,24 +19,103 @@
       overflow: hidden;
       touch-action: none;
     }
-    #view { width: 100%; height: 100%; display: block; }
-    #bench, #tier, #tiers, #chat, #joy, #fail {
+    #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+    #fx {
       position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      overflow: visible;
+    }
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+    }
+    #bench, #tier, #tiers, #chat, #joy, #fail, #stats, #score, #pause, #levelup, .plate, .badge {
       font-family: Silkscreen, ui-monospace, monospace;
-      color: #f3ead7;
+    }
+    #stats, #score {
+      position: absolute;
+      top: 8px;
+      color: #f4ead8;
+      background: #6a503c;
+      border: 3px solid #2c2118;
+      box-shadow: inset 0 0 0 2px #8d7358;
+      padding: 6px 8px 7px;
+      font-size: 11px;
+      line-height: 1.35;
+      pointer-events: none;
+    }
+    #stats { left: 8px; width: 148px; }
+    #score { right: 46px; min-width: 108px; }
+    #stats b, #score b { font-weight: 400; color: #fff8ea; }
+    #stats .lab { margin-top: 4px; font-size: 10px; color: #f0e2cc; }
+    .bar { height: 8px; margin-top: 2px; background: #3a2418; border: 1px solid #1a120c; }
+    .bar.hp { background: #8e1c16; }
+    .bar span { display: block; height: 100%; }
+    .bar.hp span { width: 72%; background: #3dcf4e; }
+    .bar.xp span { width: 46%; background: #f0d040; }
+    #stats .skills { margin-top: 5px; }
+    #pause {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 32px;
+      height: 32px;
+      pointer-events: auto;
+      background: #6a503c;
+      border: 3px solid #2c2118;
+      box-shadow: inset 0 0 0 2px #8d7358;
+      padding: 0;
+    }
+    #pause::before, #pause::after {
+      content: '';
+      position: absolute;
+      top: 7px;
+      width: 4px;
+      height: 14px;
+      background: #f4ead8;
+    }
+    #pause::before { left: 9px; }
+    #pause::after { right: 9px; }
+    #pause.paused::before {
+      left: 10px;
+      border-style: solid;
+      border-width: 7px 0 7px 12px;
+      border-color: transparent transparent transparent #f4ead8;
+      background: transparent;
+      width: 0;
+      height: 0;
+      top: 6px;
+    }
+    #pause.paused::after { display: none; }
+    #levelup {
+      position: absolute;
+      z-index: 3;
+      color: #ffe14a;
+      font-size: 13px;
+      text-shadow: 0 2px 0 #000;
+      transform: translate(-50%, -100%);
+      white-space: nowrap;
     }
     #bench {
-      top: 8px;
-      left: 8px;
+      display: none;
+      position: absolute;
+      right: 8px;
+      bottom: 52px;
       z-index: 3;
       max-width: min(280px, 74vw);
       padding: 8px 10px 10px;
       background: rgba(10, 8, 6, 0.88);
       border: 2px solid #3a342c;
+      color: #f3ead7;
       font-size: 13px;
       line-height: 1.45;
+      pointer-events: auto;
     }
-    body.bench #bench { font-size: 16px; max-width: min(420px, 92vw); }
+    body.bench #bench { display: block; font-size: 16px; max-width: min(420px, 92vw); }
     #bench b { color: #f6f1e4; font-weight: 400; }
     #bench .row { margin-top: 6px; }
     #bench button, #tiers button {
@@ -47,38 +126,45 @@
       border: 2px solid #8a7a62;
       margin: 4px 4px 0 0;
       padding: 4px 6px;
+      pointer-events: auto;
     }
     #tier {
-      top: 10px;
-      right: 10px;
+      position: absolute;
+      right: 8px;
+      bottom: 46px;
       z-index: 3;
-      font-size: 15px;
+      color: #f3ead7;
+      font-size: 13px;
       text-align: right;
       text-shadow: 0 2px 0 #000;
-      pointer-events: none;
     }
-    #tiers { top: 34px; right: 8px; z-index: 3; text-align: right; }
+    #tiers { position: absolute; right: 8px; bottom: 8px; z-index: 3; text-align: right; }
     #chat {
-      left: 108px;
-      right: 10px;
-      bottom: 18px;
+      position: absolute;
+      left: 14px;
+      bottom: 118px;
       z-index: 3;
+      color: #fff;
       font-size: 13px;
       line-height: 1.45;
-      text-shadow: 0 2px 0 #000;
-      pointer-events: none;
+      text-shadow: 0 2px 0 #000, 1px 1px 0 #000;
     }
+    #chat1 { color: #ffe14a; }
     #joy {
-      left: 14px;
-      bottom: 14px;
-      z-index: 4;
+      position: absolute;
+      z-index: 5;
+      display: none;
       width: 88px;
       height: 88px;
+      margin-left: -44px;
+      margin-top: -44px;
       border-radius: 50%;
       background: rgba(18, 14, 10, 0.42);
       border: 2px solid rgba(243, 234, 215, 0.55);
       touch-action: none;
+      pointer-events: auto;
     }
+    #joy.on { display: block; }
     #knob {
       position: absolute;
       left: 28px;
@@ -88,7 +174,136 @@
       border-radius: 50%;
       background: rgba(243, 234, 215, 0.88);
     }
+    .beam {
+      position: absolute;
+      z-index: 1;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+    }
+    .beam i { display: block; height: 100%; flex: 0 0 auto; min-width: 1px; }
+    .leader {
+      position: absolute;
+      z-index: 1;
+      height: 1px;
+      background: #2a241c;
+      transform-origin: 0 50%;
+      display: none;
+      pointer-events: none;
+    }
+    .plate {
+      position: absolute;
+      z-index: 2;
+      background: #12100e;
+      font-size: 12px;
+      line-height: 1.2;
+      padding: 2px 4px;
+      white-space: nowrap;
+      border: 1px solid #6e6a64;
+      transform: translate(-50%, -130%);
+    }
+    .gem {
+      position: absolute;
+      z-index: 2;
+      width: 8px;
+      height: 8px;
+      margin: -4px 0 0 -4px;
+      transform: rotate(45deg);
+    }
+    .mat-ring {
+      position: absolute;
+      z-index: 1;
+      box-sizing: border-box;
+      border-style: solid;
+      border-radius: 50%;
+      background: transparent;
+      transform: translate(-50%, -50%);
+    }
+    .badge {
+      position: absolute;
+      z-index: 2;
+      background: #12100e;
+      color: #5ed37a;
+      font-size: 8px;
+      line-height: 1;
+      padding: 2px 3px;
+      border: 1px solid #5ed37a;
+      transform: translate(-50%, -160%);
+    }
+    .flash {
+      position: absolute;
+      z-index: 2;
+      width: 36px;
+      height: 14px;
+      margin: -7px 0 0 -18px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.6);
+      animation: dropflash 0.7s ease-out 1 forwards;
+    }
+    .flash.ring {
+      background: transparent;
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      animation: none;
+    }
+    @keyframes dropflash {
+      0% { opacity: 1; transform: scale(0.55); }
+      100% { opacity: 0; transform: scale(1.8); }
+    }
+    #bossplate {
+      position: absolute;
+      z-index: 3;
+      transform: translate(-50%, -100%);
+      text-align: center;
+    }
+    #bossname {
+      display: inline-block;
+      background: #12100e;
+      color: #e6dcc8;
+      font-size: 8px;
+      padding: 2px 5px;
+      border: 1px solid #3a342c;
+    }
+    #bosshp {
+      margin-top: 2px;
+      height: 6px;
+      background: #2a1814;
+      border: 1px solid #14100e;
+    }
+    #bosshp span { display: block; height: 100%; width: 100%; background: #c42822; }
+    #bossarrow {
+      position: absolute;
+      z-index: 2;
+      display: none;
+      align-items: center;
+      gap: 4px;
+      background: #14120e;
+      border: 2px solid #3a342c;
+      padding: 3px 6px 3px 4px;
+      transform: translate(-50%, -50%);
+    }
+    #bossarrow.on { display: flex; }
+    .horns { position: relative; width: 14px; height: 10px; }
+    .horns::before, .horns::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      width: 0;
+      height: 0;
+      border-left: 3px solid transparent;
+      border-right: 3px solid transparent;
+      border-bottom: 8px solid #fff;
+    }
+    .horns::before { left: 0; transform: rotate(-18deg); }
+    .horns::after { right: 0; transform: rotate(18deg); }
+    .arr {
+      width: 0;
+      height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 8px solid #fff;
+    }
     #fail {
+      position: fixed;
       inset: 0;
       z-index: 6;
       display: flex;
@@ -96,9 +311,12 @@
       justify-content: center;
       padding: 24px;
       background: rgba(12, 8, 6, 0.92);
+      color: #f3ead7;
       font-size: 14px;
     }
-    body.bare #bench, body.bare #tier, body.bare #tiers, body.bare #chat { display: none; }
+    body.bare #hud { display: none; }
+    body.mock #bench, body.mock #tier, body.mock #tiers { display: none; }
+    body:not(.mock) #levelup { display: none; }
   </style>
   <script type="importmap">
   {
@@ -110,17 +328,41 @@
 </head>
 <body>
   <canvas id="view"></canvas>
-  <div id="bench"></div>
-  <div id="tier">Rustbound</div>
-  <div id="tiers">
-    <button type="button" data-tier="1">1</button>
-    <button type="button" data-tier="2">2</button>
-    <button type="button" data-tier="3">3</button>
-    <button type="button" data-tier="4">4</button>
-    <button type="button" data-tier="5">5</button>
+  <div id="fx">
+    <div id="levelup">LEVEL UP!</div>
+    <div id="bossplate" hidden>
+      <div id="bossname">Grave Warden</div>
+      <div id="bosshp"><span id="bosshpfill"></span></div>
+    </div>
+    <div id="bossarrow"><span class="horns"></span><span class="arr"></span></div>
   </div>
-  <div id="chat"><div id="chat0"></div><div id="chat1"></div></div>
-  <div id="joy"><div id="knob"></div></div>
+  <div id="hud">
+    <section id="stats">
+      <div>Level <b id="lv">12</b></div>
+      <div class="lab">Hitpoints</div>
+      <div class="bar hp"><span id="hpfill"></span></div>
+      <div class="lab">Experience</div>
+      <div class="bar xp"><span id="xpfill"></span></div>
+      <div class="skills">Melee <b id="me">4</b>  Def <b id="df">1</b>  Str <b id="st">3</b></div>
+    </section>
+    <section id="score">
+      <div>Time <b id="tm">12:04</b></div>
+      <div>Kills <b id="kk">37</b></div>
+      <div>Gold <b id="gd">128</b></div>
+    </section>
+    <button id="pause" type="button" aria-label="Pause"></button>
+    <div id="bench"></div>
+    <div id="tier">Rustbound</div>
+    <div id="tiers">
+      <button type="button" data-tier="1">1</button>
+      <button type="button" data-tier="2">2</button>
+      <button type="button" data-tier="3">3</button>
+      <button type="button" data-tier="4">4</button>
+      <button type="button" data-tier="5">5</button>
+    </div>
+    <div id="chat"><div id="chat0"></div><div id="chat1"></div></div>
+    <div id="joy"><div id="knob"></div></div>
+  </div>
   <div id="fail" hidden></div>
   <script type="module" src="js/spike3d/main.js"></script>
 </body>
