@@ -60,6 +60,12 @@
   const VOW_LATE_RAMP = 120;
   const VOW_LATE_HP_MULT = 1.75;
   const VOW_LATE_DMG_MULT = 1.55;
+  const RELIEF_AT = 300;
+  const RELIEF_GAP = 38;
+  const RELIEF_NEAR = 11;
+  const RELIEF_NEED = 4;
+  const RELIEF_PACK = 6;
+  const RELIEF_DIST = 6.5;
   const FLOAT_LIFE = 0.55;
   const GEM_CAP = 180;
 
@@ -207,6 +213,8 @@
   let kiteSide = 1;
   let kiteSideAt = 2.6;
   let forwardAcc = 0;
+  let threatMark = 0;
+  let threatGap = 0;
   const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
@@ -1829,6 +1837,52 @@
       const spot = spawnRing(0);
       spawnEnemy(spawnKind(), spot.x, spot.y);
     }
+    trackThreats();
+  }
+
+  function threatNearby() {
+    let n = 0;
+    let boss = false;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.life <= 0 || en.dying > 0) continue;
+      if (en.boss) boss = true;
+      const d = len2(en.x - player.x, en.y - player.y);
+      if (d <= RELIEF_NEAR) n += 1;
+    }
+    if (boss) n = Math.max(n, RELIEF_NEED);
+    return n;
+  }
+
+  function spawnRelief() {
+    const head = Math.atan2(headY, headX);
+    let spawned = 0;
+    for (let i = 0; i < RELIEF_PACK; i++) {
+      if (enemies.length >= LIVE_CAP && !makeRoom()) break;
+      const ang = head + (i - (RELIEF_PACK - 1) / 2) * 0.28;
+      const x = player.x + Math.cos(ang) * RELIEF_DIST;
+      const y = player.y + Math.sin(ang) * RELIEF_DIST;
+      const en = spawnEnemy(spawnKind(), x, y);
+      if (!en) break;
+      spawned += 1;
+      spawnedThisFrame += 1;
+    }
+    return spawned;
+  }
+
+  function trackThreats() {
+    if (time < RELIEF_AT) {
+      threatMark = time;
+      return;
+    }
+    if (threatMark < RELIEF_AT) threatMark = RELIEF_AT;
+    const gap = time - threatMark;
+    if (gap > threatGap) threatGap = gap;
+    if (threatNearby() >= RELIEF_NEED) {
+      threatMark = time;
+      return;
+    }
+    if (gap >= RELIEF_GAP && spawnRelief() > 0) threatMark = time;
   }
 
   function bossFightOn() {
@@ -3173,6 +3227,8 @@
     ended = false;
     minuteMark = 0;
     spawnAcc = 0;
+    threatMark = 0;
+    threatGap = 0;
     boss5 = false;
     curse = 0;
     vowPayout = false;
@@ -5397,6 +5453,7 @@
       banner: banner,
       novas: shots.filter((s) => s.kind === 'nova').length,
       owned: Object.assign({}, owned),
+      threatGap: threatGap,
     };
   }
 
@@ -5759,7 +5816,33 @@
     window.__svRestart = () => { startRun(); return snapRun(); };
     window.__svMenu = () => { abandonToTitle(); return snapRun(); };
     window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
-    window.__svSetTime = (t) => { time = t; return snapRun(); };
+    window.__svSetTime = (t) => {
+      time = t;
+      if (t < RELIEF_AT) threatMark = t;
+      else if (threatMark < RELIEF_AT) threatMark = RELIEF_AT;
+      return snapRun();
+    };
+    window.__svThreatGap = () => threatGap;
+    window.__svNear = (tiles) => {
+      const limit = tiles == null ? RELIEF_NEAR : tiles;
+      let n = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (!en || en.life <= 0 || en.dying > 0) continue;
+        if (len2(en.x - player.x, en.y - player.y) <= limit) n += 1;
+      }
+      return n;
+    };
+    window.__svSkipBosses = () => {
+      eliteWarned = true;
+      eliteSpawned = true;
+      wardenCleared = true;
+      demonWarned = true;
+      demonCleared = true;
+      boss5 = true;
+      nextEliteAt = time + 9999;
+      return snapRun();
+    };
     window.__svArmVow = (count, t) => {
       if (count != null) vowCount = count;
       if (t != null) time = t;
@@ -5781,6 +5864,10 @@
         out.push(foeTypeTag(en));
       }
       return out;
+    };
+    window.__svWipe = () => {
+      while (enemies.length) releaseEnemy(0);
+      return 0;
     };
     window.__svSlay = (kind) => {
       for (let i = enemies.length - 1; i >= 0; i--) {

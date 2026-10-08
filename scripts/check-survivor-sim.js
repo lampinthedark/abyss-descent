@@ -734,6 +734,33 @@ function levelTimeline(seed) {
   return times;
 }
 
+function deadStretch() {
+  const game = boot(4, '?headless=1&debug=1&walk=circle&seed=4');
+  game.__svStart();
+  game.__svView(8000, 8000, 1);
+  game.__svInvuln(800);
+  game.__svApplyBuild({ bolt: 0, orbit: 0, nova: 0, pierce: 0 });
+  game.__svSetTime(300);
+  game.__svSkipBosses();
+  game.__svQuiet();
+  let worst = 0;
+  let emptyAt = 300;
+  let snap = game.__svSnap();
+  for (let i = 0; i < 2800; i++) {
+    game.__svWipe();
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup' || snap.state === 'hermit') snap = game.__svDismiss();
+    const near = game.__svNear(11);
+    if (near >= 4) emptyAt = snap.time;
+    else if (snap.time - emptyAt > worst) worst = snap.time - emptyAt;
+    if (snap.time >= 420) break;
+  }
+  const reported = game.__svThreatGap();
+  if (!(reported > 0 && reported <= 45)) fail('reported dead gap ' + reported.toFixed(2) + 's');
+  if (worst > 45) fail('observed dead gap ' + worst.toFixed(2) + 's');
+  console.log('longest dead gap after 5:00 ' + reported.toFixed(1) + 's (seen ' + worst.toFixed(1) + 's)');
+}
+
 function hermitTwice() {
   const game = boot(11);
   game.__svStart();
@@ -2365,6 +2392,7 @@ partnerRanks();
 idleIgnoresArmor();
 eliteTtk();
 retiredAfterEvo();
+deadStretch();
 hermitTwice();
 vowRevive();
 twoEvos();
