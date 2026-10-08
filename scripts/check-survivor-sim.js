@@ -1130,6 +1130,42 @@ function sameMods(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function vowLateFade() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svSlay();
+  const early = game.__svArmVow(1, 120);
+  if (Math.abs(early.gold - 1.5) > 0.02 || Math.abs(early.xp - 1.5) > 0.02) fail('early vow reward ' + early.gold + '/' + early.xp);
+  if (Math.abs(early.hp - 1) > 0.001 || Math.abs(early.dmg - 1) > 0.001) fail('early vow danger ' + early.hp);
+  game.__svSpawn('skel', 5, 0);
+  const earlyLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  game.__svSlay();
+  const late = game.__svArmVow(1, 480);
+  if (!(late.gold < 1.05 && late.xp < 1.05)) fail('late vow reward stayed ' + late.gold + '/' + late.xp);
+  if (!(late.hp > 1.5 && late.dmg > 1.4)) fail('late vow danger ' + late.hp + '/' + late.dmg);
+  game.__svSpawn('skel', 5, 0);
+  const lateLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  game.__svSlay();
+  const plain = game.__svArmVow(0, 480);
+  if (Math.abs(plain.gold - 1) > 0.001 || Math.abs(plain.hp - 1) > 0.001) fail('no-vow late danger ' + plain.hp);
+  game.__svSpawn('skel', 5, 0);
+  const plainLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  if (!(lateLife > plainLife * 1.5)) fail('vow hp ' + earlyLife + ' late ' + lateLife + ' plain ' + plainLife);
+  const mid = game.__svArmVow(2, 360);
+  if (!(mid.gold < 2 && mid.gold > 1)) fail('mid vow gold ' + mid.gold);
+  game.__svArmVow(1, 480);
+  game.__svInvuln(0);
+  const before = game.__svSnap().life;
+  const hit = game.__svHurt(10);
+  const dealt = before - hit.life;
+  if (dealt < 14) fail('late vow hit ' + dealt);
+  game.__svArmVow(0, 480);
+  const calmBefore = game.__svSnap().life;
+  const calm = game.__svHurt(10);
+  if (Math.abs((calmBefore - calm.life) - 10) > 0.01) fail('no-vow hit ' + (calmBefore - calm.life));
+  console.log('vow rewards fade after 5:00 and danger climbs (' + earlyLife + ' -> ' + lateLife + ' hp)');
+}
+
 function partnerRanks() {
   const game = boot(1, '?headless=1&debug=1');
   game.__svStart();
@@ -2324,6 +2360,7 @@ vows();
 forcedVow();
 vowFlagAlone();
 bossWeaponDps();
+vowLateFade();
 partnerRanks();
 idleIgnoresArmor();
 eliteTtk();

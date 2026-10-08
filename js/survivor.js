@@ -56,6 +56,10 @@
   // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
   const LOOTPULL_FX = false;
   const LOOT_FLIGHT = 0.4;
+  const VOW_LATE_AT = 300;
+  const VOW_LATE_RAMP = 120;
+  const VOW_LATE_HP_MULT = 1.75;
+  const VOW_LATE_DMG_MULT = 1.55;
   const FLOAT_LIFE = 0.55;
   const GEM_CAP = 180;
 
@@ -359,12 +363,29 @@
     return table[i];
   }
 
+  function vowLateU() {
+    if (vowCount <= 0 || time <= VOW_LATE_AT) return 0;
+    const ramp = VOW_LATE_RAMP > 0 ? VOW_LATE_RAMP : 1;
+    return Math.max(0, Math.min(1, (time - VOW_LATE_AT) / ramp));
+  }
+
+  function fadeVowReward(base) {
+    const u = vowLateU();
+    return base + (1 - base) * u;
+  }
+
+  function vowDanger(kind) {
+    const u = vowLateU();
+    const peak = kind === 'hp' ? VOW_LATE_HP_MULT : VOW_LATE_DMG_MULT;
+    return 1 + (peak - 1) * u;
+  }
+
   function vowMult() {
-    return vowFrom(vowSpec().gold, vowCount);
+    return fadeVowReward(vowFrom(vowSpec().gold, vowCount));
   }
 
   function vowXpMul() {
-    return vowFrom(vowSpec().xp, vowCount);
+    return fadeVowReward(vowFrom(vowSpec().xp, vowCount));
   }
 
   function vowNum(n) {
@@ -529,7 +550,7 @@
       if (u > 0) div = BALANCE.hpScale + (BALANCE.lateHpScale - BALANCE.hpScale) * u;
       hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / div));
     }
-    return Math.max(1, hp);
+    return Math.max(1, Math.round(hp * vowDanger('hp')));
   }
 
   typeById.charger = { id: 'charger', name: 'Charger', speed: 1.25, radius: 0.34, behaviour: 'charger' };
@@ -1204,7 +1225,8 @@
 
   function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    const incoming = curse > 0 ? amount * vowSpec().hit : amount;
+    let incoming = curse > 0 ? amount * vowSpec().hit : amount;
+    incoming *= vowDanger('dmg');
     const cut = stillT >= BALANCE.idleGrace ? 0 : armorCut();
     const dmg = Math.max(1, incoming - cut);
     player.life -= dmg;
@@ -5577,7 +5599,7 @@
       const out = [];
       for (let i = 0; i < enemies.length; i++) {
         const en = enemies[i];
-        out.push({ name: en.name, boss: !!en.boss, scale: en.scale, radius: en.radius, kind: en.bossKind || '' });
+        out.push({ name: en.name, boss: !!en.boss, scale: en.scale, radius: en.radius, kind: en.bossKind || '', life: en.maxLife });
       }
       return out;
     };
@@ -5738,6 +5760,17 @@
     window.__svMenu = () => { abandonToTitle(); return snapRun(); };
     window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
     window.__svSetTime = (t) => { time = t; return snapRun(); };
+    window.__svArmVow = (count, t) => {
+      if (count != null) vowCount = count;
+      if (t != null) time = t;
+      return {
+        gold: vowMult(),
+        xp: vowXpMul(),
+        hp: vowDanger('hp'),
+        dmg: vowDanger('dmg'),
+        u: vowLateU(),
+      };
+    };
     window.__svDeferDrops = (t) => { nextDropAt = t; return nextDropAt; };
     window.__svDebugLine = () => debugHudText();
     window.__svTags = () => {
