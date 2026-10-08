@@ -3101,6 +3101,9 @@
       };
       window.__svChestArrow = () => chestArrowOn();
       window.__svArmRevival = () => { revivalLeft = 1; player.life = player.maxLife; return snapRun(); };
+      window.__svOffers = () => offers.map((o) => o.id);
+      window.__svChoose = (i) => { uiGuardUntil = 0; choose(i); return snapRun(); };
+      window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
       window.__svSetVows = (n) => {
         vowCount = Math.max(0, n | 0);
         curse = vowCount > 0 ? 60 : 0;

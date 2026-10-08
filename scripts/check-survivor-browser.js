@@ -607,27 +607,50 @@ async function pageWith(browser, url, viewport) {
     if (chance.__errors.length) fail('second chance errors: ' + chance.__errors.join(' | '));
     await chance.close();
 
-    const evo = await pageWith(browser, base + 'survivor.html?debug=1&t=100&walk=circle', desk);
+    const evo = await pageWith(browser, base + 'survivor.html?debug=1&walk=circle', desk);
     await evo.click('#sv-play');
-    const evoDeadline = Date.now() + 50000;
+    const evoDeadline = Date.now() + 160000;
+    const evoOrder = (owned) => {
+      const have = owned || {};
+      const order = [];
+      if ((have.orbit || 0) >= 3 && !(have.tempo > 0)) order.push('tempo');
+      if ((have.tempo || 0) > 0 && (have.orbit || 0) < 5) order.push('orbit');
+      if ((have.nova || 0) >= 5 && !(have.cinder > 0)) order.push('cinder');
+      if ((have.cinder || 0) > 0 && (have.nova || 0) < 5) order.push('nova');
+      order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'might');
+      return order;
+    };
     let evoSnap = await evo.evaluate(() => window.__svSnap());
     while (!(evoSnap.evolved && evoSnap.evolved.length) && Date.now() < evoDeadline) {
       if (evoSnap.state === 'levelup' || evoSnap.state === 'hermit') {
         await new Promise(r => setTimeout(r, 360));
-        await evo.evaluate(() => {
-          const level = document.getElementById('sv-level');
-          const hermitBox = document.getElementById('sv-hermit');
-          const card = document.querySelector('#sv-cards .sv-card');
-          const no = document.getElementById('sv-hermit-no');
-          if (level && !level.classList.contains('hidden') && card) card.click();
-          else if (hermitBox && !hermitBox.classList.contains('hidden') && no) no.click();
-        });
+        evoSnap = await evo.evaluate((order) => {
+          const snap = window.__svSnap();
+          if (snap.state === 'hermit') return window.__svDecline();
+          const ids = window.__svOffers();
+          let pick = 0;
+          for (let p = 0; p < order.length; p++) {
+            const at = ids.indexOf(order[p]);
+            if (at >= 0) { pick = at; break; }
+          }
+          return window.__svChoose(pick);
+        }, evoOrder(evoSnap.owned));
       }
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, 200));
       evoSnap = await evo.evaluate(() => window.__svSnap());
     }
     if (!(evoSnap.evolved && evoSnap.evolved.length)) fail('no evolution: ' + JSON.stringify(evoSnap));
     if (!(evoSnap.time < 135)) fail('first evolution after 2:15: ' + JSON.stringify(evoSnap));
+    if (evoSnap.state === 'levelup' || evoSnap.state === 'hermit') {
+      await new Promise(r => setTimeout(r, 360));
+      await evo.evaluate(() => {
+        const snap = window.__svSnap();
+        if (snap.state === 'hermit') return window.__svDecline();
+        return window.__svChoose(0);
+      });
+      await new Promise(r => setTimeout(r, 280));
+      evoSnap = await evo.evaluate(() => window.__svSnap());
+    }
     await evo.screenshot({ path: path.join(shots, 'survivor-evo.png') });
     console.log('browser evolution at ' + evoSnap.time.toFixed(1) + 's ' + evoSnap.evolved.join(','));
     if (evo.__errors.length) fail('evolution errors: ' + evo.__errors.join(' | '));
