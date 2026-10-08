@@ -195,6 +195,8 @@ const FX = (function () {
   })();
 
   let clock = 0;
+  let frameTick = 0;
+  let underTick = -1;
   let vows = 0;
   let vowAng = 0;
   let halo = 0;
@@ -549,13 +551,18 @@ const FX = (function () {
 
   function beamOn(id, x, y, rarity) {
     if (!ok(x) || !ok(y)) return;
+    const r = rarityId(rarity);
+    // Common and unknown names draw nothing. Uncommon still draws its green cross.
+    if (r <= 0) {
+      beamClear(id);
+      return;
+    }
     let slot = null;
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on && beams[i].id === id) slot = beams[i];
     }
     const fresh = !slot;
     if (!slot) slot = takeBeam();
-    const r = rarityId(rarity);
     slot.on = 1;
     slot.id = id;
     slot.x = x;
@@ -882,6 +889,7 @@ const FX = (function () {
 
   function step(dt) {
     if (!(dt > 0)) return;
+    frameTick += 1;
     if (dt > 0.05) dt = 0.05;
     clock += dt;
     if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
@@ -1234,7 +1242,24 @@ const FX = (function () {
     ctx.globalAlpha = 1;
   }
 
-  function paint(ctx, cam) {
+  function paintBeamsNow(ctx, cam) {
+    const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
+    const tile = framePx() * zoom;
+    const camX = cam && ok(cam.x) ? cam.x : 0;
+    const camY = cam && ok(cam.y) ? cam.y : 0;
+    const viewW = ctx.canvas.width;
+    const viewH = ctx.canvas.height;
+    lastW = viewW;
+    lastH = viewH;
+    lastZoom = zoom;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false;
+    paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
+    ctx.globalAlpha = 1;
+  }
+
+  function paint(ctx, cam, skipBeams) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
     const camX = cam && ok(cam.x) ? cam.x : 0;
@@ -1358,6 +1383,7 @@ const FX = (function () {
     }
 
     paintEmbers(ctx, zoom, calm);
+    if (!skipBeams) paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
 
     if (flashLeft > 0) {
@@ -1476,6 +1502,8 @@ const FX = (function () {
 
     reset: function () {
       clock = 0;
+      frameTick = 0;
+      underTick = -1;
       vows = 0;
       vowAng = 0;
       halo = 0;
@@ -1552,18 +1580,19 @@ const FX = (function () {
 
     draw: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      paint(ctx, cam || emptyCam);
+      let skip = 0;
+      if (underTick === frameTick) {
+        skip = 1;
+        underTick = -1;
+      }
+      paint(ctx, cam || emptyCam, skip);
     },
 
     drawUnder: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      const view = cam || emptyCam;
-      const zoom = (view && ok(view.zoom) && view.zoom > 0) ? view.zoom : 1;
-      const tile = framePx() * zoom;
-      const camX = view && ok(view.x) ? view.x : 0;
-      const camY = view && ok(view.y) ? view.y : 0;
-      ctx.imageSmoothingEnabled = false;
-      paintBeams(ctx, zoom, tile, camX, camY, ctx.canvas.width, ctx.canvas.height);
+      if (underTick === frameTick) return;
+      underTick = frameTick;
+      paintBeamsNow(ctx, cam || emptyCam);
     },
 
     drawBeamArrows: function (ctx, cam, w, h) {
