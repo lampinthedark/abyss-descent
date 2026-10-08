@@ -89,7 +89,7 @@
       Store.dispatch({ type: 'stats/addXp', skill: skill, xp: xp });
       const after = RPG.stats.level(skill);
       if (after > before && RPG.bus) RPG.bus.emit('levelUp', { skill: skill, level: after });
-      if (skill === 'hitpoints') hero.maxHp = after;
+      if (skill === 'hitpoints') hero.maxHp = maxHpFor();
       return after;
     },
   };
@@ -107,11 +107,15 @@
     }
   }, { zone: 'town', x: -1, y: -1 });
 
+  /** Max HP (sim contract): 40 at Hitpoints 10, +6 per level, + gear maxHp. */
+  function maxHpFor() { return 40 + 6 * (RPG.stats.level('hitpoints') - 10) + (Number(gearStats().maxHp) || 0); }
+
   const hero = {
+    maxHpFor: maxHpFor,
     x: 0,
     y: 0,
-    hp: 10,
-    maxHp: 10,
+    hp: 40,
+    maxHp: 40,
     dodging: false,
     alive: true,
     facing: -1,
@@ -268,7 +272,7 @@
       const sp = (RPG.world.zone && RPG.world.zone.entry) || { x: 0, y: 0 };
       const ok = Number.isInteger(st.x) && Number.isInteger(st.y) && st.zone === RPG.world.zoneId() && RPG.world.walkable(st.x, st.y);
       hero.placeAt(ok ? st.x : sp.x, ok ? st.y : sp.y);
-      hero.maxHp = RPG.stats.level('hitpoints');
+      hero.maxHp = maxHpFor();
       hero.hp = hero.maxHp;
     },
   };

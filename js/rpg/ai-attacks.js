@@ -369,6 +369,7 @@
       dmg: dmg,
       srcId: mob ? mob.id : '',
       monsterId: mob ? mob.monsterId : '',
+      atk: mob ? (Number(mob.atk) || 0) : 0,
       name: srcName || (mob ? mob.monsterId : ''),
       srcName: srcName,
       attack: row && (row.name || row.kind) || '',

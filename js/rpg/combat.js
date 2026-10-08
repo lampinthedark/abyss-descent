@@ -42,16 +42,16 @@
     hitChance: function (def) {
       const att = RPG.stats.level('attack') + (gear().aim || 0);
       const d = Math.max(0, def || 0);
-      return Math.max(0.05, Math.min(0.95, (att + 8) / (att + d + 16)));
+      return Math.max(0.40, Math.min(0.97, 0.75 + 0.015 * (att - d)));
     },
     /** Max hit from Strength + gear power. D3 tunes this. */
     maxHit: function () {
       const w = gear().weapon;
       if (!w || (RPG.isToolItem && RPG.isToolItem(w.base))) return 1; // unarmed fist (PM ruling): Q1's sword is the payoff
-      return Math.max(1, Math.floor(1 + (RPG.stats.level('strength') + (gear().power || 0)) / 4));
+      return 2 + Math.floor(RPG.stats.level('strength') / 4) + (gear().power || 0);
     },
-    /** Seconds between swings: gear().speed if the weapon sets it, else SWING. */
-    SWING: 0.9,
+    /** Seconds between swings: SWING / (1 + gear attackSpeed% / 100). */
+    SWING: 0.6,
     RANGE: 1.5,
     target: null,
     /**
@@ -63,6 +63,7 @@
         return { ok: false, reason: 'no_target' };
       }
       if (!RPG.hero || !RPG.hero.alive) return { ok: false, reason: 'dead' };
+      if (RPG.combat.target !== target) cd = Math.max(cd, 0.12); // tap windup
       RPG.combat.target = target;
       return { ok: true };
     },
@@ -71,7 +72,9 @@
       const hero = RPG.hero;
       const rng = RPG.rng ? RPG.rng('combat') : Math.random;
       const hit = rng() < RPG.combat.hitChance(target.def);
-      const dmg = hit ? 1 + Math.floor(rng() * RPG.combat.maxHit()) : 0;
+      const mx = RPG.combat.maxHit();
+      const mn = Math.ceil(mx / 2);
+      const dmg = hit ? mn + Math.floor(rng() * (mx - mn + 1)) : 0;
       hero.swingT = 0.35;
       if (Math.abs(target.x - hero.x) > 0.1) hero.facing = target.x > hero.x ? 1 : -1;
       let res = { dead: false };
@@ -113,7 +116,7 @@
     if (d <= RPG.combat.RANGE) {
       if (hero.moving) hero.stop();
       if (cd <= 0) {
-        cd = gear().speed || RPG.combat.SWING;
+        cd = RPG.combat.SWING / (1 + (gear().attackSpeed || 0) / 100);
         const r = RPG.combat.swing(e);
         if (r.dead) RPG.combat.target = null;
       }

@@ -378,14 +378,14 @@ function coreCtx() {
   ctx.Store.boot();
   const h = R.hero;
   h.load();
-  ok(h.maxHp === 10 && h.hp === 10, 'hero starts at Hitpoints 10');
+  ok(h.maxHp === 40 && h.hp === 40, 'hero starts at 40 HP (Hitpoints 10: 40 + 6 per level)');
   const hurts = [];
   const deaths = [];
   R.bus.on('hurt', (e) => hurts.push(e));
   R.bus.on('death', (e) => deaths.push(e));
   h.dodging = true;
   let r = h.damage(5, { srcId: 'mob_1', srcName: 'Rat', kind: 'melee', atk: 99 });
-  ok(r.dodged === true && r.hit === false && r.dmg === 0 && h.hp === 10 && !hurts.length, 'i-frames -> dodged');
+  ok(r.dodged === true && r.hit === false && r.dmg === 0 && h.hp === 40 && !hurts.length, 'i-frames -> dodged');
   h.dodging = false;
   // Hit chance clamps: atk huge -> 0.97, atk tiny -> 0.40 (rng 'combat').
   R.rng.seed(1);
@@ -412,7 +412,7 @@ function coreCtx() {
   ok(h.hp === 5, 'no regen inside 4 s (' + h.hp + ')');
   for (let i = 0; i < 11; i++) h.update(0.1); // 5.0 s since hit -> ~2 HP
   ok(h.hp === 7, 'regen 2 HP/s after 4 s (' + h.hp + ')');
-  for (let i = 0; i < 50; i++) h.update(0.1);
+  for (let i = 0; i < 200; i++) h.update(0.1);
   ok(h.hp === h.maxHp, 'regen caps at maxHp');
   // Death after 3+ hits: lastHits keeps 3, 'death' {lastHits}.
   h.lastHits = [];
