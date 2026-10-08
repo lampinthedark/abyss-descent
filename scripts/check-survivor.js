@@ -157,6 +157,13 @@ if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.inc
 if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
 if (!src.includes('dungeon-tileset-ii.png?v=5')) fail('tileset is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
+if ((src.match(/#ff8060/g) || []).length !== 1) fail('warm damage numbers should be the hero hit only');
+if (!src.includes("floatText(player.x, player.y - 0.4, String(dmg), '#ff8060'")) fail('hero damage should sit on the hero');
+if (!src.includes("String(shown), '#ffffff'")) fail('dealt damage should be white');
+if (!src.includes("fxCall('reset')") || !src.includes("fxCall('vow', 0)")) fail('every run should reset fx and clear the vow tint');
+if (!src.includes("fxCall('setReducedMotion'")) fail('reduced motion should be passed to fx');
+if (!src.includes('setTransform(1, 0, 0, 1, 0, 0)')) fail('screen flash should draw in an unshaken canvas');
+if (!src.includes('if (!heavy || time >= (en.flashAt || 0))')) fail('boss and elite sprite flashes need a cooldown');
 const sprites = fs.readFileSync(path.join(root, 'js/survivor-sprites.js'), 'utf8');
 if (!sprites.includes('#5fd8ff')) fail('gems should be light cyan');
 if (!sprites.includes('#7b4fd4')) fail('imps should be violet');

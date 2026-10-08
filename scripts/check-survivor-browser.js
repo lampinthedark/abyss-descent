@@ -84,6 +84,9 @@ async function pageWith(browser, url, viewport) {
     const hit = await title.evaluate(() => window.__sv());
     if (hit.time > 5 && hit.hits < 1) fail('first hit was late');
     await title.keyboard.up('KeyD');
+    await title.keyboard.down('KeyA');
+    await new Promise(r => setTimeout(r, 1200));
+    await title.keyboard.up('KeyA');
     const levelDeadline = Date.now() + 60000;
     let lvl = await title.evaluate(() => window.__sv());
     while (lvl.level < 2 && Date.now() < levelDeadline) {

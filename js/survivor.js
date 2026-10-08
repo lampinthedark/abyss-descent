@@ -97,8 +97,10 @@
   let shakeMag = 0;
   let shakePhase = 0;
   let reduceMotion = false;
+  let reduceQuery = null;
   try {
-    reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    reduceQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    reduceMotion = !!reduceQuery.matches;
   } catch (e) {}
   let animT = 0;
   let owned = { bolt: 1 };
@@ -498,7 +500,10 @@
       en.dying = 0.22;
       if (en.bossKind === 'warden') wardenCleared = true;
       else if (en.boss) demonCleared = true;
-      en.hitFlash = 0.08;
+      if (!(en.boss || en.elite) || time >= (en.flashAt || 0)) {
+        en.hitFlash = 0.08;
+        if (en.boss || en.elite) en.flashAt = time + 0.35;
+      }
       kills += 1;
       runGold += en.gold;
       dropGem(en);
@@ -1423,7 +1428,13 @@
     partnerPulse = 0;
     evoLog.length = 0;
     uiGuardUntil = 0;
+    fxCall('reset');
     fxCall('vow', 0);
+  }
+
+  function syncReducedMotion(flag) {
+    if (flag != null) reduceMotion = !!flag;
+    fxCall('setReducedMotion', !!reduceMotion);
   }
 
   function startRun() {
@@ -2456,6 +2467,9 @@
     ctx.globalAlpha = 1;
     drawWeapons();
     drawFloats();
+    ctx.restore();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     fxCall('draw', ctx, { x: camX, y: camY, zoom: zoom });
     ctx.restore();
     drawJoy();
@@ -2586,6 +2600,10 @@
         }
       });
     } catch (e) {}
+    syncReducedMotion();
+    if (reduceQuery && typeof reduceQuery.addEventListener === 'function') {
+      reduceQuery.addEventListener('change', () => syncReducedMotion(reduceQuery.matches));
+    }
     bindLife();
     if (debug) {
       window.__sv = () => ({
