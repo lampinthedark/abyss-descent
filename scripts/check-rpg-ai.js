@@ -803,6 +803,50 @@ assert(keepClear(spawnedBack[0].x, spawnedBack[0].y), 'respawn lands outside kee
 for (const m of spawnedBack) m.takeHit(99999, {});
 keepOut = [];
 
+// Fresh hero has no weapon. Core combat.maxHit still kills a field goblin.
+{
+  const mem = new Map();
+  const bare = {
+    console,
+    setTimeout,
+    clearTimeout,
+    Date,
+    Math,
+    JSON,
+    Uint8Array,
+    crypto: require('crypto').webcrypto,
+    localStorage: {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: (k) => mem.delete(k),
+    },
+    document: { visibilityState: 'visible', addEventListener() {} },
+    addEventListener() {},
+    performance: { now: () => Date.now() },
+  };
+  bare.window = bare;
+  bare.globalThis = bare;
+  vm.createContext(bare);
+  for (const rel of ['js/rpg/store.js', 'js/rpg/items-stub.js', 'js/rpg/hero.js', 'js/rpg/combat.js']) {
+    vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), bare, { filename: rel });
+  }
+  const gear = bare.Equipment.getStats();
+  assert(gear.power === 0 && gear.aim === 0 && gear.armour === 0, 'fresh hero has no weapon');
+  assert(bare.RPG.bootItems().reason === 'no_items_module', 'boot does not grant a starter sword');
+  const hit = bare.RPG.combat.maxHit();
+  assert(hit >= 1, 'bare-handed maxHit is at least 1, got ' + hit);
+  assert(bare.RPG.combat.hitChance(3) > 0, 'bare-handed swings can connect on a goblin');
+  assert(bare.RPG.combat.attack({}).reason === 'not_in_d1', 'core attack stays the D1 stub');
+  const [fist] = RPG.ai.spawnPack('goblin', 40, 40, 1, 4);
+  const hp0 = fist.hp;
+  let swings = 0;
+  while (!fist.dead && swings < hp0 + 5) {
+    fist.takeHit(hit, { srcId: 'hero' });
+    swings += 1;
+  }
+  assert(fist.dead && swings === Math.ceil(hp0 / hit), 'field goblin dies to bare-handed core hits, swings ' + swings);
+}
+
 if (failed) {
   console.error(failed + ' rpg ai check(s) failed');
   process.exit(1);

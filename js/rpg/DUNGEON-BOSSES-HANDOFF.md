@@ -1,6 +1,6 @@
 # Dungeon & bosses handoff
 
-This branch already contains Game Developer's unpushed D1 commits (tip `c6b9a8b`, recreated locally; hashes differ). Once that branch is on GitHub, retarget the PR onto it. This slice still does not edit `rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, or `fx-adapter.js`.
+This branch already contains Game Developer's unpushed D1 commits (tip `4fe3bfe`, recreated locally; hashes differ). Once that branch is on GitHub, retarget the PR onto it. This slice still does not edit `rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, or `fx-adapter.js`. The fresh hero's starter kit is 3 hearth bread and no weapon. Field goblins still die to bare-handed `RPG.combat.maxHit()` (at least 1) through `takeHit`. Core combat is unchanged.
 
 These scripts expect the D1 `window.RPG` API. They no-op missing pieces so they can load before a stub exists.
 
