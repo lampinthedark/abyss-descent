@@ -1139,6 +1139,134 @@ calls.length = 0;
 FX.draw(ctx, cam);
 check('a ring replaces a lane with the same id', nearestLane(laneX1, laneY1) > 8 && countStyle('#c9a8ff', null) > 0);
 
+function lootHead(color, ex, ey) {
+  let best = 1e9;
+  let squares = 0;
+  let edges = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill') continue;
+    const px = c[3] + c[5] * 0.5;
+    const py = c[4] + c[6] * 0.5;
+    if (c[1] === '#14120f' && c[2] > 0.9) edges += 1;
+    if (c[1] !== color) continue;
+    squares += 1;
+    if (c[2] < 0.99) continue;
+    const dx = px - ex;
+    const dy = py - ey;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < best) best = dist;
+  }
+  return { best: best, squares: squares, edges: edges };
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+let lootThrew = false;
+try {
+  FX.lootPull('nope', NaN, 0, 1, 1, 400, 'rare');
+  FX.lootPull('nope', 0, 0, Infinity, 1, 400, 'rare');
+  FX.lootPull();
+  FX.lootPullOff();
+} catch (err) {
+  lootThrew = true;
+}
+check('bad lootPull args do not throw', lootThrew === false);
+
+const lootHero = { x: -1.6, y: 0.7 };
+const lootPath = [
+  { x: 2.35, y: -0.95 },
+  { x: 2.02, y: -0.78 },
+  { x: 1.7, y: -0.62 },
+  { x: 1.42, y: -0.5 },
+];
+const lootHeadAt = { x: 1.15, y: -0.36 };
+FX.lootPull('gem', lootPath[0].x, lootPath[0].y, lootHero.x, lootHero.y, 800, 'rare');
+for (let i = 1; i < lootPath.length; i++) {
+  FX.lootPull('gem', lootPath[i].x, lootPath[i].y, lootHero.x, lootHero.y, 800, 'rare');
+}
+FX.lootPull('gem', lootHeadAt.x, lootHeadAt.y, lootHero.x + 0.35, lootHero.y - 0.2, 800, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+const lootHx = lootHeadAt.x * 16 * cam.zoom + cam.x;
+const lootHy = lootHeadAt.y * 16 * cam.zoom + cam.y;
+const rareHead = lootHead( '#4c7cff', lootHx, lootHy);
+console.log('loot head px', rareHead.best.toFixed(2), 'squares', rareHead.squares);
+check('loot trail head matches the tile', rareHead.best <= 1);
+check('loot trail is 3 to 5 squares', rareHead.squares >= 3 && rareHead.squares <= 5);
+check('loot trail squares have ink edges', rareHead.edges >= 1);
+
+const lootMoved = { x: 0.15, y: 0.85 };
+FX.lootPull('gem', lootMoved.x, lootMoved.y, -0.4, 1.4, 800, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+const movedHx = lootMoved.x * 16 * cam.zoom + cam.x;
+const movedHy = lootMoved.y * 16 * cam.zoom + cam.y;
+const movedHead = lootHead('#4c7cff', movedHx, movedHy);
+check('lootPull again moves the trail head', movedHead.best <= 1 && lootHead('#4c7cff', lootHx, lootHy).best > 8);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.lootPull('common-drop', 1, 0.2, 0, 0, 500, 'common');
+FX.lootPull('junk-drop', 1.2, 0.4, 0, 0, 500, 'junk');
+FX.lootPull('blank-drop', 0.6, -0.2, 0, 0, 500);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('common and junk loot draw nothing', fills('#4c7cff') === 0 && fills('#5ed37a') === 0 && fills('#b48cff') === 0 && fills('#ffb43c') === 0);
+
+FX.lootPull('epic-drop', 0.8, 0.3, -1.2, 0.4, 800, 'epic');
+FX.lootPullOff('epic-drop');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('lootPullOff clears the trail', fills('#b48cff') === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const lootLive0 = FX._live();
+FX.lootPull('pop', 0.4, 0.25, 0.4, 0.25, 500, 'rare');
+FX.update(0.001);
+check('loot arrival pops 4 sparks', FX._live() === lootLive0 + 4);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('loot arrival allows white sparks', fills('#ffffff') > 0 && fills('#4c7cff') > 0);
+advance(0.13);
+FX.update(0.001);
+check('loot sparks last under 150ms', FX._live() === lootLive0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+FX.lootPull('track', 1.2, 0.8, 3, 3, 5000, 'legendary');
+const trackLive = FX._live();
+FX.lootPull('track', 1.2, 0.8, 1.22, 0.84, 5000, 'legendary');
+FX.update(0.001);
+check('retarget onto the item pops arrival', FX._live() === trackLive + 4);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.lootPull('calm-pull', 1.4, 0.5, -1, 0.2, 800, 'legendary');
+FX.lootPull('calm-pull', 0.9, 0.3, -1, 0.2, 800, 'legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion loot draws no trail', fills('#ffb43c') === 0);
+FX._seed();
+FX.update(0.001);
+const calmLoot = FX._live();
+FX.lootPull('calm-pull', 0.04, 0.02, 0, 0, 800, 'legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+const calmRing = fills('#ffb43c');
+calls.length = 0;
+FX.draw(ctx, cam);
+FX.update(0.001);
+check('reduced motion loot is a 1-frame ring', calmRing > 4 && fills('#ffb43c') === 0 && FX._live() === calmLoot);
+
 function quietCtx() {
   return {
     canvas: { width: 390, height: 844 },
@@ -1252,6 +1380,47 @@ if (typeof global.gc === 'function') {
   console.log('lane heap bytes/frame', lanePer.toFixed(2));
   check('zero allocations per lane frame', lanePer < 16);
 
+  const lootIds = ['h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7'];
+  const lootRarities = ['uncommon', 'rare', 'epic', 'legendary', 'rare', 'epic', 'uncommon', 'legendary'];
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  for (let n = 0; n < 8; n++) FX.lootPull(lootIds[n], 1.8 + n * 0.12, 1.1, -1.4, -0.8, 20000, lootRarities[n]);
+  for (let i = 0; i < 400; i++) {
+    for (let n = 0; n < 8; n++) {
+      const x = 1.7 + n * 0.1 + (i % 4) * 0.07;
+      const y = 1.05 + (n % 3) * 0.08;
+      FX.lootPull(lootIds[n], x, y, -1.5 + (i % 3) * 0.1, -0.6, 20000, lootRarities[n]);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 160; i++) {
+    for (let n = 0; n < 8; n++) {
+      const x = 1.7 + n * 0.1 + (i % 4) * 0.07;
+      const y = 1.05 + (n % 3) * 0.08;
+      FX.lootPull(lootIds[n], x, y, -1.5 + (i % 3) * 0.1, -0.6, 20000, lootRarities[n]);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const lootBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    for (let n = 0; n < 8; n++) {
+      const x = 1.7 + n * 0.1 + (i % 4) * 0.07;
+      const y = 1.05 + (n % 3) * 0.08;
+      FX.lootPull(lootIds[n], x, y, -1.5 + (i % 3) * 0.1, -0.6, 20000, lootRarities[n]);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const lootPer = (process.memoryUsage().heapUsed - lootBefore) / 120;
+  console.log('loot heap bytes/frame', lootPer.toFixed(2));
+  check('zero allocations per loot frame', lootPer < 16);
+
   FX.reset();
   FX.setReducedMotion(false);
   FX.draw(quiet, cam);
@@ -1299,15 +1468,27 @@ FX.shield('mix-shield', 0, 0, 1.375, 20000);
 FX.telegraph('mix-a', 1.5, 0, 8000);
 FX.telegraph('mix-b', -1.5, 1, 8000);
 FX.telegraph('mix-c', 0, -1.25, 8000);
+FX.telegraphLine('mix-lane-a', -1.1, 0.35, 1.35, -0.25, 20000);
+FX.telegraphLine('mix-lane-b', 0.55, 1.15, -1.05, 0.45, 20000);
+const pullIds = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+const pullRarities = ['uncommon', 'rare', 'epic', 'legendary', 'rare', 'epic', 'uncommon', 'legendary'];
+for (let n = 0; n < 8; n++) FX.lootPull(pullIds[n], 1.8 + n * 0.12, -1.2, 0, 0, 20000, pullRarities[n]);
 let mixPeak = 0;
 for (let i = 0; i < 400; i++) {
+  FX.telegraphLine('mix-lane-a', -1.1, 0.35, 1.35 - (i % 5) * 0.04, -0.25, 20000);
+  FX.telegraphLine('mix-lane-b', 0.55, 1.15, -1.05, 0.45 + (i % 4) * 0.05, 20000);
+  for (let n = 0; n < 8; n++) {
+    const x = 1.7 + n * 0.1 + (i % 4) * 0.06;
+    const y = -1.3 - (n % 3) * 0.15;
+    FX.lootPull(pullIds[n], x, y, (i % 3) * 0.05, 0, 20000, pullRarities[n]);
+  }
   FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', { color: '#8a6cff', frame: vis.frame });
   FX.update(0.04);
   FX.draw(ctx, cam);
   if (FX._live() > mixPeak) mixPeak = FX._live();
 }
-console.log('particle peak at 25/s with 20 beams, shield, 3 telegraphs', mixPeak);
-check('mixed beams shield and telegraphs stay <= 200', mixPeak <= 200);
+console.log('particle peak at 25/s with 20 beams, shield, 3 telegraphs, 2 lanes, 8 pulls', mixPeak);
+check('mixed beams shield telegraphs lanes and pulls stay under 200', mixPeak < 200);
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));
