@@ -11,7 +11,8 @@
  * every hit. Death silhouettes are capped at 3 per 0.1s and skipped entirely
  * when reduced motion is on. Shards still play. A boss death (`vis.boss` or
  * type `'boss'`) also spends the shared flash budget. Gem pickups
- * (`FX.pickup(x, y, 'gem', {chain})`) scale a cyan sparkle up to chain 12.
+ * (`FX.pickup(x, y, 'gem', {chain})`) climb from 4 particles at 2px to
+ * 12 particles at 4px at chain 12.
  * A second full-screen evolve within 1s of the last one is a hero ring.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
@@ -271,7 +272,7 @@ const FX = (function () {
       p.vx = Math.cos(a) * sp;
       p.vy = Math.sin(a) * sp;
       p.w = w;
-      p.h = (i % 2 === 0) ? h : Math.max(2, h - 1);
+      p.h = gem ? h : ((i % 2 === 0) ? h : Math.max(2, h - 1));
       p.tone = gem ? 3 : (whiteOnly ? 0 : (i % 3));
       p.peak = bright;
     }
@@ -723,8 +724,8 @@ const FX = (function () {
         if (c > 12) c = 12;
         if (reducedNow()) c = 1;
         const t = (c - 1) / 11;
-        const n = 4 + Math.round(t * 4);
-        const size = Math.round(2 + t);
+        const n = Math.round(4 + t * 8);
+        const size = Math.round(2 + t * 2);
         const spread = 3.4 * (1 + t * 0.35);
         const peak = 0.7 + t * 0.3;
         spray(x, y, n, 0.14, spread, size, size, true, peak, true);
