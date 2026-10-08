@@ -202,6 +202,79 @@ function restartBanksGold() {
   console.log('restart banks unsynced gold once');
 }
 
+function watchLootOff(game) {
+  const offs = [];
+  const prev = game.FX && game.FX.lootPullOff;
+  game.FX.lootPullOff = function (id, pop) {
+    offs.push({ id: id, pop: pop, n: arguments.length });
+    if (typeof prev === 'function') prev.apply(game.FX, arguments);
+  };
+  return offs;
+}
+
+function deathRestartSkips() {
+  const game = boot(4, '?headless=1&debug=1');
+  const offs = watchLootOff(game);
+  quietArena(game);
+  game.__svInvuln(0);
+  game.__svAddGold(30);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  stepLive(game);
+  const row = groundRow(game, id);
+  if (!row || !row.pull) fail('death restart setup was not mid-flight');
+  const fell = game.__svHurt(9999);
+  if (fell.state !== 'dead') fail('death restart setup left ' + fell.state);
+  if (bagHits(game, id) !== 1) fail('death banked ' + bagHits(game, id));
+  if (game.__svPurse() !== 30) fail('death gold ' + game.__svPurse());
+  const deathOff = offs.filter((entry) => entry.id === id);
+  if (deathOff.length !== 1 || deathOff[0].n !== 1 || deathOff[0].pop !== undefined) {
+    fail('death lootPullOff ' + JSON.stringify(deathOff));
+  }
+  game.__svRestart();
+  if (bagHits(game, id) !== 1) fail('death restart banked the item again ' + bagHits(game, id));
+  if (game.__svPurse() !== 30) fail('death restart banked gold again ' + game.__svPurse());
+  if (offs.filter((entry) => entry.id === id).length !== 1) fail('death restart called lootPullOff again');
+  console.log('death restart leaves the bank alone');
+}
+
+function quitKeepsTheRun() {
+  const game = boot(5, '?headless=1&debug=1');
+  const offs = watchLootOff(game);
+  quietArena(game);
+  game.__svAddGold(22);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  stepLive(game);
+  const row = groundRow(game, id);
+  if (!row || !row.pull) fail('quit setup was not mid-flight');
+  if (game.__svPurse() !== 0) fail('quit setup synced early ' + game.__svPurse());
+  game.confirm = () => true;
+  const quit = game.__svQuit();
+  if (quit.state !== 'title') fail('quit stayed in ' + quit.state);
+  if (bagHits(game, id) !== 1) fail('quit banked ' + bagHits(game, id));
+  if (game.__svPurse() !== 22) fail('quit gold ' + game.__svPurse());
+  if (groundRow(game, id)) fail('quit left the flight');
+  const quitOff = offs.filter((entry) => entry.id === id);
+  if (quitOff.length !== 1 || quitOff[0].n !== 1 || quitOff[0].pop !== undefined) {
+    fail('quit lootPullOff ' + JSON.stringify(quitOff));
+  }
+  const best = game.__svBest();
+  if (!(best > 0)) fail('quit dropped the run record ' + best);
+  game.__svPageHide();
+  if (game.__svPurse() !== 22) fail('quit then hide counted gold again ' + game.__svPurse());
+  if (bagHits(game, id) !== 1) fail('hide banked the flight again ' + bagHits(game, id));
+  game.__svStart();
+  game.__svAddGold(10);
+  game.__svPageHide();
+  if (game.__svPurse() !== 32) fail('second hide ' + game.__svPurse());
+  game.__svAddGold(5);
+  game.confirm = () => true;
+  const again = game.__svQuit();
+  if (again.state !== 'title') fail('second quit stayed in ' + again.state);
+  if (game.__svPurse() !== 37) fail('quit counted synced gold again ' + game.__svPurse());
+  if (game.__svBest() + 0.001 < best) fail('second quit dropped the best ' + game.__svBest());
+  console.log('quit banks the flight once and keeps the saved run');
+}
+
 function titleGold() {
   const game = boot(1, '?headless=1');
   if (game.__svTitleGold() !== '0 gold') fail('title gold ' + game.__svTitleGold());
@@ -2843,6 +2916,8 @@ freshAndFlags();
 bossLook();
 saveOnQuit();
 restartBanksGold();
+deathRestartSkips();
+quitKeepsTheRun();
 titleGold();
 wardenHitFloor();
 earlyCrowd();

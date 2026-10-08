@@ -896,7 +896,9 @@
     return true;
   }
 
-  // Death and Restart both bank an in-flight Rare+ once, with no arrival pop.
+  // Death, Restart, and Quit bank an in-flight Rare+ once, with no arrival pop.
+  // Restart and Quit do this only while the run is still live. A death screen
+  // already claimed the flight and synced the gold, so it must not do either again.
   // Already-banked gems are skipped. releaseGemAt sends the silent lootPullOff.
   // "You find:" is only the pickup path, after bankGroundItem succeeds.
   function claimUnbankedFlight() {
@@ -3522,9 +3524,15 @@
     fxCall('setReducedMotion', !!reduceMotion);
   }
 
+  function liveRun() {
+    return state === 'playing' || state === 'paused' || state === 'levelup' || state === 'hermit';
+  }
+
   function startRun() {
-    claimUnbankedFlight();
-    if (state === 'playing' || state === 'paused' || state === 'levelup' || state === 'hermit') syncBank();
+    if (liveRun()) {
+      claimUnbankedFlight();
+      syncBank();
+    }
     const preview = previewOnce;
     previewOnce = '';
     resetRun();
@@ -4498,6 +4506,7 @@
     let ok = false;
     try { ok = window.confirm('Quit this run?'); } catch (e) { ok = false; }
     if (!ok) return;
+    if (liveRun()) claimUnbankedFlight();
     persistRun();
     const app = capacitorApp();
     if (app && typeof app.exitApp === 'function') {
