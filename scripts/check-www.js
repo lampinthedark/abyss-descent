@@ -30,6 +30,32 @@ if (!wwwSurvivor.includes('mobile/shell.css') || !wwwSurvivor.includes('mobile/s
   fail('www/survivor.html is missing the Capacitor shell');
 }
 if (!rootSurvivor.includes('survivor.js?v=6.1.1')) fail('survivor.html is missing its cache bust');
+const assetTags = [];
+const tagRe = /<(script|link)\b[^>]*>/gi;
+let tagMatch;
+while ((tagMatch = tagRe.exec(rootSurvivor))) {
+  const tag = tagMatch[0];
+  const script = /^<script/i.test(tag);
+  if (script) {
+    const src = /src\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (!src || /^(https?:)?\/\//i.test(src[1])) continue;
+    assetTags.push(src[1]);
+  } else if (/rel\s*=\s*["']stylesheet["']/i.test(tag)) {
+    const href = /href\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (!href || /^(https?:)?\/\//i.test(href[1])) continue;
+    assetTags.push(href[1]);
+  }
+}
+if (assetTags.length < 11) fail('survivor.html local assets ' + assetTags.length);
+let cacheV = '';
+assetTags.forEach((url) => {
+  const q = /\?v=([^&]+)$/.exec(url);
+  if (!q) fail('survivor.html asset is missing ?v=: ' + url);
+  if (!cacheV) cacheV = q[1];
+  else if (q[1] !== cacheV) fail('survivor.html ?v= mismatch ' + url + ' vs ' + cacheV);
+});
+const indexSurvivor = /href="survivor\.html\?v=([^"]+)"/.exec(rootHtml);
+if (!indexSurvivor || indexSurvivor[1] !== cacheV) fail('index.html survivor link ?v= does not match survivor.html');
 if (!wwwHtml.includes('mobile/shell.css') || !wwwHtml.includes('mobile/shell.js')) {
   fail('www/index.html is missing the Capacitor shell');
 }
