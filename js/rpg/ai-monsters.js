@@ -13,32 +13,45 @@
     rat: {
       id: 'rat', label: 'Rat', hp: 14, dmg: 3, speed: 2.4,
       sight: 3.6, leash: 7, melee: 0.72, radius: 0.28, color: '#8d7b5a',
-      elite: false, boss: false,
+      elite: false, boss: false, sprite: 'mob_rat', sheet: 'mobs',
+      attacks: { melee: { windupMs: 450 } },
     },
     goblin: {
       id: 'goblin', label: 'Goblin', hp: 28, dmg: 6, speed: 2.05,
       sight: 4.2, leash: 9, melee: 0.8, radius: 0.32, color: '#6f8f3a',
-      elite: false, boss: false,
+      elite: false, boss: false, sprite: 'mob_goblin', sheet: 'mobs',
+      attacks: { melee: { windupMs: 480 } },
     },
     skeleton: {
       id: 'skeleton', label: 'Skeleton', hp: 40, dmg: 8, speed: 1.7,
       sight: 4.6, leash: 10, melee: 0.85, radius: 0.32, color: '#d9d3c4',
-      elite: false, boss: false,
+      elite: false, boss: false, sprite: 'mob_skeleton', sheet: 'mobs2',
+      attacks: { melee: { windupMs: 520 } },
     },
     imp: {
       id: 'imp', label: 'Imp', hp: 22, dmg: 5, speed: 2.5,
       sight: 5, leash: 10, melee: 0.7, radius: 0.26, color: '#d15a34',
-      elite: false, boss: false,
+      elite: false, boss: false, sprite: 'mob_imp', sheet: 'mobs2', style: 'ranged',
+      attacks: { ranged: { windupMs: 420 } },
     },
     brute: {
       id: 'brute', label: 'Brute', hp: 96, dmg: 14, speed: 1.25,
       sight: 4.4, leash: 8, melee: 1.0, radius: 0.46, color: '#6b5246',
-      elite: true, boss: false,
+      elite: true, boss: false, sprite: 'mob_brute', sheet: 'mobs2',
+      attacks: {
+        melee: { windupMs: 560 },
+        slam: { windupMs: 640, radius: 2.1 },
+      },
     },
     ashmaw: {
       id: 'ashmaw', label: 'Ashmaw', hp: 320, dmg: 18, speed: 1.7,
       sight: 8, leash: 16, melee: 1.3, radius: 0.7, color: '#8e2e2e',
-      elite: false, boss: true,
+      elite: false, boss: true, sprite: 'mob_ashmaw', sheet: 'mobs2',
+      attacks: {
+        melee: { windupMs: 480 },
+        slam: { windupMs: 720, radius: 2.25 },
+        charge: { windupMs: 780, dashMs: 240 },
+      },
     },
   };
 
@@ -80,25 +93,36 @@
     return s / 4294967296;
   }
 
-  function sheetHas(key) {
-    const sheet = RPG.sheet || root.SHEET;
-    if (!sheet || !key) return false;
-    try {
-      if (typeof sheet.has === 'function' && sheet.has(key)) return true;
-    } catch (err) {}
-    if (sheet.frames && sheet.frames[key]) return true;
-    if (sheet.keys && sheet.keys[key]) return true;
-    const anims = sheet.anims || sheet.animations;
-    if (anims && anims[key]) return true;
-    return false;
+  function externalRow(id) {
+    const content = RPG.content;
+    if (!content) return null;
+    const bag = content.monsters || content.mobs;
+    if (!bag) return null;
+    if (Array.isArray(bag)) {
+      for (let i = 0; i < bag.length; i++) {
+        const row = bag[i];
+        if (row && (row.id === id || row.monsterId === id)) return row;
+      }
+      return null;
+    }
+    return bag[id] || null;
   }
 
-  function sheetKeys(id) {
-    return {
-      idle: 'mob_' + id + '_idle',
-      walk: 'mob_' + id + '_walk',
-      attack: 'mob_' + id + '_attack',
+  function attacksOf(spec) {
+    const atk = ai.attacks;
+    if (atk && typeof atk.attacksOf === 'function') return atk.attacksOf(spec.id);
+    return (spec && spec.attacks) || {};
+  }
+
+  function sheetKeysFor(sprite, attacks) {
+    const keys = {
+      idle: sprite + '_idle',
+      walk: sprite + '_walk',
+      attack: sprite + '_attack',
     };
+    if (attacks.slam) keys.slam = sprite + '_slam';
+    if (attacks.charge) keys.charge = sprite + '_charge';
+    return keys;
   }
 
   function dist(ax, ay, bx, by) {
@@ -178,7 +202,11 @@
       return false;
     }
     if (dx !== 0) mob.facing = dx > 0 ? 1 : -1;
-    mob.anim = mob.attacking ? 'attack' : 'walk';
+    if (!mob.attacking) {
+      mob.anim = 'walk';
+      if (mob.sheet && mob.sheet.walk) mob.animKey = mob.sheet.walk;
+      mob.animFrame = 0;
+    }
     return dist(mob.x, mob.y, tx, ty) < 0.04;
   }
 
@@ -199,7 +227,7 @@
       if (other.packId !== mob.packId) continue;
       if (other.state === 'return') continue;
       other.aggro = true;
-      if (other.state !== 'windup' && other.state !== 'slam' && other.state !== 'charge') {
+      if (other.state !== 'windup' && other.state !== 'slam' && other.state !== 'charge' && other.state !== 'dash' && other.state !== 'claw') {
         other.state = 'chase';
       }
     }
@@ -282,17 +310,31 @@
   }
 
   function decorate(mob, spec) {
-    const keys = sheetKeys(spec.id);
+    const ext = externalRow(spec.id);
+    const attacks = attacksOf(spec);
+    const sprite = (ext && ext.sprite) || spec.sprite || ('mob_' + spec.id);
+    const pack = (ext && (ext.sheet || ext.atlas)) || spec.sheet || (spec.id === 'rat' || spec.id === 'goblin' ? 'mobs' : 'mobs2');
+    const keys = sheetKeysFor(sprite, attacks);
+    const atk = ai.attacks;
+    const ready = atk && typeof atk.clipReady === 'function' ? atk.clipReady(pack, keys.attack) : false;
+    mob.sprite = sprite;
+    mob.sheetPack = pack;
     mob.sheet = keys;
+    mob.attacks = attacks;
+    mob.slamR = attacks.slam && attacks.slam.radius;
     mob.label = spec.label;
     mob.color = spec.color;
-    mob.artKnown = spec.id === 'rat' || spec.id === 'goblin';
-    mob.placeholder = !sheetHas(keys.idle) && !sheetHas(keys.attack);
+    mob.style = spec.style || 'melee';
+    mob.artKnown = pack === 'mobs';
+    mob.placeholder = !ready;
+    mob.animFrame = 0;
+    mob.holdFrame = 0;
     mob.render = {
       mode: mob.placeholder ? 'box' : 'sheet',
       label: spec.label,
       fill: spec.color,
       keys: keys,
+      sheet: pack,
     };
     mob.anim = 'idle';
     mob.animKey = keys.idle;
@@ -406,15 +448,19 @@
       return;
     }
     const atk = attacks();
-    if (mob.state === 'windup') {
+    if (mob.state === 'windup' || mob.state === 'slam') {
       if (homeDist(mob) > mob.leash) {
+        if (mob.state === 'slam' && atk && atk.cancelSlam) atk.cancelSlam(mob);
         startReturn(mob);
+      } else if (mob.state === 'slam' && atk && atk.advanceSlam) {
+        atk.advanceSlam(mob, dt);
+        return;
       } else if (atk && atk.advanceMelee) {
         atk.advanceMelee(mob, dt);
         return;
       }
     }
-    if (mob.state !== 'windup' && mob.cdMs > 0) mob.cdMs -= dt * 1000;
+    if (mob.state !== 'windup' && mob.state !== 'slam' && mob.cdMs > 0) mob.cdMs -= dt * 1000;
 
     if (mob.state === 'return' || (mob.aggro && homeDist(mob) > mob.leash)) {
       if (mob.state !== 'return') startReturn(mob);
@@ -434,8 +480,12 @@
     const hero = heroPos();
     if (mob.aggro && hero && !hero.dead) {
       mob.state = 'chase';
-      if (atk && typeof atk.inReach === 'function' && atk.inReach(mob, hero) && mob.cdMs <= 0) {
+      if (atk && mob.cdMs <= 0 && typeof atk.inReach === 'function' && atk.inReach(mob, hero)) {
         atk.startMelee(mob, dt);
+        return;
+      }
+      if (atk && mob.cdMs <= 0 && mob.slamR && typeof atk.inSlam === 'function' && atk.inSlam(mob, hero)) {
+        atk.startSlam(mob, dt);
         return;
       }
       moveToward(mob, dt, hero.x, hero.y);
