@@ -99,7 +99,8 @@ if (D.loadMeta().gold !== D.REWARDS.gold.win) fail('gold did not persist');
 const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
-if (!html.includes('survivor.js?v=1')) fail('cache bust');
+if (!html.includes('survivor.js?v=2')) fail('cache bust');
+if (!html.includes('survivor-sprites.js?v=2')) fail('sprite module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
@@ -111,6 +112,9 @@ if (!src.includes("offerRevive") || !src.includes("offerReroll") || !src.include
   fail('missing ad hooks');
 }
 if (!src.includes('setFlush(false)')) fail('survivor should not auto-show held ads during play');
+if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
+if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');
+if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
 
 function fakeDocument() {
   const nodes = {};
