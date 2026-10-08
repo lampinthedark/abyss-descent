@@ -11,9 +11,9 @@
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
-  // BALANCE 6.1.1 — one table. Revert this block to undo the tuning pass.
-  // Evolutions wait for the clock. After the Demon, pressure ramps so a
-  // circle dies between 6:00 and 8:00 while the screen stays full.
+  // BALANCE 6.1.2 — one table. Revert this block to undo the tuning pass.
+  // The post-Demon squeeze used to start at 5:00 and kill movers by 6:40.
+  // It now waits until 7:00 and climbs faster, so the screen fills late.
   const BALANCE = {
     chip: 3,
     idleGrace: 8,
@@ -31,12 +31,12 @@
     evoRank: 5,
     evoPartner: 1,
     evoAt: 95,
-    lateAt: 300,
-    lateRamp: 150,
-    lateRate: 64,
+    lateAt: 420,
+    lateRamp: 80,
+    lateRate: 48,
     lateCap: 400,
     lateEliteEvery: 14,
-    lateHpScale: 16,
+    lateHpScale: 40,
     lateShooter: 6,
     lateShot: 9,
     demonShield: 4,
@@ -58,9 +58,9 @@
   const LOOTPULL_FX = true;
   const LOOT_FLIGHT = 0.4;
   const VOW_LATE_AT = 300;
-  const VOW_LATE_RAMP = 120;
-  const VOW_LATE_HP_MULT = 3.4;
-  const VOW_LATE_DMG_MULT = 2.5;
+  const VOW_LATE_RAMP = 70;
+  const VOW_LATE_HP_MULT = 5.6;
+  const VOW_LATE_DMG_MULT = 4.8;
   const RELIEF_AT = 300;
   const RELIEF_GAP = 38;
   const RELIEF_NEAR = 11;
@@ -1727,11 +1727,18 @@
     return Math.max(6, BALANCE.eliteEvery + (BALANCE.lateEliteEvery - BALANCE.eliteEvery) * u);
   }
 
+  function shooterEvery() {
+    const u = lateT();
+    const early = 18;
+    if (u <= 0) return early;
+    const late = BALANCE.lateShooter > 0 ? BALANCE.lateShooter : 6;
+    return Math.max(late, Math.round(early + (late - early) * u));
+  }
+
   function spawnKind() {
     const n = spawnSerial;
-    const u = lateT();
     if (time >= MINI_AT && !wardenAlive()) {
-      const every = u > 0.2 ? BALANCE.lateShooter : 18;
+      const every = shooterEvery();
       if (every > 0 && n % every === 0) return 'shooter';
     }
     if (time >= BALANCE.heavyAt && n % 18 === 0) return 'charger';
@@ -2637,7 +2644,7 @@
         en.touchCd = 0.8;
         lastHit = 'dash';
         noteHit('dash', true);
-        hurt(player.moving ? 4 : en.dmg + 3, false);
+        hurt(player.moving ? 2 : en.dmg + 3, false);
       }
       if (ai.t <= 0) {
         ai.mode = 'recover';

@@ -3017,6 +3017,35 @@ if (process.env.BALANCE === '1') {
   process.exit(0);
 }
 
+if (process.env.PROBE === '1') {
+  const want = (process.env.SEEDS || '7').split(',').map((n) => Number(n));
+  const bot = process.env.BOT || 'circle';
+  const vow = process.env.VOW === '1';
+  want.forEach((seed) => {
+    const search = '?headless=1&debug=1&walk=' + bot + '&seed=' + seed;
+    const run = watchRun(boot(seed, search), Number(process.env.LIMIT || 600), {
+      dt: process.env.DT ? Number(process.env.DT) : (1 / 60),
+      kite: bot === 'kite',
+      vow: vow,
+    });
+    console.log(JSON.stringify({
+      seed: seed,
+      bot: bot,
+      end: run.end,
+      state: run.state,
+      hit: run.hit,
+      level: run.level,
+      at270: run.at270,
+      min180: run.min180,
+      band: run.band,
+      pace: run.pace,
+      demonKilled: (run.demonSpawn != null && run.demonKill != null) ? Number((run.demonKill - run.demonSpawn).toFixed(1)) : null,
+      heroDiedInFight: run.heroDiedInFight,
+    }));
+  });
+  process.exit(0);
+}
+
 if (process.env.PICKUP === '1') {
   pickupTable();
   process.exit(0);
