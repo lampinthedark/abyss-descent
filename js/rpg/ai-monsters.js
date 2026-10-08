@@ -403,11 +403,21 @@
     }
   }
 
+  /** Town field uses tile Chebyshev, not the content sight radius. */
+  function tileChebyshev(ax, ay, bx, by) {
+    return Math.max(Math.abs(Math.floor(ax) - Math.floor(bx)), Math.abs(Math.floor(ay) - Math.floor(by)));
+  }
+
+  function seesHero(mob, hero) {
+    if (typeof mob.townAggro === 'number') return tileChebyshev(mob.x, mob.y, hero.x, hero.y) <= mob.townAggro;
+    return dist(mob.x, mob.y, hero.x, hero.y) <= mob.sight;
+  }
+
   function sense(mob) {
     if (!mob || mob.dead || mob.state === 'return') return;
     const hero = heroPos();
     if (!hero || hero.dead) return;
-    if (dist(mob.x, mob.y, hero.x, hero.y) > mob.sight) return;
+    if (!seesHero(mob, hero)) return;
     if (!clearOfKeepOut(hero.x, hero.y)) return;
     if (mob.scope === 'pair' && !mob.aggro && pairChasers() >= FIELD_CAP) return;
     alertPack(mob);
@@ -611,6 +621,7 @@
     mob.area = area;
     mob.scope = field ? 'pair' : (opts.scope || 'pack');
     mob.respawnSec = typeof opts.respawn === 'number' ? opts.respawn : 0;
+    if (typeof opts.aggroRadius === 'number') mob.townAggro = opts.aggroRadius;
     if (field) {
       mob.spawnX = x;
       mob.spawnY = y;
@@ -652,10 +663,20 @@
     return spawned;
   }
 
+  /** Town proximity is 2 tiles. A zone may set `aggroRadius` itself. Content sight stays on the spec. */
+  function zoneAggroRadius(zone) {
+    if (!zone) return null;
+    if (typeof zone.aggroRadius === 'number') return zone.aggroRadius;
+    const id = zone.id || zone.zone || (zone.data && (zone.data.id || zone.data.zone));
+    if (id === 'town') return 2;
+    return null;
+  }
+
   /** One spawn entry is one pack. Town entries with `area` are pair-scoped. */
   function spawnZone(zone) {
     const spawns = zone && (zone.spawns || (zone.data && zone.data.spawns));
     if (!spawns) return [];
+    const aggroRadius = zoneAggroRadius(zone);
     const spawned = [];
     for (let i = 0; i < spawns.length; i++) {
       const sp = spawns[i];
@@ -667,6 +688,7 @@
         area: sp.area || null,
         respawn: sp.respawn,
         scope: sp.area ? 'pair' : 'pack',
+        aggroRadius: aggroRadius,
       });
       for (let j = 0; j < pack.length; j++) spawned.push(pack[j]);
     }
@@ -856,6 +878,7 @@
       respawn: mob.respawnSec,
       scope: mob.scope || 'pack',
       packId: mob.packId,
+      aggroRadius: typeof mob.townAggro === 'number' ? mob.townAggro : null,
     });
   }
 
@@ -873,6 +896,7 @@
         area: job.area,
         scope: job.scope,
         respawn: job.respawn,
+        aggroRadius: job.aggroRadius,
       });
       mobs.push(mob);
       addToWorld(mob);

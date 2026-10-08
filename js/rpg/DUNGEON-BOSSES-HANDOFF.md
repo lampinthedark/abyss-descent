@@ -1,6 +1,6 @@
 # Dungeon & bosses handoff
 
-This branch already contains Game Developer's unpushed D1 commits (tip `4fe3bfe`, recreated locally; hashes differ). Once that branch is on GitHub, retarget the PR onto it. This slice still does not edit `rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, or `fx-adapter.js`. The fresh hero's starter kit is 3 hearth bread and no weapon. Field goblins still die to bare-handed `RPG.combat.maxHit()` (at least 1) through `takeHit`. Core combat is unchanged.
+This branch already contains Game Developer's unpushed D1 commits (tip `a9cb0db`, recreated locally; hashes differ). Once that branch is on GitHub, retarget the PR onto it. This slice still does not edit `rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, or `fx-adapter.js`. The fresh hero's starter kit is 3 hearth bread and no weapon. Field goblins still die to bare-handed `RPG.combat.maxHit()` (1 while no weapon is equipped) through `takeHit`. Core combat is unchanged.
 
 These scripts expect the D1 `window.RPG` API. They no-op missing pieces so they can load before a stub exists.
 
@@ -25,7 +25,7 @@ D1's `main.js` still wanders placeholder mobs until `RPG.ai` exists (`coreMobs()
 RPG.ai.spawnZone(RPG.world.zone);
 ```
 
-`spawnZone` reads `zone.spawns`. Town goblin entries are two pairs at `(5, 31)` and `(8, 32)`, each `n: 2`, `leash: 4`, `respawn: 10`, `area: {x0:4, y0:30, x1:10, y1:33}`. A pair shares aggro and at most two town goblins chase at once. The other pair is not pulled. Wander stays inside `area`. Spawns, wander targets, and chase steps call `RPG.world.clearOfKeepOut(x, y)` and stop at the Ash Stair keepOut (`{x0:11, y0:26, x1:13, y1:27, r:5}`). A dead field mob respawns after `respawn` seconds. Ash Stair packs stay full room aggro.
+`spawnZone` reads `zone.spawns`. Town (`zone.id === 'town'`, or `zone.aggroRadius`) uses a proximity override of 2 tiles (Chebyshev on tile floors). Content `aggro` / `sight` is not rewritten. A town goblin or rat aggros only when hit, or when the hero's tile is within 2. A pair shares that aggro and at most two town goblins chase at once. The other pair is not pulled. Town entries are two goblin pairs at `(5, 31)` and `(8, 32)`, each `n: 2`, `leash: 4`, `respawn: 10`, `area: {x0:4, y0:30, x1:10, y1:33}`. Wander stays inside `area`. Spawns, wander targets, and chase steps call `RPG.world.clearOfKeepOut(x, y)` and stop at the Ash Stair keepOut (`{x0:11, y0:26, x1:13, y1:27, r:5}`). A dead field mob respawns after `respawn` seconds. Ash Stair packs keep content aggro and full room aggro.
 
 `spawnPack(monsterId, x, y, n, leash, opts)` is the same call. `opts` may be `{ area, respawn, scope }`. Monster ids: `rat`, `goblin`, `skeleton`, `imp`, `brute`, `ashmaw`.
 
