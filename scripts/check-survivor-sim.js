@@ -134,7 +134,10 @@ function boot(seed0, search, storage) {
     'js/survivor-items.js', 'js/survivor-data.js', 'js/survivor-sprites.js', 'js/survivor-fx.js', 'js/survivor.js',
   ];
   files.forEach((name) => {
-    vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
+    const file = name === 'js/survivor-fx.js' && process.env.FX_JS
+      ? process.env.FX_JS
+      : path.join(root, name);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: name });
   });
   vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof SurvivorData !== "undefined") this.SurvivorData = SurvivorData; if (typeof FX !== "undefined") this.FX = FX;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
@@ -2509,6 +2512,12 @@ function circleProbe() {
   });
 }
 
+function lootStaleCount(game) {
+  const stats = game.FX && game.FX._stats;
+  if (!stats || typeof stats.lootStale !== 'number') return null;
+  return stats.lootStale;
+}
+
 function watchRun(game, limit, opts) {
   const kite = opts === true || !!(opts && opts.kite);
   const vow = !!(opts && opts.vow);
@@ -2597,6 +2606,8 @@ function watchRun(game, limit, opts) {
     if (snap.time > limit) break;
   }
   const pct = (v) => v == null ? null : Math.round(v * 100);
+  const lootStale = lootStaleCount(game);
+  if (lootStale != null && lootStale !== 0) fail('lootStale ' + lootStale);
   return {
     end: death == null ? ('alive@' + snap.time.toFixed(1)) : Number(death.toFixed(1)),
     state: snap.state,
@@ -2622,6 +2633,7 @@ function watchRun(game, limit, opts) {
     vow: snap.vowCount || 0,
     rareAt: rareAt,
     rarePickupAt: rarePickupAt,
+    lootStale: lootStale,
   };
 }
 
@@ -2639,6 +2651,8 @@ function balanceTable() {
       if (snap.state === 'dead') { idleAt = snap.time; break; }
       if (snap.time > 90) break;
     }
+    const idleStale = lootStaleCount(idleGame);
+    if (idleStale != null && idleStale !== 0) fail('seed ' + seed + ' idle lootStale ' + idleStale);
     const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps });
     const vowed = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps, vow: true });
     const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, { dt: fps, kite: true });
@@ -2672,16 +2686,25 @@ function balanceTable() {
       kite20: kite20.end,
       kite20State: kite20.state,
       kite20Min: kite20.minLate,
+      lootStale: {
+        idle: idleStale,
+        circle: circle.lootStale,
+        vow: vowed.lootStale,
+        kite: kite.lootStale,
+        kite20: kite20.lootStale,
+      },
     };
     rows.push(row);
     console.log(JSON.stringify(row));
   });
-  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonTtk eliteTtk gap vowEnd kite kiteMin kite20');
+  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonTtk eliteTtk gap vowEnd kite kiteMin kite20 lootStale');
   rows.forEach((r) => {
+    const stale = r.lootStale;
+    const staleText = stale.idle == null ? '-' : [stale.idle, stale.circle, stale.vow, stale.kite, stale.kite20].join('/');
     console.log([
       r.seed, r.idle, r.circle, r.hurt180 ? 'hit' : 'safe', r.min180, r.at270,
       r.beatWarden ? 'warden' : 'no', r.wardenTtk, r.demonTtk, r.eliteTtk, r.gap,
-      r.vowEnd, r.kite, r.kiteMin, r.kite20,
+      r.vowEnd, r.kite, r.kiteMin, r.kite20, staleText,
     ].join(' '));
   });
 }
