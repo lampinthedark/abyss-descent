@@ -37,8 +37,58 @@
   const particlePool = [];
   const floats = [];
   const floatPool = [];
-  const drawOrder = [];
-  const grid = new Map();
+  const drawOrder = new Array(64);
+  let drawCount = 0;
+  const GRID_N = 2048;
+  const gridBuckets = new Array(GRID_N);
+  const gridCount = new Int16Array(GRID_N);
+  const gridStamp = new Int32Array(GRID_N);
+  const gridCx = new Int32Array(GRID_N);
+  const gridCy = new Int32Array(GRID_N);
+  let gridGen = 1;
+  const nearList = new Array(512);
+  let nearCount = 0;
+  const spotScratch = { x: 0, y: 0 };
+  const chainInfo = { chain: 1 };
+  const novaInfo = { radius: 0, rank: 1 };
+  const bladePos = [
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+    { x: 0, y: 0, angle: 0 },
+  ];
+  const bladeView = [];
+  const bladeInfo = { radius: 0, positions: bladeView };
+  const camInfo = { x: 0, y: 0, zoom: 2 };
+  const heroDraw = { flash: false, moving: false, facing: 1, time: 0, lunge: 0 };
+  const foeDraw = {
+    eid: '', sprite: '', boss: false, facing: 1, scale: 1, color: '#d7dbe3',
+    flash: false, dying: 0, crowd: false, time: 0,
+  };
+  const visScratch = { frame: null, scale: 1, flip: false, boss: false, elite: false, fid: 0 };
+  const gemKeyX = [];
+  const gemKeyY = [];
+  const gemLists = [];
+  const gemListN = [];
+  let gemKeyN = 0;
+
+  function len2(x, y) {
+    return Math.sqrt(x * x + y * y);
+  }
+  const emptyBonus = { might: 0, life: 0, greed: 0 };
+  const numText = [];
+  const fontCache = {};
+  const RARITY_FILL = {
+    common: '#8a857d',
+    uncommon: '#5ed37a',
+    rare: '#4c7cff',
+    epic: '#d0b4ff',
+    legendary: '#f2f6ff',
+  };
 
   let state = 'title';
   let resumeState = null;
@@ -47,6 +97,10 @@
   let kills = 0;
   let levelUps = 0;
   let runGold = 0;
+  let goldMilli = 0;
+  let gemChain = 0;
+  let gemChainAt = -10;
+  let doubleLocked = false;
   let bankedAmount = 0;
   let doubled = false;
   let revived = false;
@@ -59,6 +113,8 @@
   let vowPayout = false;
   let vowResume = false;
   let vowCount = 0;
+  let vowsSurvived = 0;
+  let vowActive = false;
   let hermitDeclines = 0;
   let nextVowAt = 32;
   let vowSeen = false;
@@ -70,6 +126,10 @@
   let demonWarned = false;
   let banner = '';
   let bannerT = 0;
+  let warnOn = false;
+  let nextOfferLine = '';
+  let secondChanceFx = 0;
+  const evoQueued = {};
   let evolveFreeze = 0;
   let evolvePending = '';
   const evolveQueue = [];
@@ -122,7 +182,30 @@
   }
 
   function itemStats() {
-    try { return SurvivorSave.itemBonus(); } catch (e) { return { might: 0, life: 0, greed: 0 }; }
+    try { return SurvivorSave.itemBonus(); } catch (e) { return emptyBonus; }
+  }
+
+  function ntext(n) {
+    const v = n | 0;
+    if (v >= 0 && v < 400) {
+      let s = numText[v];
+      if (!s) {
+        s = String(v);
+        numText[v] = s;
+      }
+      return s;
+    }
+    return String(v);
+  }
+
+  function floatFont(big, size) {
+    const key = (big ? 1000 : 0) + size;
+    let s = fontCache[key];
+    if (!s) {
+      s = (big ? '800 ' : 'bold ') + size + 'px Segoe UI';
+      fontCache[key] = s;
+    }
+    return s;
   }
 
   function vowMult() {
@@ -138,6 +221,27 @@
 
   function tapBlocked() {
     return nowMs() < uiGuardUntil;
+  }
+
+  function grantGold(amount) {
+    if (!(amount > 0)) return;
+    goldMilli += Math.round(amount * 1000);
+    const whole = Math.floor(goldMilli / 1000);
+    if (whole <= 0) return;
+    runGold += whole;
+    goldMilli -= whole * 1000;
+  }
+
+  // Pickup streak for the later sound pass: +1 semitone per gem, capped at 12.
+  function bumpGemChain() {
+    if (time - gemChainAt > 0.4) gemChain = 0;
+    gemChain += 1;
+    gemChainAt = time;
+    return gemChain;
+  }
+
+  function gemChainPitch() {
+    return Math.min(12, gemChain);
   }
 
   function blankPlayer() {
@@ -186,9 +290,8 @@
     ctx.imageSmoothingEnabled = false;
   }
 
-  function worldToScreen(x, y) {
-    return { x: x * TILE + camX, y: y * TILE + camY };
-  }
+  function sxOf(x) { return x * TILE + camX; }
+  function syOf(y) { return y * TILE + camY; }
 
   function addShake(amount) {
     if (reduceMotion || bench || !(amount > 0)) return;
@@ -202,7 +305,7 @@
     else if (id === 'charger') hp = 28;
     else if (id === 'shooter') hp = 18;
     else if (id === 'brute') hp = 40;
-    if (bossKind === 'warden') hp = 1050;
+    if (bossKind === 'warden') hp = 990;
     else if (bossKind === 'demon') hp = 1800;
     else hp = Math.round(hp * wave);
     if (curse > 0) hp = Math.round(hp * 1.5);
@@ -233,7 +336,13 @@
     en.sprite = bossKind === 'warden' ? 'warden' : '';
     en.elite = bossFlag || type.id === 'brute';
     en.behaviour = bossFlag ? 'boss' : (type.behaviour || 'seek');
-    en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
+    if (!en.ai) en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
+    else {
+      en.ai.mode = 'seek';
+      en.ai.t = 0;
+      en.ai.vx = 1;
+      en.ai.vy = 0;
+    }
     en.hitFlash = 0;
     en.dying = 0;
     en.kx = 0;
@@ -247,7 +356,7 @@
     en.flashAt = 0;
     const greed = (1 + shopRank('greed') * 0.08) * (1 + (itemStats().greed || 0)) * vowMult();
     const baseGold = bossFlag ? SurvivorData.REWARDS.gold.mini : (SurvivorData.REWARDS.gold[type.id] || 1);
-    en.gold = Math.max(1, Math.round(baseGold * greed));
+    en.gold = baseGold * greed;
     en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
     enemies.push(en);
     return en;
@@ -315,13 +424,13 @@
     shots.push(s);
   }
 
-  function floatText(x, y, text, color, big, merge) {
-    if (merge) {
+  function floatText(x, y, text, color, big, fid, amount) {
+    if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
         const f = floats[i];
-        if (f.fid === merge.fid && time - f.stamp < 0.25) {
-          f.amount += merge.amount;
-          f.text = String(f.amount);
+        if (f.fid === fid && time - f.stamp < 0.25) {
+          f.amount += amount || 0;
+          f.text = ntext(f.amount);
           f.x = x;
           f.y = y;
           f.stamp = time;
@@ -341,8 +450,8 @@
     f.life = 0.72;
     f.max = 0.72;
     f.big = !!big;
-    f.fid = merge ? merge.fid : 0;
-    f.amount = merge ? merge.amount : 0;
+    f.fid = fid || 0;
+    f.amount = amount || 0;
     f.stamp = time;
     floats.push(f);
   }
@@ -350,14 +459,18 @@
   let fxUpdateMs = 0;
   let fxDrawMs = 0;
 
-  function fxCall(name) {
+  function fxCall(name, a, b, c, d) {
     const box = typeof FX !== 'undefined' ? FX : null;
     const fn = box && box[name];
     if (typeof fn !== 'function') return;
-    const args = [];
-    for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    if (name === 'secondChance') secondChanceFx += 1;
     const t0 = nowMs();
-    fn.apply(box, args);
+    const n = arguments.length;
+    if (n <= 1) fn.call(box);
+    else if (n === 2) fn.call(box, a);
+    else if (n === 3) fn.call(box, a, b);
+    else if (n === 4) fn.call(box, a, b, c);
+    else fn.call(box, a, b, c, d);
     const spent = nowMs() - t0;
     if (name === 'draw') fxDrawMs += spent;
     else fxUpdateMs += spent;
@@ -369,14 +482,13 @@
     const clip = en.dying > 0 ? 'idle' : 'run';
     let frame = null;
     try { frame = SurvivorSprites.frameRect(id, clip, animT); } catch (e) {}
-    return {
-      frame: frame,
-      scale: en.scale || 1,
-      flip: (en.facing || 1) > 0,
-      boss: !!en.boss,
-      elite: !!en.elite && !en.boss,
-      fid: en.fid,
-    };
+    visScratch.frame = frame;
+    visScratch.scale = en.scale || 1;
+    visScratch.flip = (en.facing || 1) > 0;
+    visScratch.boss = !!en.boss;
+    visScratch.elite = !!en.elite && !en.boss;
+    visScratch.fid = en.fid;
+    return visScratch;
   }
 
   function spark(x, y, color, n, speed) {
@@ -448,7 +560,7 @@
     player.hitFlash = 0.16;
     player.invuln = 0.45;
     addShake(heavy ? 4.2 : 2.6);
-    floatText(player.x, player.y - 0.4, String(dmg), '#ff8060', true);
+      floatText(player.x, player.y - 0.4, ntext(dmg), '#ff8060', true);
     sfx('hurt');
     if (player.life <= 0) {
       if (revivalLeft > 0) {
@@ -466,9 +578,8 @@
     }
   }
 
-  function damageEnemy(en, amount, opts) {
+  function damageEnemy(en, amount, tick) {
     if (!en || en.life <= 0 || en.dying > 0) return;
-    const tick = !!(opts && opts.tick);
     en.life -= amount;
     if (!tick) {
       const heavy = !!(en.boss || en.elite);
@@ -485,11 +596,11 @@
     if (!tick) {
       const shown = Math.max(1, Math.round(amount));
       const big = shown >= 18 || !!en.boss;
-      floatText(en.x, en.y - 0.15, String(shown), '#ffffff', big, { fid: en.fid, amount: shown });
+      floatText(en.x, en.y - 0.15, ntext(shown), '#ffffff', big, en.fid, shown);
       spark(en.x, en.y, '#ffffff', 3, 2.2);
       fxCall('hit', en.x, en.y, foeVisual(en));
       if (!en.boss && en.eid !== 'brute') {
-        const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
+        const d = len2(en.x - player.x, en.y - player.y) || 1;
         en.kx = ((en.x - player.x) / d) * 5;
         en.ky = ((en.y - player.y) / d) * 5;
       }
@@ -505,7 +616,7 @@
         if (en.boss || en.elite) en.flashAt = time + 0.35;
       }
       kills += 1;
-      runGold += en.gold;
+      grantGold(en.gold);
       dropGem(en);
       burst(en.x, en.y, '#ffffff');
       fxCall('death', en.x, en.y, en.eid, foeVisual(en));
@@ -514,42 +625,75 @@
     }
   }
 
+  function cellHash(cx, cy) {
+    return ((cx * 73856093) ^ (cy * 19349663)) & (GRID_N - 1);
+  }
+
   function rebuildGrid() {
-    grid.clear();
+    gridGen += 1;
+    if (gridGen >= 0x7fffffff) {
+      gridStamp.fill(0);
+      gridGen = 1;
+    }
     for (let i = 0; i < enemies.length; i++) {
       const en = enemies[i];
       if (en.dying > 0) continue;
-      const key = ((en.x / CELL) | 0) + ',' + ((en.y / CELL) | 0);
-      let bucket = grid.get(key);
-      if (!bucket) {
-        bucket = [];
-        grid.set(key, bucket);
+      const cx = (en.x / CELL) | 0;
+      const cy = (en.y / CELL) | 0;
+      const h = cellHash(cx, cy);
+      for (let probe = 0; probe < 6; probe++) {
+        const slot = (h + probe) & (GRID_N - 1);
+        if (gridStamp[slot] !== gridGen) {
+          gridStamp[slot] = gridGen;
+          gridCx[slot] = cx;
+          gridCy[slot] = cy;
+          gridCount[slot] = 0;
+          if (!gridBuckets[slot]) gridBuckets[slot] = new Array(4);
+        }
+        if (gridCx[slot] === cx && gridCy[slot] === cy) {
+          const bucket = gridBuckets[slot];
+          const at = gridCount[slot];
+          bucket[at] = en;
+          gridCount[slot] = at + 1;
+          break;
+        }
       }
-      bucket.push(en);
     }
   }
 
-  function nearby(x, y, rad, fn) {
-    const span = Math.max(1, Math.ceil(rad / CELL));
+  function nearbyFill(x, y, rad) {
+    nearCount = 0;
+    const span = rad <= CELL ? 1 : Math.ceil(rad / CELL);
     const c0 = (x / CELL) | 0;
     const r0 = (y / CELL) | 0;
     for (let cy = r0 - span; cy <= r0 + span; cy++) {
       for (let cx = c0 - span; cx <= c0 + span; cx++) {
-        const bucket = grid.get(cx + ',' + cy);
-        if (!bucket) continue;
-        for (let n = 0; n < bucket.length; n++) fn(bucket[n]);
+        const h = cellHash(cx, cy);
+        for (let probe = 0; probe < 6; probe++) {
+          const slot = (h + probe) & (GRID_N - 1);
+          if (gridStamp[slot] !== gridGen) break;
+          if (gridCx[slot] !== cx || gridCy[slot] !== cy) continue;
+          const bucket = gridBuckets[slot];
+          const count = gridCount[slot];
+          for (let n = 0; n < count; n++) nearList[nearCount++] = bucket[n];
+          break;
+        }
       }
     }
   }
 
   function nearestEnemy(x, y, rad) {
+    nearbyFill(x, y, rad);
     let best = null;
-    let bd = rad;
-    nearby(x, y, rad, (en) => {
-      if (en.life <= 0) return;
-      const d = Math.hypot(en.x - x, en.y - y);
+    let bd = rad * rad;
+    for (let n = 0; n < nearCount; n++) {
+      const en = nearList[n];
+      if (en.life <= 0) continue;
+      const dx = en.x - x;
+      const dy = en.y - y;
+      const d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = en; }
-    });
+    }
     return best;
   }
 
@@ -560,38 +704,54 @@
   }
 
   function aimEnemy(x, y, rad) {
+    nearbyFill(x, y, rad);
     let best = null;
-    let bd = rad;
-    nearby(x, y, rad, (en) => {
-      if (en.life <= 0 || en.dying > 0) return;
-      const d = Math.hypot(en.x - x, en.y - y);
+    let bd = rad * rad;
+    for (let n = 0; n < nearCount; n++) {
+      const en = nearList[n];
+      if (en.life <= 0 || en.dying > 0) continue;
+      const dx = en.x - x;
+      const dy = en.y - y;
+      const d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = en; }
-    });
+    }
     return best;
   }
 
-  // Ash Bolt prefers a boss, then an elite, when one is on screen and in range.
-  // Other weapons keep the nearest foe, bosses included.
+  // Ash bolts alternate: one shot at the on-screen boss, the next at the
+  // nearest other foe. With no boss in range they use the nearest target.
+  let boltBossTurn = true;
   function aimBolt(x, y, rad) {
+    const rad2 = rad * rad;
     let best = null;
-    let bd = rad;
-    let prefer = null;
-    let pd = rad;
-    let pr = 0;
-    nearby(x, y, rad, (en) => {
-      if (en.life <= 0 || en.dying > 0) return;
-      const d = Math.hypot(en.x - x, en.y - y);
-      if (d >= rad) return;
+    let bd = rad2;
+    let boss = null;
+    let bossD = rad2;
+    let trash = null;
+    let trashD = rad2;
+    nearbyFill(x, y, rad);
+    for (let n = 0; n < nearCount; n++) {
+      const en = nearList[n];
+      if (en.life <= 0 || en.dying > 0) continue;
+      const dx = en.x - x;
+      const dy = en.y - y;
+      const d = dx * dx + dy * dy;
+      if (d >= rad2) continue;
       if (d < bd) { bd = d; best = en; }
-      if (!onScreen(en)) return;
-      const rank = en.boss ? 2 : (en.elite ? 1 : 0);
-      if (rank > pr || (rank > 0 && rank === pr && d < pd)) {
-        pr = rank;
-        pd = d;
-        prefer = en;
+      if (!onScreen(en)) continue;
+      if (en.boss) {
+        if (d < bossD) { bossD = d; boss = en; }
+      } else if (d < trashD) {
+        trashD = d;
+        trash = en;
       }
-    });
-    return pr > 0 ? prefer : best;
+    }
+    if (boss && trash) {
+      const pick = boltBossTurn ? boss : trash;
+      boltBossTurn = !boltBossTurn;
+      return pick;
+    }
+    return boss || best;
   }
 
   function bodyReach(en) {
@@ -611,7 +771,7 @@
   function viewLimit() {
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
-    return Math.hypot(halfW, halfH) + 4;
+    return len2(halfW, halfH) + 4;
   }
 
   function cullFarEnemies() {
@@ -626,32 +786,66 @@
     }
   }
 
-  function raiseBanner(text) {
+  function raiseBanner(text, pulse) {
     banner = text;
-    bannerT = 2;
+    bannerT = pulse ? 2.15 : 2;
+    warnOn = true;
     const el = $('sv-warn');
     if (el) {
       el.textContent = text;
       el.classList.remove('hidden');
+      el.classList.toggle('sv-pulse', !!pulse && !reduceMotion);
     }
     sfx('portal');
+  }
+
+  function clearBossUi() {
+    banner = '';
+    bannerT = 0;
+    warnOn = false;
+    const el = $('sv-warn');
+    if (el) {
+      el.textContent = '';
+      el.classList.add('hidden');
+      el.classList.remove('sv-pulse');
+    }
+    const bossBar = $('sv-boss');
+    if (bossBar) bossBar.classList.add('hidden');
+    const name = $('sv-boss-name');
+    if (name) name.textContent = '';
+    const hp = $('sv-boss-hp');
+    if (hp) hp.style.width = '0%';
   }
 
   function spawnRing(pad) {
     spawnSerial += 1;
     const ang = spawnSerial * 2.399963;
     const ring = Math.max(4.4, 9.2 - time * 0.016) + (pad || 0);
-    return {
-      x: player.x + Math.cos(ang) * ring,
-      y: player.y + Math.sin(ang) * ring,
-    };
+    spotScratch.x = player.x + Math.cos(ang) * ring;
+    spotScratch.y = player.y + Math.sin(ang) * ring;
+    return spotScratch;
+  }
+
+  function wardenAlive() {
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind === 'warden' && en.life > 0 && en.dying <= 0) return true;
+    }
+    return false;
+  }
+
+  function burstCasters() {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (en.eid === 'shooter' && en.life > 0 && en.dying <= 0) damageEnemy(en, en.life + 1);
+    }
   }
 
   function spawnKind() {
     const n = spawnSerial;
     if (time < 70) return n % 4 === 0 ? 'imp' : 'skel';
     if (time < 100) return n % 10 === 0 ? 'charger' : n % 4 === 0 ? 'imp' : 'skel';
-    if (time > 105 && n % 8 === 0) return 'shooter';
+    if (time >= MINI_AT && !wardenAlive() && n % 8 === 0) return 'shooter';
     if (time > 95 && n % 6 === 0) return 'charger';
     if (time > 55 && n % 11 === 0) return 'brute';
     if (n % 3 === 0) return 'imp';
@@ -680,22 +874,27 @@
     if (bannerT > 0) {
       bannerT = Math.max(0, bannerT - dt);
       if (bannerT <= 0) {
+        warnOn = false;
         const el = $('sv-warn');
-        if (el) el.classList.add('hidden');
+        if (el) {
+          el.classList.add('hidden');
+          el.classList.remove('sv-pulse');
+        }
       }
     }
     if (!eliteWarned && time >= 148) {
       eliteWarned = true;
-      raiseBanner('Grave Warden');
+      raiseBanner('Grave Warden approaches', true);
     }
     if (!eliteSpawned && time >= 150) {
       eliteSpawned = true;
+      burstCasters();
       const spot = spawnBossEdge();
       spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
     }
     if (!demonWarned && time >= MINI_AT - 2) {
       demonWarned = true;
-      raiseBanner('Risen Demon');
+      raiseBanner('Risen Demon approaches', true);
     }
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
@@ -744,7 +943,9 @@
     const sx = Math.cos(ang);
     const sy = Math.sin(ang);
     const fit = 1 / Math.max(Math.abs(sx) / halfW, Math.abs(sy) / halfH);
-    return { x: player.x + sx * fit * 0.9, y: player.y + sy * fit * 0.9 };
+    spotScratch.x = player.x + sx * fit * 0.9;
+    spotScratch.y = player.y + sy * fit * 0.9;
+    return spotScratch;
   }
 
   function leashBoss(en, dt) {
@@ -753,14 +954,14 @@
     const reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
     let dx = en.x - player.x;
     let dy = en.y - player.y;
-    let dist = Math.hypot(dx, dy) || 1;
+    let dist = len2(dx, dy) || 1;
     if (dist > reach) {
       const step = Math.min(dist - reach, Math.max(4.2, en.speed * 6) * dt);
       en.x -= (dx / dist) * step;
       en.y -= (dy / dist) * step;
       dx = en.x - player.x;
       dy = en.y - player.y;
-      dist = Math.hypot(dx, dy) || 1;
+      dist = len2(dx, dy) || 1;
     }
     const pad = 0.8;
     if (Math.abs(dx) > halfW - pad || Math.abs(dy) > halfH - pad) {
@@ -768,7 +969,7 @@
       const ty = player.y + Math.max(-(halfH - pad), Math.min(halfH - pad, dy));
       const lx = tx - en.x;
       const ly = ty - en.y;
-      const ld = Math.hypot(lx, ly) || 1;
+      const ld = len2(lx, ly) || 1;
       const step = Math.min(ld, Math.max(4.2, en.speed * 6) * dt);
       en.x += (lx / ld) * step;
       en.y += (ly / ld) * step;
@@ -780,10 +981,11 @@
     const halfW = canvas.width / (TILE * 2) + extra;
     const halfH = canvas.height / (TILE * 2) + extra;
     const side = Math.floor(Math.random() * 4);
-    if (side === 0) return { x: player.x - halfW, y: player.y + (Math.random() * 2 - 1) * halfH };
-    if (side === 1) return { x: player.x + halfW, y: player.y + (Math.random() * 2 - 1) * halfH };
-    if (side === 2) return { x: player.x + (Math.random() * 2 - 1) * halfW, y: player.y - halfH };
-    return { x: player.x + (Math.random() * 2 - 1) * halfW, y: player.y + halfH };
+    if (side === 0) { spotScratch.x = player.x - halfW; spotScratch.y = player.y + (Math.random() * 2 - 1) * halfH; }
+    else if (side === 1) { spotScratch.x = player.x + halfW; spotScratch.y = player.y + (Math.random() * 2 - 1) * halfH; }
+    else if (side === 2) { spotScratch.x = player.x + (Math.random() * 2 - 1) * halfW; spotScratch.y = player.y - halfH; }
+    else { spotScratch.x = player.x + (Math.random() * 2 - 1) * halfW; spotScratch.y = player.y + halfH; }
+    return spotScratch;
   }
 
   let novaQueue = 0;
@@ -794,7 +996,9 @@
     const evolvedNova = !!evolved.nova;
     spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
     const radius = life * (evolvedNova ? 9.2 : 7.2) * area();
-    fxCall('cast', 'nova', player.x, player.y, { radius: radius, rank: rank });
+    novaInfo.radius = radius;
+    novaInfo.rank = rank;
+    fxCall('cast', 'nova', player.x, player.y, novaInfo);
     sfx('cast');
     return radius;
   }
@@ -810,26 +1014,32 @@
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
     const aimReach = Math.max(8.5, Math.min(halfW, halfH) * 0.92);
-    const aim = aimBolt(player.x, player.y, aimReach);
     const lineAim = aimEnemy(player.x, player.y, aimReach);
     const boltRank = Math.max(1, Math.min(5, owned.bolt || 1));
-    if (owned.bolt && cds.bolt <= 0 && aim) {
-      const dx = aim.x - player.x;
-      const dy = aim.y - player.y;
-      const d = Math.hypot(dx, dy) || 1;
+    if (owned.bolt && cds.bolt <= 0) {
       const sp = T.boltSpeed * (1 + (boltRank >= 4 ? 0.12 : 0));
       const base = boltDamage();
       const volley = boltRank >= 5 ? 3 : boltRank >= 3 ? 2 : 1;
+      let fired = 0;
+      let face = player.facing;
       for (let i = 0; i < volley; i++) {
-        const spread = (i - (volley - 1) / 2) * 0.22;
+        const aim = aimBolt(player.x, player.y, aimReach);
+        if (!aim) continue;
+        const dx = aim.x - player.x;
+        const dy = aim.y - player.y;
+        const spread = (i - (volley - 1) / 2) * 0.08;
         const ang = Math.atan2(dy, dx) + spread;
         spawnShot('bolt', player.x, player.y, Math.cos(ang) * sp, Math.sin(ang) * sp, base * (i === 0 ? 1 : 0.65), 1.4);
+        face = dx >= 0 ? 1 : -1;
+        fired += 1;
       }
-      player.swing = 0.16;
-      const cd = [0.62, 0.56, 0.5, 0.42, 0.36][boltRank - 1];
-      cds.bolt = cd * haste();
-      player.facing = dx >= 0 ? 1 : -1;
-      sfx('cast');
+      if (fired) {
+        player.swing = 0.16;
+        const cd = [0.62, 0.56, 0.5, 0.42, 0.36][boltRank - 1];
+        cds.bolt = cd * haste();
+        player.facing = face;
+        sfx('cast');
+      }
     }
     const novaRank = Math.max(0, Math.min(5, owned.nova || 0));
     if (novaRank && cds.nova <= 0) {
@@ -843,7 +1053,7 @@
     if (pierceRank && cds.pierce <= 0 && lineAim) {
       const dx = lineAim.x - player.x;
       const dy = lineAim.y - player.y;
-      const d = Math.hypot(dx, dy) || 1;
+      const d = len2(dx, dy) || 1;
       const sp = pierceRank >= 4 ? 12.5 : 11;
       const dmg = (14 + pierceRank * 6) * power() * (pierceRank >= 3 ? 1.15 : 1);
       const lines = pierceRank >= 5 ? 2 : 1;
@@ -864,17 +1074,28 @@
       const count = storm ? 5 : (orbitRank >= 5 ? 3 : orbitRank >= 3 ? 2 : 1);
       const rad = ((storm ? 2.15 : 1.45) + (orbitRank >= 4 ? 0.45 : 0.12)) * area();
       const dmg = (7 + orbitRank * 3) * power() * dt * (storm ? 2.8 : 2.2);
-      const positions = [];
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
         const bx = player.x + Math.cos(a) * rad;
         const by = player.y + Math.sin(a) * rad;
-        positions.push({ x: bx, y: by, angle: a });
-        nearby(bx, by, 1.6, (en) => {
-          if (Math.hypot(en.x - bx, en.y - by) < 0.72 + bodyReach(en)) damageEnemy(en, dmg, { tick: true });
-        });
+        const slot = bladePos[i];
+        slot.x = bx;
+        slot.y = by;
+        slot.angle = a;
+        bladeView[i] = slot;
+        nearbyFill(bx, by, 1.6);
+        for (let n = 0; n < nearCount; n++) {
+          const en = nearList[n];
+          const reach = 0.72 + bodyReach(en);
+          const dx = en.x - bx;
+          const dy = en.y - by;
+          if (dx * dx + dy * dy < reach * reach) damageEnemy(en, dmg, true);
+        }
       }
-      fxCall('cast', 'blade', player.x, player.y, { radius: rad, positions: positions });
+      bladeView.length = count;
+      bladeInfo.radius = rad;
+      bladeInfo.positions = bladeView;
+      fxCall('cast', 'blade', player.x, player.y, bladeInfo);
     }
   }
 
@@ -889,33 +1110,45 @@
         const band = s.life > 0.2 && (owned.nova || 0) >= 5 ? 1.15 : 0.9;
         for (let k = 0; k < steps; k++) {
           s.r += slice;
-          nearby(s.x, s.y, s.r + 0.6, (en) => {
-            if (en._nova === s.seq) return;
-            const dist = Math.hypot(en.x - s.x, en.y - s.y);
-            if (dist < s.r + bodyReach(en) && dist > s.r - band - bodyReach(en)) {
+          nearbyFill(s.x, s.y, s.r + 0.6);
+          for (let n = 0; n < nearCount; n++) {
+            const en = nearList[n];
+            if (en._nova === s.seq) continue;
+            const dx = en.x - s.x;
+            const dy = en.y - s.y;
+            const dist2 = dx * dx + dy * dy;
+            const outer = s.r + bodyReach(en);
+            const inner = s.r - band - bodyReach(en);
+            if (dist2 < outer * outer && (inner <= 0 || dist2 > inner * inner)) {
               en._nova = s.seq;
               damageEnemy(en, s.dmg);
             }
-          });
+          }
         }
       } else {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         const hitR = s.kind === 'pierce' ? 0.55 * area() : 0.42;
-        nearby(s.x, s.y, hitR + 1.2, (en) => {
+        nearbyFill(s.x, s.y, hitR + 1.2);
+        for (let n = 0; n < nearCount; n++) {
+          const en = nearList[n];
           const reach = hitR + bodyReach(en);
+          const hit2 = reach * reach;
+          const sdx = en.x - s.x;
+          const sdy = en.y - s.y;
+          const sd2 = sdx * sdx + sdy * sdy;
           if (s.kind === 'pierce') {
-            if (en._pierce === s.seq) return;
-            if (Math.hypot(en.x - s.x, en.y - s.y) > reach) return;
+            if (en._pierce === s.seq) continue;
+            if (sd2 > hit2) continue;
             en._pierce = s.seq;
             damageEnemy(en, s.dmg);
-            return;
+            continue;
           }
-          if (Math.hypot(en.x - s.x, en.y - s.y) <= reach) {
+          if (sd2 <= hit2) {
             damageEnemy(en, s.dmg);
             s.life = 0;
           }
-        });
+        }
       }
       if (s.life <= 0) {
         shots.splice(i, 1);
@@ -941,7 +1174,7 @@
       s.life -= dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (Math.hypot(s.x - player.x, s.y - player.y) < 0.46) {
+      if (len2(s.x - player.x, s.y - player.y) < 0.46) {
         hurt(s.dmg, false);
         s.life = 0;
       }
@@ -955,7 +1188,7 @@
   function steer(en, dt, speed) {
     const dx = player.x - en.x;
     const dy = player.y - en.y;
-    const dist = Math.hypot(dx, dy) || 1;
+    const dist = len2(dx, dy) || 1;
     en.x += (dx / dist) * speed * dt;
     en.y += (dy / dist) * speed * dt;
     en.facing = dx >= 0 ? 1 : -1;
@@ -974,7 +1207,7 @@
     const ai = en.ai;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
-    const dist = Math.hypot(dx, dy) || 1;
+    const dist = len2(dx, dy) || 1;
     if (ai.mode === 'seek') {
       steer(en, dt, en.speed);
       if (dist < 4.6) {
@@ -995,7 +1228,7 @@
       en.x += ai.vx * 8.2 * dt;
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
-      const hit = Math.hypot(player.x - en.x, player.y - en.y);
+      const hit = len2(player.x - en.x, player.y - en.y);
       if (hit < en.radius + 0.5 && en.touchCd <= 0) {
         en.touchCd = 0.8;
         hurt(en.dmg + 3, false);
@@ -1015,7 +1248,7 @@
     const ai = en.ai;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
-    const dist = Math.hypot(dx, dy) || 1;
+    const dist = len2(dx, dy) || 1;
     en.facing = dx >= 0 ? 1 : -1;
     if (ai.mode === 'tell') {
       ai.t -= dt;
@@ -1050,7 +1283,7 @@
     const ai = en.ai;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
-    const dist = Math.hypot(dx, dy) || 1;
+    const dist = len2(dx, dy) || 1;
     en.facing = dx >= 0 ? 1 : -1;
     if (ai.mode === 'tell') {
       ai.t -= dt;
@@ -1115,7 +1348,7 @@
       else {
         const dx = player.x - en.x;
         const dy = player.y - en.y;
-        const dist = Math.hypot(dx, dy) || 1;
+        const dist = len2(dx, dy) || 1;
         en.x += (dx / dist) * en.speed * dt;
         en.y += (dy / dist) * en.speed * dt;
         en.facing = dx >= 0 ? 1 : -1;
@@ -1124,47 +1357,67 @@
     }
   }
 
+  function releaseGemAt(i) {
+    const g = gems[i];
+    const last = gems.pop();
+    if (i < gems.length) gems[i] = last;
+    g.fly = 0;
+    g.vx = 0;
+    g.vy = 0;
+    gemPool.push(g);
+  }
+
   function mergeOldGems() {
+    gemKeyN = 0;
     const cell = Math.max(2.5, pxToWorld(240));
-    const buckets = new Map();
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
       if ((g.kind || 'gem') !== 'gem' || g.fly) continue;
       if ((g.age || 0) < 15) continue;
-      const key = ((g.x / cell) | 0) + ',' + ((g.y / cell) | 0);
-      let list = buckets.get(key);
-      if (!list) {
-        list = [];
-        buckets.set(key, list);
+      const cx = (g.x / cell) | 0;
+      const cy = (g.y / cell) | 0;
+      let at = -1;
+      for (let k = 0; k < gemKeyN; k++) {
+        if (gemKeyX[k] === cx && gemKeyY[k] === cy) { at = k; break; }
       }
-      list.push(g);
+      if (at < 0) {
+        at = gemKeyN;
+        gemKeyX[at] = cx;
+        gemKeyY[at] = cy;
+        if (!gemLists[at]) gemLists[at] = [];
+        gemListN[at] = 0;
+        gemKeyN += 1;
+      }
+      const list = gemLists[at];
+      const n = gemListN[at];
+      list[n] = g;
+      gemListN[at] = n + 1;
     }
-    buckets.forEach((list) => {
-      if (list.length < 2) return;
+    for (let k = 0; k < gemKeyN; k++) {
+      const list = gemLists[k];
+      const count = gemListN[k];
+      if (count < 2) continue;
       let value = 0;
       let x = 0;
       let y = 0;
-      for (let n = 0; n < list.length; n++) {
+      for (let n = 0; n < count; n++) {
         value += list[n].value || 0;
         x += list[n].x;
         y += list[n].y;
       }
       const keep = list[0];
-      keep.x = x / list.length;
-      keep.y = y / list.length;
+      keep.x = x / count;
+      keep.y = y / count;
       keep.value = value;
       keep.big = true;
       keep.kind = 'gem';
       keep.age = 15;
       keep.fly = 0;
-      for (let n = 1; n < list.length; n++) {
+      for (let n = count - 1; n >= 1; n--) {
         const idx = gems.indexOf(list[n]);
-        if (idx >= 0) {
-          const gone = gems.splice(idx, 1)[0];
-          gemPool.push(gone);
-        }
+        if (idx >= 0) releaseGemAt(idx);
       }
-    });
+    }
   }
 
   function tickGems(dt) {
@@ -1179,20 +1432,20 @@
       const g = gems[i];
       const dx = player.x - g.x;
       const dy = player.y - g.y;
-      const dist = Math.hypot(dx, dy);
+      const dist = len2(dx, dy);
       if (dist < pull) g.fly = 1;
       if (g.fly && dist > 0) {
         const step = Math.min(dist, (14 + (owned.magnet || 0) * 4) * dt);
         g.x += (dx / dist) * step;
         g.y += (dy / dist) * step;
       }
-      const left = Math.hypot(player.x - g.x, player.y - g.y);
+      const left = len2(player.x - g.x, player.y - g.y);
       if (left <= grab || (g.fly && left < 0.08)) {
         const kind = g.kind || 'gem';
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
-          runGold += Math.round(18 * vowMult());
+          grantGold(40 * vowMult());
           chestReady = true;
         } else if (kind === 'item' && g.item) {
           try { SurvivorSave.addItem(g.item); } catch (e) {}
@@ -1200,12 +1453,13 @@
           player.xp += g.value || 0;
         }
         spark(player.x, player.y, '#ffffff', 3, 2.6);
-        fxCall('pickup', g.x, g.y, kind === 'item' && g.item ? g.item.rarity : kind);
-        gems.splice(i, 1);
-        g.fly = 0;
-        g.vx = 0;
-        g.vy = 0;
-        gemPool.push(g);
+        if (kind === 'gem') {
+          chainInfo.chain = bumpGemChain();
+          fxCall('pickup', g.x, g.y, 'gem', chainInfo);
+        } else {
+          fxCall('pickup', g.x, g.y, kind === 'item' && g.item ? g.item.rarity : kind);
+        }
+        releaseGemAt(i);
         if (time - lootSnd > 0.07) {
           lootSnd = time;
           sfx('loot');
@@ -1272,11 +1526,17 @@
       curse = Math.max(0, curse - dt);
       if (vowPayout && curse <= 0) {
         vowPayout = false;
+        if (vowActive) {
+          vowsSurvived += 1;
+          vowActive = false;
+        }
         pickLeft = 2;
+        syncVowChrome();
         openLevel();
         return;
       }
     }
+    syncVowChrome();
     movePlayer(dt);
     director(dt);
     if (state !== 'playing') return;
@@ -1311,7 +1571,7 @@
         floats.splice(i, 1);
       }
     }
-    if (hermit.on && !hermit.used && Math.hypot(player.x - hermit.x, player.y - hermit.y) < 1.25) {
+    if (hermit.on && !hermit.used && len2(player.x - hermit.x, player.y - hermit.y) < 1.25) {
       openHermit();
       return;
     }
@@ -1334,7 +1594,7 @@
       if (joy.on) {
         const jx = joy.x - joy.ox;
         const jy = joy.y - joy.oy;
-        const mag = Math.hypot(jx, jy);
+        const mag = len2(jx, jy);
         if (mag > 14) {
           const scale = Math.min(1, (mag - 14) / 64);
           sx = (jx / mag) * scale;
@@ -1348,7 +1608,7 @@
       const ang = time * (Math.PI * 2 / 8);
       sx = Math.cos(ang) * radius - player.x;
       sy = Math.sin(ang) * radius - player.y;
-      if (Math.hypot(sx, sy) < 0.08) {
+      if (len2(sx, sy) < 0.08) {
         player.moving = false;
         return;
       }
@@ -1358,7 +1618,7 @@
       return;
     }
     player.moving = true;
-    const len = Math.hypot(sx, sy) || 1;
+    const len = len2(sx, sy) || 1;
     const sp = moveSpeed();
     player.x += (sx / len) * sp * dt;
     player.y += (sy / len) * sp * dt;
@@ -1372,10 +1632,15 @@
     foeShots.length = 0;
     particles.length = 0;
     floats.length = 0;
-    grid.clear();
+    gridGen += 1;
+    if (gridGen >= 0x7fffffff) {
+      gridStamp.fill(0);
+      gridGen = 1;
+    }
   }
 
   function resetRun() {
+    try { if (SurvivorSave.reload) SurvivorSave.reload(); } catch (e) {}
     clearPools();
     const fresh = blankPlayer();
     Object.assign(player, fresh);
@@ -1383,8 +1648,13 @@
     kills = 0;
     levelUps = 0;
     runGold = 0;
+    goldMilli = 0;
+    gemChain = 0;
+    gemChainAt = -10;
+    boltBossTurn = true;
     bankedAmount = 0;
     doubled = false;
+    doubleLocked = false;
     revived = false;
     ended = false;
     minuteMark = 0;
@@ -1394,6 +1664,8 @@
     vowPayout = false;
     vowResume = false;
     vowCount = 0;
+    vowsSurvived = 0;
+    vowActive = false;
     hermitDeclines = 0;
     try { SurvivorSprites.setFloorVow(0); } catch (e) {}
     Object.keys(evolved).forEach((k) => { delete evolved[k]; });
@@ -1414,8 +1686,11 @@
     wardenCleared = false;
     demonCleared = false;
     demonWarned = false;
-    banner = '';
-    bannerT = 0;
+    clearBossUi();
+    nextOfferLine = '';
+    secondChanceFx = 0;
+    const queuedKeys = Object.keys(evoQueued);
+    for (let qi = 0; qi < queuedKeys.length; qi++) delete evoQueued[queuedKeys[qi]];
     evolveFreeze = 0;
     evolvePending = '';
     evolveQueue.length = 0;
@@ -1509,7 +1784,7 @@
       eliteWarned = true;
       eliteSpawned = true;
       player.invuln = 8;
-      raiseBanner('Grave Warden');
+      raiseBanner('Grave Warden approaches', true);
       bannerT = 30;
       for (let i = 0; i < 10; i++) {
         const ang = (i / 10) * Math.PI * 2;
@@ -1652,14 +1927,14 @@
       wardenCleared = true;
       demonWarned = true;
       boss5 = true;
-      raiseBanner('Risen Demon');
+      raiseBanner('Risen Demon approaches', true);
       bannerT = 2.4;
       const spot = spawnBossEdge();
       spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
     } else if (time >= 148) {
       eliteWarned = true;
       eliteSpawned = true;
-      raiseBanner('Grave Warden');
+      raiseBanner('Grave Warden approaches', true);
       bannerT = 2.4;
       const spot = spawnBossEdge();
       spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
@@ -1704,24 +1979,18 @@
     if (endKills) endKills.textContent = String(kills);
     if (endLevel) endLevel.textContent = String(player.level);
     if (endGold) endGold.textContent = '+' + runGold + ' gold banked';
-    const next = $('sv-next');
-    const fill = $('sv-next-fill');
-    if (next) {
-      if (!record.next) next.textContent = 'Every upgrade is yours';
-      else if (record.next.away <= 0) next.textContent = 'Ready to buy: ' + record.next.label;
-      else next.textContent = 'Next upgrade: ' + record.next.label + ', ' + record.next.away + ' gold away';
-    }
+    paintNextOffer(record.next);
     const vowsLine = $('sv-end-vows');
-    if (vowsLine) vowsLine.textContent = 'Vows survived: ' + vowCount;
-    if (fill && record.next) {
-      const span = Math.max(1, record.next.cost);
-      fill.style.width = Math.round(100 * (1 - record.next.away / span)) + '%';
-    }
+    if (vowsLine) vowsLine.textContent = 'Vows survived: ' + vowsSurvived;
     uiGuardUntil = nowMs() + 300;
     const reviveBtn = $('sv-revive');
     if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived);
     const goldBtn = $('sv-double');
-    if (goldBtn) goldBtn.classList.toggle('hidden', !adsOn || (kind !== 'dead' && kind !== 'won'));
+    if (goldBtn) {
+      const offer = !!(adsOn && !doubled && (kind === 'dead' || kind === 'won'));
+      goldBtn.disabled = !offer;
+      goldBtn.classList.toggle('hidden', !offer);
+    }
     hide('sv-level');
     hide('sv-pause');
     hide('sv-hermit');
@@ -1784,7 +2053,7 @@
     hide('sv-end');
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
-      if (Math.hypot(en.x - player.x, en.y - player.y) < 3.2) releaseEnemy(i);
+      if (len2(en.x - player.x, en.y - player.y) < 3.2) releaseEnemy(i);
     }
   }
 
@@ -1807,9 +2076,7 @@
         btn.disabled = u.soldOut || purse < u.cost;
         btn.textContent = u.soldOut ? u.name + ' maxed' : u.label + ' · ' + u.cost + 'g';
         btn.addEventListener('click', () => {
-          let res = { ok: false };
-          try { res = SurvivorSave.buy(u.id); } catch (e) {}
-          if (res.ok) openShop(shopReturn);
+          if (buyUpgrade(u.id).ok) openShop(shopReturn);
         });
         const note = document.createElement('small');
         note.textContent = u.blurb + (u.rank ? ' · rank ' + u.rank + '/' + u.max : '');
@@ -1821,18 +2088,46 @@
     show('sv-shop');
   }
 
+  function buyUpgrade(id) {
+    let res = { ok: false };
+    try { res = SurvivorSave.buy(id); } catch (e) {}
+    if (res.ok) paintNextOffer();
+    return res;
+  }
+
+  function paintNextOffer(nxt) {
+    let next = nxt;
+    if (next === undefined) {
+      try { next = SurvivorSave.nextUpgrade(); } catch (e) { next = null; }
+    }
+    let line = 'Every upgrade is yours';
+    if (next && next.away <= 0) line = 'Ready to buy: ' + next.label;
+    else if (next) line = 'Next upgrade: ' + next.label + ', ' + next.away + ' gold away';
+    nextOfferLine = line;
+    const el = $('sv-next');
+    if (el) el.textContent = line;
+    const fill = $('sv-next-fill');
+    if (fill && next && next.cost) {
+      const span = Math.max(1, next.cost);
+      fill.style.width = Math.round(100 * (1 - next.away / span)) + '%';
+    }
+  }
+
   function closeShop() {
     hide('sv-shop');
-    if (shopReturn === 'end') show('sv-end');
-    else show('sv-title');
+    if (shopReturn === 'end') {
+      paintNextOffer();
+      show('sv-end');
+    } else show('sv-title');
   }
 
   function openLevel() {
+    applyQueuedEvolutions();
     state = 'levelup';
     joy.on = false;
     uiGuardUntil = nowMs() + 300;
     partnerPulse += 1;
-    offers = SurvivorData.pickOffers(owned, null, { forcePartner: (partnerPulse % 2) === 1 });
+    offers = SurvivorData.pickOffers(owned, null, { forcePartner: true });
     const title = $('sv-level-title');
     if (title) title.textContent = pickLeft > 0 ? 'Vow reward' : ('Level ' + player.level);
     const lv = $('sv-level-lv');
@@ -1854,11 +2149,11 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.dataset.choice = String(i);
-        const evo = SurvivorData.evolutionFor(item.id);
-        const showEvo = !!(evo && (item.evolveName || item.evolveOf || item.evolvesWith));
+        const hintText = evoHint(item);
+        const showEvo = !!hintText;
         btn.className = 'sv-card' + (showEvo ? ' evolves' : '');
         const tag = showEvo ? '<em class="sv-tag">Evolves</em>' : (!have && item.kind !== 'reward' ? '<em class="sv-tag new">New</em>' : '');
-        const hint = showEvo ? '<small class="sv-evo">→ ' + evo.name + ' ?</small>' : '';
+        const hint = showEvo ? '<small class="sv-evo">' + hintText + '</small>' : '';
         const blurb = item.kind === 'reward' ? item.blurb : SurvivorData.rankText(item, next);
         const rank = item.maxLevel && item.kind !== 'reward' ? pipHtml(Math.min(next, item.maxLevel), item.maxLevel) : '';
         btn.innerHTML = '<span class="sv-card-ico">' + iconSvg(item.icon || item.id) + '</span><span class="sv-card-copy"><b>' + item.name + '</b>' + rank + hint + '<small>' + blurb + '</small></span>' + tag;
@@ -1906,42 +2201,51 @@
       player.maxLife += gain;
       player.life += gain;
     }
-    checkEvolutions();
+    queueEvolutions();
+  }
+
+  function evoWeaponId(item) {
+    if (!item) return '';
+    if (item.evolvesWith) return item.id;
+    return item.evolveOf || '';
+  }
+
+  function evoHint(item) {
+    const evo = SurvivorData.evolutionFor(item.id);
+    if (!evo || !(item.evolveName || item.evolveOf || item.evolvesWith)) return '';
+    const weaponId = evoWeaponId(item);
+    if (weaponId && evolved[weaponId]) return '';
+    return '-> ' + evo.name;
   }
 
   function grantChest() {
+    const bases = ['iron-blade', 'bone-charm', 'ash-bead'];
+    try {
+      const base = bases[spawnSerial % bases.length];
+      SurvivorSave.addItem(SurvivorSave.createItem(base, 'rare'));
+    } catch (e) {}
+    checkEvolutions();
+  }
+
+  function queueEvolutions() {
     const weapons = SurvivorData.WEAPONS;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
-      if (!w.evolvesWith || evolved[w.id]) continue;
-      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
-        checkEvolutions();
-        const evo = SurvivorData.evolutionFor(w.id);
-        raiseBanner(evo ? evo.name : 'Evolved');
-        return;
-      }
+      if (!w.evolvesWith || evolved[w.id] || evoQueued[w.id]) continue;
+      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) evoQueued[w.id] = true;
     }
-    let best = null;
+  }
+
+  function applyQueuedEvolutions() {
+    const weapons = SurvivorData.WEAPONS;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
-      const lv = owned[w.id] || 0;
-      if (lv >= w.maxLevel) continue;
-      if (!best || lv > (owned[best.id] || 0)) best = w;
+      if (!evoQueued[w.id] || evolved[w.id]) continue;
+      evolved[w.id] = w.evolvesWith;
+      evoQueued[w.id] = false;
+      const evo = SurvivorData.evolutionFor(w.id);
+      grantEvolve(evo ? evo.id : w.id);
     }
-    if (best) {
-      const lv = owned[best.id] || 0;
-      owned[best.id] = Math.min(best.maxLevel, lv + 2);
-      checkEvolutions();
-      if (evolved[best.id]) {
-        const evo = SurvivorData.evolutionFor(best.id);
-        raiseBanner(evo ? evo.name : 'Evolved');
-      } else {
-        raiseBanner(best.name + ' +2');
-      }
-      return;
-    }
-    owned.might = Math.min(5, (owned.might || 0) + 2);
-    raiseBanner('Might +2');
   }
 
   function checkEvolutions() {
@@ -1951,6 +2255,7 @@
       if (!w.evolvesWith || evolved[w.id]) continue;
       if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
         evolved[w.id] = w.evolvesWith;
+        evoQueued[w.id] = false;
         const evo = SurvivorData.evolutionFor(w.id);
         grantEvolve(evo ? evo.id : w.id);
       }
@@ -1976,7 +2281,7 @@
     const before = prev.map((o) => o.id).sort().join(',');
     let next = prev;
     for (let n = 0; n < 8; n++) {
-      next = SurvivorData.pickOffers(owned, null, { forcePartner: (partnerPulse % 2) === 1 });
+      next = SurvivorData.pickOffers(owned, null, { forcePartner: true });
       const key = next.map((o) => o.id).sort().join(',');
       if (key !== before) return next;
     }
@@ -1995,6 +2300,7 @@
     hermit.used = true;
     state = 'hermit';
     joy.on = false;
+    uiGuardUntil = nowMs() + 300;
     show('sv-hermit');
     sfx('talk');
   }
@@ -2010,13 +2316,40 @@
     }
     state = 'playing';
     vowCount += 1;
+    vowActive = true;
     nextVowAt = time + 150;
     try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
     fxCall('vow', vowCount);
+    syncVowChrome();
+  }
+
+  let vowSecShown = -1;
+  let vowBadgeShown = '';
+
+  function syncVowChrome() {
+    const active = curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title';
     const vow = $('sv-vow');
     if (vow) {
-      vow.classList.remove('hidden');
-      vow.textContent = 'Vow 60s';
+      vow.classList.toggle('hidden', !active);
+      if (active) {
+        const secs = Math.ceil(curse);
+        if (secs !== vowSecShown) {
+          vowSecShown = secs;
+          vow.textContent = 'Vow ' + secs + 's';
+        }
+      } else vowSecShown = -1;
+    }
+    const badge = $('sv-vow-badge');
+    if (badge) {
+      badge.classList.toggle('hidden', !active);
+      if (active) {
+        const mult = vowMult();
+        const label = mult === 1.5 ? 'Vow x1.5' : mult === 2 ? 'Vow x2' : mult === 3 ? 'Vow x3' : ('Vow x' + mult);
+        if (label !== vowBadgeShown) {
+          vowBadgeShown = label;
+          badge.textContent = label;
+        }
+      } else vowBadgeShown = '';
     }
   }
 
@@ -2056,6 +2389,8 @@
     }
     state = 'title';
     joy.on = false;
+    clearBossUi();
+    syncVowChrome();
     hide('sv-pause');
     hide('sv-hud');
     hide('sv-end');
@@ -2116,6 +2451,19 @@
     } catch (e) {}
   }
 
+  let hudHp = -1;
+  let hudMax = -1;
+  let hudLv = -1;
+  let hudXpPct = -1;
+  let hudClock = -1;
+  let hudKills = -1;
+  let hudGold = -1;
+  let hudBoss = '';
+  let hudBossPct = -1;
+  let hudFpsText = '';
+  const DIG2 = [];
+  for (let di = 0; di < 60; di++) DIG2.push(di < 10 ? ('0' + di) : String(di));
+
   function hud() {
     const hp = $('sv-hp');
     const hpText = $('sv-hp-text');
@@ -2126,32 +2474,42 @@
     if (player.life < 0) player.life = 0;
     const maxHp = player.maxLife;
     const curHp = Math.max(0, Math.min(maxHp, Math.round(player.life)));
-    if (hp) hp.style.width = (100 * curHp / maxHp) + '%';
-    if (hpText) hpText.textContent = curHp + '/' + maxHp;
+    if (curHp !== hudHp || maxHp !== hudMax) {
+      hudHp = curHp;
+      hudMax = maxHp;
+      if (hp) hp.style.width = (100 * curHp / maxHp) + '%';
+      if (hpText) hpText.textContent = curHp + '/' + maxHp;
+    }
     const need = SurvivorData.xpToNext(player.level);
-    if (xp) xp.style.width = (100 * Math.min(1, player.xp / need)) + '%';
-    if (xpText) xpText.textContent = 'Lv ' + player.level;
+    const xpPct = Math.round(100 * Math.min(1, player.xp / need));
+    if (player.level !== hudLv || xpPct !== hudXpPct) {
+      hudLv = player.level;
+      hudXpPct = xpPct;
+      if (xp) xp.style.width = xpPct + '%';
+      if (xpText) xpText.textContent = 'Lv ' + player.level;
+    }
     const clock = $('sv-time');
     if (clock) {
-      const m = Math.floor(time / 60);
-      const s = Math.floor(time % 60);
-      clock.textContent = m + ':' + String(s).padStart(2, '0');
+      const whole = Math.floor(time);
+      if (whole !== hudClock) {
+        hudClock = whole;
+        const m = Math.floor(whole / 60);
+        const s = whole % 60;
+        clock.textContent = m + ':' + DIG2[s];
+      }
     }
     const k = $('sv-kills');
-    if (k) k.textContent = 'Kills ' + kills;
+    if (k && kills !== hudKills) {
+      hudKills = kills;
+      k.textContent = 'Kills ' + kills;
+    }
     const g = $('sv-gold');
-    if (g) g.textContent = 'Gold ' + runGold;
-    const vow = $('sv-vow');
-    if (vow) {
-      vow.classList.toggle('hidden', curse <= 0);
-      vow.textContent = 'Vow ' + Math.ceil(curse) + 's';
+    const goldShown = Math.floor(runGold);
+    if (g && goldShown !== hudGold) {
+      hudGold = goldShown;
+      g.textContent = 'Gold ' + goldShown;
     }
-    const badge = $('sv-vow-badge');
-    if (badge) {
-      const showVow = vowCount > 0;
-      badge.classList.toggle('hidden', !showVow);
-      if (showVow) badge.textContent = 'Vow x' + vowMult();
-    }
+    syncVowChrome();
     let liveBoss = null;
     for (let i = 0; i < enemies.length; i++) {
       const en = enemies[i];
@@ -2162,15 +2520,27 @@
       bossBar.classList.toggle('hidden', !liveBoss);
       if (liveBoss) {
         const name = $('sv-boss-name');
-        const hp = $('sv-boss-hp');
-        if (name) name.textContent = liveBoss.name;
-        if (hp) hp.style.width = (100 * liveBoss.life / liveBoss.maxLife) + '%';
+        const bar = $('sv-boss-hp');
+        if (name && name.textContent !== liveBoss.name) name.textContent = liveBoss.name;
+        const pct = Math.round(100 * liveBoss.life / liveBoss.maxLife);
+        if (bar && (liveBoss.name !== hudBoss || pct !== hudBossPct)) {
+          hudBoss = liveBoss.name;
+          hudBossPct = pct;
+          bar.style.width = pct + '%';
+        }
+      } else if (hudBoss) {
+        hudBoss = '';
+        hudBossPct = -1;
       }
     }
     const fps = $('sv-fps');
     if (fps && debug) {
-      fps.classList.remove('hidden');
-      fps.textContent = Math.round(fpsSmooth) + ' fps' + (bench ? ' · ' + enemies.length + ' foes' : '');
+      const text = Math.round(fpsSmooth) + ' fps' + (bench ? ' · ' + enemies.length + ' foes' : '');
+      if (text !== hudFpsText) {
+        hudFpsText = text;
+        fps.classList.remove('hidden');
+        fps.textContent = text;
+      }
     }
   }
 
@@ -2179,43 +2549,43 @@
     SurvivorSprites.drawGround(ctx, camX, camY, canvas.width, canvas.height);
   }
 
-  function heroOpts() {
-    return {
-      flash: player.hitFlash > 0,
-      moving: player.moving,
-      facing: player.facing,
-      time: animT,
-      lunge: player.swing || 0,
-    };
+  function fillHeroDraw() {
+    heroDraw.flash = player.hitFlash > 0;
+    heroDraw.moving = player.moving;
+    heroDraw.facing = player.facing;
+    heroDraw.time = animT;
+    heroDraw.lunge = player.swing || 0;
+    return heroDraw;
   }
 
   function drawHeroBody() {
-    const s = worldToScreen(player.x, player.y);
-    SurvivorSprites.drawHero(ctx, s.x, s.y, heroOpts());
+    const x = sxOf(player.x);
+    const y = syOf(player.y);
+    SurvivorSprites.drawHero(ctx, x, y, fillHeroDraw());
     if (player.life < player.maxLife) {
       ctx.fillStyle = '#200808';
-      ctx.fillRect(s.x - 16, s.y - 30 * zoom - 4, 32, 4);
+      ctx.fillRect(x - 16, y - 30 * zoom - 4, 32, 4);
       ctx.fillStyle = '#c03030';
-      ctx.fillRect(s.x - 16, s.y - 30 * zoom - 4, 32 * (player.life / player.maxLife), 4);
+      ctx.fillRect(x - 16, y - 30 * zoom - 4, 32 * (player.life / player.maxLife), 4);
     }
   }
 
   function drawFoe(en, crowd) {
-    const s = worldToScreen(en.x, en.y);
-    if (s.x < -96 || s.y < -120 || s.x > canvas.width + 96 || s.y > canvas.height + 40) return;
-    SurvivorSprites.drawFoe(ctx, s.x, s.y, {
-      eid: en.eid,
-      sprite: en.sprite,
-      boss: en.boss,
-      facing: en.facing,
-      scale: en.scale,
-      color: en.color,
-      flash: en.hitFlash > 0,
-      dying: en.dying || 0,
-      crowd: crowd,
-      time: animT,
-    });
-    drawTell(en, s.x, s.y);
+    const x = sxOf(en.x);
+    const y = syOf(en.y);
+    if (x < -96 || y < -120 || x > canvas.width + 96 || y > canvas.height + 40) return;
+    foeDraw.eid = en.eid;
+    foeDraw.sprite = en.sprite;
+    foeDraw.boss = en.boss;
+    foeDraw.facing = en.facing;
+    foeDraw.scale = en.scale;
+    foeDraw.color = en.color;
+    foeDraw.flash = en.hitFlash > 0;
+    foeDraw.dying = en.dying || 0;
+    foeDraw.crowd = crowd;
+    foeDraw.time = animT;
+    SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
+    drawTell(en, x, y);
   }
 
   function drawTell(en, x, y) {
@@ -2251,46 +2621,44 @@
   }
 
   function drawGem(g) {
-    const s = worldToScreen(g.x, g.y);
-    if (s.x < -40 || s.y < -40 || s.x > canvas.width + 40 || s.y > canvas.height + 40) return;
+    const sx = sxOf(g.x);
+    const sy = syOf(g.y);
+    if (sx < -40 || sy < -40 || sx > canvas.width + 40 || sy > canvas.height + 40) return;
     const kind = g.kind || 'gem';
     if (kind === 'gem') {
-      SurvivorSprites.drawGem(ctx, s.x, s.y, g.big ? 1.85 : 1);
+      SurvivorSprites.drawGem(ctx, sx, sy, g.big ? 1.85 : 1);
       return;
     }
     if (kind === 'heart') {
       ctx.fillStyle = '#14120f';
-      ctx.fillRect(s.x - 6, s.y - 6, 12, 12);
+      ctx.fillRect(sx - 6, sy - 6, 12, 12);
       ctx.fillStyle = '#5ed37a';
-      ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
+      ctx.fillRect(sx - 4, sy - 4, 8, 8);
       ctx.fillStyle = '#102014';
-      ctx.fillRect(s.x - 1, s.y - 3, 2, 6);
-      ctx.fillRect(s.x - 3, s.y - 1, 6, 2);
+      ctx.fillRect(sx - 1, sy - 3, 2, 6);
+      ctx.fillRect(sx - 3, sy - 1, 6, 2);
       return;
     }
     if (kind === 'chest') {
       ctx.fillStyle = '#2a2418';
-      ctx.fillRect(s.x - 8, s.y - 7, 16, 14);
+      ctx.fillRect(sx - 8, sy - 7, 16, 14);
       ctx.strokeStyle = '#d0b4ff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(s.x - 8, s.y - 7, 16, 14);
+      ctx.strokeRect(sx - 8, sy - 7, 16, 14);
       return;
     }
-    drawRaritySquare(s.x, s.y, g.item);
+    drawRaritySquare(sx, sy, g.item);
   }
 
   function drawRaritySquare(x, y, item) {
+    x = Math.round(x);
+    y = Math.round(y);
     const rarity = (item && item.rarity) || 'common';
-    const fill = {
-      common: '#8a857d',
-      uncommon: '#5ed37a',
-      rare: '#4c7cff',
-      epic: '#d0b4ff',
-      legendary: '#f2f6ff',
-    }[rarity] || '#8a857d';
+    const fill = RARITY_FILL[rarity] || '#8a857d';
     const big = rarity === 'epic' || rarity === 'legendary';
     const size = big ? 19 : 16;
-    const half = size / 2;
+    const left = Math.round(x - size / 2);
+    const top = Math.round(y - size / 2);
     if (big) {
       const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(animT * Math.PI * 2 * 1.6));
       const column = rarity === 'legendary' ? '#f2f6ff' : '#d0b4ff';
@@ -2299,29 +2667,30 @@
       ctx.fillStyle = column;
       ctx.shadowColor = rarity === 'legendary' ? '#7fb2ff88' : '#d0b4ff66';
       ctx.shadowBlur = 3;
-      ctx.fillRect(x - 1, y - half - 46, 2, 46);
+      ctx.fillRect(x - 1, top - 46, 2, 46);
       ctx.restore();
     }
     ctx.fillStyle = fill;
-    ctx.fillRect(x - half, y - half, size, size);
+    ctx.fillRect(left, top, size, size);
     ctx.lineWidth = 2;
     ctx.strokeStyle = rarity === 'legendary' ? '#7fb2ff' : '#0b0a0d';
-    ctx.strokeRect(x - half + 1, y - half + 1, size - 2, size - 2);
+    ctx.strokeRect(left + 1, top + 1, size - 2, size - 2);
     if (rarity === 'legendary') {
       ctx.strokeStyle = '#c9b6ff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x - half - 2, y - half - 2, size + 4, size + 4);
+      ctx.strokeRect(left - 2, top - 2, size + 4, size + 4);
     }
   }
 
   function drawHermit() {
     if (!hermit.on) return;
-    const s = worldToScreen(hermit.x, hermit.y);
-    SurvivorSprites.drawHermit(ctx, s.x, s.y, animT);
+    const hx = sxOf(hermit.x);
+    const hy = syOf(hermit.y);
+    SurvivorSprites.drawHermit(ctx, hx, hy, animT);
     ctx.fillStyle = '#d8dce4';
     ctx.font = '11px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText('Hermit', s.x, s.y + 18);
+    ctx.fillText('Hermit', hx, hy + 18);
   }
 
   function fxPresent() {
@@ -2335,18 +2704,20 @@
       const rad = (1.55 + owned.orbit * 0.12) * area();
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
-        const s = worldToScreen(player.x + Math.cos(a) * rad, player.y + Math.sin(a) * rad);
-        SurvivorSprites.drawBolt(ctx, s.x, s.y, a);
+        const bx = sxOf(player.x + Math.cos(a) * rad);
+        const by = syOf(player.y + Math.sin(a) * rad);
+        SurvivorSprites.drawBolt(ctx, bx, by, a);
       }
     }
     for (let i = 0; i < shots.length; i++) {
       const shot = shots[i];
-      const s = worldToScreen(shot.x, shot.y);
+      const sx = sxOf(shot.x);
+      const sy = syOf(shot.y);
       if (shot.kind === 'nova') {
         if (!fx) {
           const px = shot.r * TILE;
           ctx.beginPath();
-          ctx.arc(s.x, s.y, px, 0, Math.PI * 2);
+          ctx.arc(sx, sy, px, 0, Math.PI * 2);
           ctx.strokeStyle = '#14180c';
           ctx.lineWidth = 5;
           ctx.stroke();
@@ -2355,19 +2726,20 @@
           ctx.stroke();
         }
       } else {
-        SurvivorSprites.drawBolt(ctx, s.x, s.y, Math.atan2(shot.vy, shot.vx));
+        SurvivorSprites.drawBolt(ctx, sx, sy, Math.atan2(shot.vy, shot.vx));
       }
     }
     for (let i = 0; i < foeShots.length; i++) {
       const shot = foeShots[i];
-      const s = worldToScreen(shot.x, shot.y);
+      const fx = sxOf(shot.x);
+      const fy = syOf(shot.y);
       ctx.fillStyle = '#1a1020';
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+      ctx.arc(fx, fy, 7, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#d0b4ff';
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+      ctx.arc(fx, fy, 4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -2381,26 +2753,49 @@
     const oy = (joy.oy - rect.top) * scaleY;
     const x = (joy.x - rect.left) * scaleX;
     const y = (joy.y - rect.top) * scaleY;
-    ctx.strokeStyle = 'rgba(224,192,128,0.85)';
+    ctx.strokeStyle = 'rgba(200,208,220,0.55)';
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(ox, oy, 46 * scaleX, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(224,160,96,0.9)';
+    ctx.fillStyle = 'rgba(228,234,242,0.7)';
     ctx.beginPath();
     ctx.arc(x, y, 18 * scaleX, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  function byY(a, b) { return a.y - b.y; }
+  function siftByY(arr, i, n) {
+    while (true) {
+      let m = i;
+      const l = i * 2 + 1;
+      const r = l + 1;
+      if (l < n && arr[l].y > arr[m].y) m = l;
+      if (r < n && arr[r].y > arr[m].y) m = r;
+      if (m === i) return;
+      const tmp = arr[i];
+      arr[i] = arr[m];
+      arr[m] = tmp;
+      i = m;
+    }
+  }
+
+  function sortByY(arr, n) {
+    for (let i = (n >> 1) - 1; i >= 0; i--) siftByY(arr, i, n);
+    for (let end = n - 1; end > 0; end--) {
+      const tmp = arr[0];
+      arr[0] = arr[end];
+      arr[end] = tmp;
+      siftByY(arr, 0, end);
+    }
+  }
 
   function drawFoes() {
-    drawOrder.length = 0;
-    for (let i = 0; i < enemies.length; i++) drawOrder.push(enemies[i]);
-    drawOrder.sort(byY);
+    drawCount = 0;
+    for (let i = 0; i < enemies.length; i++) drawOrder[drawCount++] = enemies[i];
+    sortByY(drawOrder, drawCount);
     const crowd = enemies.length > 100;
     let hermitDrawn = !hermit.on;
-    for (let i = 0; i < drawOrder.length; i++) {
+    for (let i = 0; i < drawCount; i++) {
       const en = drawOrder[i];
       if (!hermitDrawn && hermit.y <= en.y) {
         drawHermit();
@@ -2412,8 +2807,7 @@
   }
 
   function drawHeroActor() {
-    const s = worldToScreen(player.x, player.y);
-    SurvivorSprites.drawHeroRing(ctx, s.x, s.y);
+    SurvivorSprites.drawHeroRing(ctx, sxOf(player.x), syOf(player.y));
     drawHeroBody();
   }
 
@@ -2422,20 +2816,69 @@
     ctx.lineJoin = 'round';
     for (let i = 0; i < floats.length; i++) {
       const f = floats[i];
-      const s = worldToScreen(f.x, f.y);
+      const fx = sxOf(f.x);
+      const fy = syOf(f.y);
       const max = f.max || 0.72;
       const age = 1 - f.life / max;
       const pop = 1 + Math.max(0, (f.big ? 0.5 : 0.22) - age) * (f.big ? 1.35 : 1.15);
       const size = Math.round((f.big ? 28 : 15) * pop);
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2.4));
-      ctx.font = (f.big ? '800 ' : 'bold ') + size + 'px Segoe UI';
+      ctx.font = floatFont(!!f.big, size);
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#140e0c';
-      ctx.strokeText(f.text, s.x, s.y);
+      ctx.strokeText(f.text, fx, fy);
       ctx.fillStyle = f.color;
-      ctx.fillText(f.text, s.x, s.y);
+      ctx.fillText(f.text, fx, fy);
     }
     ctx.globalAlpha = 1;
+  }
+
+  function drawChestArrows() {
+    const pad = 36;
+    const w = canvas.width;
+    const h = canvas.height;
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    for (let i = 0; i < gems.length; i++) {
+      const g = gems[i];
+      if (g.kind !== 'chest') continue;
+      const x = g.x * TILE + camX;
+      const y = g.y * TILE + camY;
+      if (x >= pad && y >= pad && x <= w - pad && y <= h - pad) continue;
+      let dx = x - cx;
+      let dy = y - cy;
+      const dist = len2(dx, dy) || 1;
+      dx /= dist;
+      dy /= dist;
+      const maxX = w * 0.5 - pad;
+      const maxY = h * 0.5 - pad;
+      const scale = 1 / Math.max(Math.abs(dx) / maxX, Math.abs(dy) / maxY);
+      const ax = cx + dx * scale;
+      const ay = cy + dy * scale;
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.fillStyle = '#d0b4ff';
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-10, 9);
+      ctx.lineTo(-10, -9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function chestArrowOn() {
+    const pad = 36;
+    for (let i = 0; i < gems.length; i++) {
+      const g = gems[i];
+      if (g.kind !== 'chest') continue;
+      const x = g.x * TILE + (canvas.width / 2 - player.x * TILE);
+      const y = g.y * TILE + (canvas.height / 2 - player.y * TILE);
+      if (x < pad || y < pad || x > canvas.width - pad || y > canvas.height - pad) return true;
+    }
+    return false;
   }
 
   function draw() {
@@ -2457,12 +2900,13 @@
     drawHeroActor();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
-      const s = worldToScreen(p.x, p.y);
+      const px = sxOf(p.x);
+      const py = syOf(p.y);
       ctx.globalAlpha = Math.max(0, p.life * 3);
       ctx.fillStyle = '#140e0c';
-      ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
+      ctx.fillRect(px - 2.5, py - 2.5, 5, 5);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+      ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
     }
     ctx.globalAlpha = 1;
     drawWeapons();
@@ -2470,13 +2914,46 @@
     ctx.restore();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    fxCall('draw', ctx, { x: camX, y: camY, zoom: zoom });
+    camInfo.x = camX;
+    camInfo.y = camY;
+    camInfo.zoom = zoom;
+    fxCall('draw', ctx, camInfo);
+    drawChestArrows();
     ctx.restore();
     drawJoy();
   }
 
   function uiBlock(target) {
     return target && target.closest && target.closest('button, a, .sv-card, .panel, #adtest-panel, #adtest-prompt');
+  }
+
+  function applyDoubleGold() {
+    if (doubled) return false;
+    if (state !== 'dead' && state !== 'won') return false;
+    doubled = true;
+    doubleLocked = true;
+    const extra = Math.round(runGold * (SurvivorData.REWARDS.doubleMult - 1));
+    runGold += extra;
+    goldMilli = Math.round(goldMilli * SurvivorData.REWARDS.doubleMult);
+    const spill = Math.floor(goldMilli / 1000);
+    if (spill > 0) {
+      runGold += spill;
+      goldMilli -= spill * 1000;
+    }
+    syncBank();
+    const goldEl = $('sv-end-gold');
+    if (goldEl) goldEl.textContent = '+' + runGold + ' gold banked';
+    paintNextOffer();
+    const btn = $('sv-double');
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('hidden');
+    }
+    return true;
+  }
+
+  function doubleOffered() {
+    return !!(adsOn && !doubled && (state === 'dead' || state === 'won'));
   }
 
   function bind() {
@@ -2504,8 +2981,12 @@
       try { Ads.offerRevive(); } catch (e) {}
     });
     $('sv-double').addEventListener('click', () => {
-      if (tapBlocked()) return;
+      if (tapBlocked() || doubleLocked || doubled) return;
       if (state !== 'dead' && state !== 'won') return;
+      const btn = $('sv-double');
+      if (btn && btn.disabled) return;
+      doubleLocked = true;
+      if (btn) btn.disabled = true;
       try { Ads.offerDoubleGold(); } catch (e) {}
     });
     $('sv-reroll').addEventListener('click', () => {
@@ -2522,8 +3003,14 @@
       if (!btn) return;
       choose(Number(btn.dataset.choice));
     });
-    $('sv-hermit-yes').addEventListener('click', () => acceptHermit());
-    $('sv-hermit-no').addEventListener('click', () => declineHermit());
+    $('sv-hermit-yes').addEventListener('click', () => {
+      if (tapBlocked()) return;
+      acceptHermit();
+    });
+    $('sv-hermit-no').addEventListener('click', () => {
+      if (tapBlocked()) return;
+      declineHermit();
+    });
 
     window.addEventListener('keydown', (e) => {
       const k = (e.key || '').toLowerCase();
@@ -2582,22 +3069,7 @@
         if (reason !== 'accept') return;
         if (kind === 'reroll' && state === 'levelup') rerollOffers();
         if (kind === 'revive' && state === 'dead' && !revived) revivePlayer();
-        if (kind === 'gold' && (state === 'dead' || state === 'won') && !doubled) {
-          doubled = true;
-          const extra = Math.round(runGold * (SurvivorData.REWARDS.doubleMult - 1));
-          runGold += extra;
-          syncBank();
-          const goldEl = $('sv-end-gold');
-          if (goldEl) goldEl.textContent = '+' + runGold + ' gold banked';
-          const nextEl = $('sv-next');
-          try {
-            const nxt = SurvivorSave.nextUpgrade();
-            if (nextEl && nxt) {
-              if (nxt.away <= 0) nextEl.textContent = 'Ready to buy: ' + nxt.label;
-              else nextEl.textContent = 'Next upgrade: ' + nxt.label + ', ' + nxt.away + ' gold away';
-            }
-          } catch (err) {}
-        }
+        if (kind === 'gold' && (state === 'dead' || state === 'won')) applyDoubleGold();
       });
     } catch (e) {}
     syncReducedMotion();
@@ -2613,10 +3085,33 @@
         art: SurvivorSprites.ready(),
         vow: vowPayout, curse, vowCount,
       });
+      window.__svSnap = () => snapRun();
+      window.__svCount = (id) => {
+        let n = 0;
+        for (let i = 0; i < enemies.length; i++) {
+          if (enemies[i].eid === id && enemies[i].life > 0 && enemies[i].dying <= 0) n += 1;
+        }
+        return n;
+      };
+      window.__svChestAt = () => {
+        for (let i = 0; i < gems.length; i++) {
+          if (gems[i].kind === 'chest') return { x: gems[i].x, y: gems[i].y };
+        }
+        return null;
+      };
+      window.__svChestArrow = () => chestArrowOn();
+      window.__svArmRevival = () => { revivalLeft = 1; player.life = player.maxLife; return snapRun(); };
+      window.__svOffers = () => offers.map((o) => o.id);
+      window.__svChoose = (i) => { uiGuardUntil = 0; choose(i); return snapRun(); };
+      window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
       window.__svSetVows = (n) => {
         vowCount = Math.max(0, n | 0);
+        curse = vowCount > 0 ? 60 : 0;
+        vowPayout = curse > 0;
+        vowActive = curse > 0;
         try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
         fxCall('vow', vowCount);
+        syncVowChrome();
         return vowCount;
       };
       window.__svDrops = () => {
@@ -2714,6 +3209,11 @@
 
   let last = 0;
   const slowLog = [];
+  let allocSum = 0;
+  let allocN = 0;
+  let allocPos = 0;
+  let allocPosN = 0;
+  let heapAt = 0;
   function frame(now) {
     const raw = last ? (now - last) / 1000 : 0.016;
     const dt = Math.min(0.05, raw);
@@ -2724,6 +3224,7 @@
     }
     fxUpdateMs = 0;
     fxDrawMs = 0;
+    if (bench && typeof performance !== 'undefined' && performance.memory) heapAt = performance.memory.usedJSHeapSize;
     const updateStart = nowMs();
     if (state === 'playing') sim(dt);
     else animT += dt;
@@ -2781,13 +3282,16 @@
           const key = slowLog[i].cause;
           causes[key] = (causes[key] || 0) + 1;
         }
-        const slowLine = 'slow: ' + slow + ' — spawn ' + (causes.spawn || 0) + ', draw ' + (causes.draw || 0) + ', ?gc ' + (causes['?gc'] || 0);
+        const slowLine = 'slow: ' + slow + ' — spawn ' + (causes.spawn || 0) + ', draw ' + (causes.draw || 0) + ', update ' + (causes.update || 0) + ', ?gc ' + (causes['?gc'] || 0);
         window.__fps = {
           avg, min, slow, slowPct,
           enemies: enemies.length, frames: benchFrames.length,
           screen: sw + 'x' + sh, dpr,
           slowLog: slowLog.slice(),
           slowLine: slowLine,
+          allocPerFrame: allocN ? Math.round(allocSum / allocN) : 0,
+          allocPosPerFrame: allocPosN ? Math.round(allocPos / allocPosN) : 0,
+          canvas: canvas.width + 'x' + canvas.height,
         };
         const out = $('sv-bench');
         if (out) {
@@ -2800,6 +3304,16 @@
       }
     }
     hud();
+    if (bench && state === 'playing' && !benchDone && benchStart && (now - benchStart) > 2000 && heapAt && typeof performance !== 'undefined' && performance.memory) {
+      const endHeap = performance.memory.usedJSHeapSize;
+      const delta = endHeap - heapAt;
+      allocSum += delta;
+      allocN += 1;
+      if (delta > 0) {
+        allocPos += delta;
+        allocPosN += 1;
+      }
+    }
     requestAnimationFrame(frame);
   }
 
@@ -2833,6 +3347,12 @@
       vowSeen: vowSeen,
       vow: vowPayout,
       vowCount: vowCount,
+      vowsSurvived: vowsSurvived,
+      vowBadge: curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title',
+      warnOn: warnOn,
+      doubled: doubled,
+      doubleOffered: doubleOffered(),
+      secondChanceFx: secondChanceFx,
       curse: curse,
       hermit: hermit.on,
       boss: boss ? boss.name : '',
@@ -2851,8 +3371,52 @@
   }
 
   bind();
+  try { window.__svGemPitch = gemChainPitch; } catch (e) {}
   if (headless) {
     window.__svStart = () => { startRun(); return snapRun(); };
+    window.__svNextLine = () => nextOfferLine;
+    window.__svBuy = (id) => buyUpgrade(id);
+    window.__svSpeed = () => moveSpeed();
+    window.__svDouble = () => applyDoubleGold();
+    window.__svOfferDouble = () => doubleOffered();
+    window.__svAddGold = (n) => { grantGold(n || 0); return snapRun(); };
+    window.__svSpawn = (id, x, y) => {
+      spawnEnemy(id || 'skel', x || player.x + 2, y || player.y);
+      return snapRun();
+    };
+    window.__svCount = (id) => {
+      let n = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (en.life > 0 && en.dying <= 0 && (!id || en.eid === id)) n += 1;
+      }
+      return n;
+    };
+    window.__svChestAt = () => {
+      for (let i = 0; i < gems.length; i++) {
+        if (gems[i].kind === 'chest') return { x: gems[i].x, y: gems[i].y };
+      }
+      return null;
+    };
+    window.__svChestArrow = () => chestArrowOn();
+    window.__svEvoHints = () => {
+      const out = [];
+      for (let i = 0; i < offers.length; i++) out.push(evoHint(offers[i]));
+      return out;
+    };
+    window.__svOpenLevel = () => { openLevel(); return snapRun(); };
+    window.__svGive = (id, rank) => { owned[id] = rank; return snapRun(); };
+    window.__svBank = (n) => SurvivorSave.bankGold(n);
+    window.__svNextUpgrade = () => { try { return SurvivorSave.nextUpgrade(); } catch (e) { return null; } };
+    window.__svShop = () => { try { return SurvivorSave.shopList(); } catch (e) { return []; } };
+    window.__svBag = () => { try { return SurvivorSave.items(); } catch (e) { return []; } };
+    window.__svGemPitch = gemChainPitch;
+    window.__svGoldProbe = (n, exact) => {
+      runGold = 0;
+      goldMilli = 0;
+      for (let i = 0; i < (n || 0); i++) grantGold(exact);
+      return { gold: runGold, milli: goldMilli };
+    };
     window.__svStep = (dt) => {
       if (state === 'playing') sim(Math.min(0.05, dt || 0.05));
       return snapRun();
@@ -2964,7 +3528,7 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=5');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6');
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);
   }

@@ -78,12 +78,12 @@ async function pageWith(browser, url, viewport) {
     if (!(early.x > 1 && Math.abs(early.y) < 0.6)) fail('top-down axes: ' + JSON.stringify(early));
     if (!early.art) fail('tileset did not load');
     if (movedAt - t0 > 10000) fail('took too long to move: ' + (movedAt - t0));
+    await title.keyboard.up('KeyD');
     await title.screenshot({ path: path.join(shots, 'survivor-early.png') });
     await title.screenshot({ path: path.join(shots, 'survivor-topdown-desktop.png') });
     await title.waitForFunction(() => window.__sv().hits > 0, { timeout: 8000 });
     const hit = await title.evaluate(() => window.__sv());
     if (hit.time > 5 && hit.hits < 1) fail('first hit was late');
-    await title.keyboard.up('KeyD');
     await title.keyboard.down('KeyA');
     await new Promise(r => setTimeout(r, 1200));
     await title.keyboard.up('KeyA');
@@ -314,6 +314,7 @@ async function pageWith(browser, url, viewport) {
     await doubled.waitForSelector('#adtest-prompt:not(.hidden) [data-ad-accept]');
     await doubled.click('[data-ad-accept]');
     const afterGold = await doubled.evaluate(() => ({
+      disabled: document.getElementById('sv-double').disabled,
       time: document.getElementById('sv-end-time').textContent,
       timeTag: document.getElementById('sv-end-time').tagName,
       gold: document.getElementById('sv-end-gold').textContent,
@@ -322,17 +323,28 @@ async function pageWith(browser, url, viewport) {
     if (!/\d:\d\d/.test(afterGold.time) || afterGold.time !== beforeTime) fail('double gold wiped the time: ' + JSON.stringify(afterGold));
     if (!/36 gold banked/.test(afterGold.gold)) fail('double gold amount: ' + afterGold.gold);
     if (!/survived/.test(afterGold.stats) || !/kills/.test(afterGold.stats)) fail('double gold wiped stats: ' + afterGold.stats);
+    if (!afterGold.disabled) fail('double gold stayed tappable: ' + JSON.stringify(afterGold));
+    await doubled.screenshot({ path: path.join(shots, 'survivor-death-doubled.png') });
+    const secondAd = await doubled.evaluate(() => ({
+      hidden: document.getElementById('sv-double').classList.contains('hidden'),
+      prompt: !document.getElementById('adtest-prompt').classList.contains('hidden'),
+    }));
+    if (!secondAd.hidden || secondAd.prompt) fail('double gold stayed offered: ' + JSON.stringify(secondAd));
     await new Promise(r => setTimeout(r, 360));
-    await doubled.click('#sv-restart');
+    await doubled.click('#sv-revive');
+    await doubled.waitForSelector('#adtest-prompt:not(.hidden) [data-ad-accept]');
+    await doubled.click('[data-ad-accept]');
     await doubled.waitForFunction(() => window.__sv && window.__sv().state === 'playing');
     await doubled.evaluate(() => window.__svHurt(9999));
     await doubled.waitForFunction(() => window.__sv && window.__sv().state === 'dead');
     const second = await doubled.evaluate(() => ({
       time: document.getElementById('sv-end-time') && document.getElementById('sv-end-time').textContent,
       gold: document.getElementById('sv-end-gold') && document.getElementById('sv-end-gold').textContent,
+      hidden: document.getElementById('sv-double').classList.contains('hidden'),
     }));
     if (!second.time || !/\d:\d\d/.test(second.time)) fail('second death lost the time: ' + JSON.stringify(second));
-    if (!second.gold || !/gold banked/.test(second.gold)) fail('second death lost the gold line: ' + JSON.stringify(second));
+    if (!/36 gold banked/.test(second.gold || '')) fail('double gold applied again after revive: ' + JSON.stringify(second));
+    if (!second.hidden) fail('double gold was offered again after revive: ' + JSON.stringify(second));
     await doubled.close();
 
     const plain = await pageWith(browser, base + 'survivor.html?debug=1&preview=dead', desk);
@@ -364,6 +376,8 @@ async function pageWith(browser, url, viewport) {
 
     const hermit = await pageWith(browser, base + 'survivor.html?debug=1&preview=hermit', desk);
     await hermit.waitForSelector('#sv-hermit:not(.hidden) #sv-hermit-yes');
+    await hermit.screenshot({ path: path.join(shots, 'survivor-hermit.png') });
+    await new Promise(r => setTimeout(r, 360));
     await hermit.click('#sv-hermit-yes');
     const vowed = await hermit.evaluate(() => ({
       level: document.getElementById('sv-level').classList.contains('hidden'),
@@ -382,6 +396,7 @@ async function pageWith(browser, url, viewport) {
 
     const hermitDead = await pageWith(browser, base + 'survivor.html?debug=1&preview=hermit', desk);
     await hermitDead.waitForSelector('#sv-hermit-yes');
+    await new Promise(r => setTimeout(r, 360));
     await hermitDead.click('#sv-hermit-yes');
     await hermitDead.evaluate(() => window.__svHurt(9999));
     await hermitDead.waitForFunction(() => window.__sv().state === 'dead');
@@ -415,7 +430,15 @@ async function pageWith(browser, url, viewport) {
     const juice = await pageWith(browser, base + 'survivor.html?debug=1&preview=juice', desk);
     await juice.waitForFunction(() => {
       const s = window.__sv();
-      return s && s.state === 'playing' && s.hits >= 1 && s.floats > 0;
+      return s && s.hits >= 1;
+    }, { timeout: 8000 });
+    if (await juice.evaluate(() => window.__sv().state === 'levelup')) {
+      await new Promise(r => setTimeout(r, 360));
+      await juice.click('#sv-cards .sv-card');
+    }
+    await juice.waitForFunction(() => {
+      const s = window.__sv();
+      return s && s.state === 'playing' && s.floats > 0;
     }, { timeout: 8000 });
     await juice.evaluate(() => { window.__svGems(); window.__svFlash(); });
     await new Promise(r => setTimeout(r, 180));
@@ -451,7 +474,7 @@ async function pageWith(browser, url, viewport) {
     if (boss.__errors.length) fail('boss errors: ' + boss.__errors.join(' | '));
     await boss.close();
 
-    const bench = await pageWith(browser, base + 'survivor.html?v=5&debug=1&bench=1', desk);
+    const bench = await pageWith(browser, base + 'survivor.html?v=6&debug=1&bench=1', desk);
     await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 30000 });
     const fps = await bench.evaluate(() => window.__fps);
     const benchText = await bench.$eval('#sv-bench', (el) => el.textContent);
@@ -535,19 +558,103 @@ async function pageWith(browser, url, viewport) {
       const name = document.getElementById('sv-boss-name');
       return bar && name && !bar.classList.contains('hidden') && /Grave Warden/.test(name.textContent);
     }, { timeout: 8000 });
-    await new Promise(r => setTimeout(r, 500));
+    const casters = await ward.evaluate(() => window.__svCount('shooter'));
+    if (casters !== 0) fail('casters alive at the warden spawn: ' + casters);
+    await ward.screenshot({ path: path.join(shots, 'survivor-warden-spawn.png') });
+    await new Promise(r => setTimeout(r, 8000));
+    await ward.screenshot({ path: path.join(shots, 'survivor-warden-mid.png') });
     await ward.screenshot({ path: path.join(shots, 'survivor-warden-t150.png') });
     await ward.screenshot({ path: path.join(shots, 'survivor-hud.png') });
     await ward.evaluate(() => window.__svSetVows(0));
     await new Promise(r => setTimeout(r, 200));
     await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-0.png') });
+    await ward.evaluate(() => window.__svSetVows(2));
+    await new Promise(r => setTimeout(r, 200));
+    await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-2.png') });
     await ward.evaluate(() => window.__svSetVows(3));
     await new Promise(r => setTimeout(r, 200));
+    await ward.mouse.move(240, 700);
+    await ward.mouse.down();
+    await ward.mouse.move(340, 620);
+    await new Promise(r => setTimeout(r, 250));
+    await ward.screenshot({ path: path.join(shots, 'survivor-joystick-vows-3.png') });
+    await ward.mouse.up();
     const vowBadge = await ward.$eval('#sv-vow-badge', (el) => ({ hidden: el.classList.contains('hidden'), text: el.textContent }));
     if (vowBadge.hidden || vowBadge.text !== 'Vow x3') fail('vow badge: ' + JSON.stringify(vowBadge));
     await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-3.png') });
+    await ward.evaluate(() => window.__svSetVows(5));
+    await new Promise(r => setTimeout(r, 200));
+    await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-5.png') });
+    await ward.waitForFunction(() => window.__svSnap && window.__svSnap().chest, { timeout: 40000 });
+    await ward.evaluate(() => {
+      const at = window.__svChestAt();
+      window.__svPan(at.x + 40, at.y);
+    });
+    await new Promise(r => setTimeout(r, 250));
+    if (!await ward.evaluate(() => window.__svChestArrow())) fail('chest edge arrow did not draw');
+    await ward.screenshot({ path: path.join(shots, 'survivor-chest-arrow.png') });
     if (ward.__errors.length) fail('warden errors: ' + ward.__errors.join(' | '));
     await ward.close();
+
+    const chance = await pageWith(browser, base + 'survivor.html?debug=1', desk);
+    await chance.click('#sv-play');
+    await chance.waitForFunction(() => window.__sv && window.__sv().state === 'playing');
+    await chance.evaluate(() => { window.__svArmRevival(); window.__svHurt(9999); });
+    await chance.waitForFunction(() => /Second Chance/.test(document.getElementById('sv-warn').textContent || ''));
+    await chance.screenshot({ path: path.join(shots, 'survivor-second-chance.png') });
+    const chanceState = await chance.evaluate(() => window.__svSnap());
+    if (!(chanceState.life > 0) || chanceState.state !== 'playing') fail('second chance banner state: ' + JSON.stringify(chanceState));
+    if (chance.__errors.length) fail('second chance errors: ' + chance.__errors.join(' | '));
+    await chance.close();
+
+    const evo = await pageWith(browser, base + 'survivor.html?debug=1&walk=circle', desk);
+    await evo.click('#sv-play');
+    const evoDeadline = Date.now() + 160000;
+    const evoOrder = (owned) => {
+      const have = owned || {};
+      const order = [];
+      if ((have.orbit || 0) >= 3 && !(have.tempo > 0)) order.push('tempo');
+      if ((have.tempo || 0) > 0 && (have.orbit || 0) < 5) order.push('orbit');
+      if ((have.nova || 0) >= 5 && !(have.cinder > 0)) order.push('cinder');
+      if ((have.cinder || 0) > 0 && (have.nova || 0) < 5) order.push('nova');
+      order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'might');
+      return order;
+    };
+    let evoSnap = await evo.evaluate(() => window.__svSnap());
+    while (!(evoSnap.evolved && evoSnap.evolved.length) && Date.now() < evoDeadline) {
+      if (evoSnap.state === 'levelup' || evoSnap.state === 'hermit') {
+        await new Promise(r => setTimeout(r, 360));
+        evoSnap = await evo.evaluate((order) => {
+          const snap = window.__svSnap();
+          if (snap.state === 'hermit') return window.__svDecline();
+          const ids = window.__svOffers();
+          let pick = 0;
+          for (let p = 0; p < order.length; p++) {
+            const at = ids.indexOf(order[p]);
+            if (at >= 0) { pick = at; break; }
+          }
+          return window.__svChoose(pick);
+        }, evoOrder(evoSnap.owned));
+      }
+      await new Promise(r => setTimeout(r, 200));
+      evoSnap = await evo.evaluate(() => window.__svSnap());
+    }
+    if (!(evoSnap.evolved && evoSnap.evolved.length)) fail('no evolution: ' + JSON.stringify(evoSnap));
+    if (!(evoSnap.time < 135)) fail('first evolution after 2:15: ' + JSON.stringify(evoSnap));
+    if (evoSnap.state === 'levelup' || evoSnap.state === 'hermit') {
+      await new Promise(r => setTimeout(r, 360));
+      await evo.evaluate(() => {
+        const snap = window.__svSnap();
+        if (snap.state === 'hermit') return window.__svDecline();
+        return window.__svChoose(0);
+      });
+      await new Promise(r => setTimeout(r, 280));
+      evoSnap = await evo.evaluate(() => window.__svSnap());
+    }
+    await evo.screenshot({ path: path.join(shots, 'survivor-evo.png') });
+    console.log('browser evolution at ' + evoSnap.time.toFixed(1) + 's ' + evoSnap.evolved.join(','));
+    if (evo.__errors.length) fail('evolution errors: ' + evo.__errors.join(' | '));
+    await evo.close();
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));

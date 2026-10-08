@@ -6,7 +6,7 @@ Sound is synthesized in the browser (no audio files). It starts after the first 
 
 Play it here: https://lampinthedark.github.io/abyss-descent/
 
-Survivor mode is a separate page: https://lampinthedark.github.io/abyss-descent/survivor.html?v=5
+Survivor mode is a separate page: https://lampinthedark.github.io/abyss-descent/survivor.html?v=6
 
 ## Survivor mode
 
@@ -16,7 +16,7 @@ Drag anywhere (or use WASD / the arrow keys) to move. There is no attack button 
 
 The Hermit offers a vow in the first minute of every run, and can offer again later. Enemies gain half again as much life for a minute, and the two picks arrive only if that minute is survived. Gold from a run stays in a shop on the title screen and the death screen: max life, might, move speed, magnet, one revival, and greed, plus a cosmetics slot that is not for sale yet. Saves are split into profile, inventory, and progress keys and never read from the page except through that save module.
 
-With no ad test switch, Revive and Double gold stay off the death screen, and Reroll on a level-up is free once per run (it deals three different cards, then reads "used"). `?adtest=1` shows those death buttons and sends Reroll through the ad placeholder. A placeholder opens only on the death screen or when that Reroll is tapped. Any other offer is dropped, and `?debug=1` logs that drop. Nothing is held for later, and nothing is requested from a network. Level-up cards and Restart ignore a tap for 300 ms after the screen appears. `?debug=1` shows a frames-per-second readout. `survivor.html?v=5&bench=1&debug=1` spawns 300 demons, ignores the first two seconds, then measures about ten seconds. The large result line shows average fps, minimum fps, how many frames took longer than 33 ms (and that share), screen size, and devicePixelRatio.
+With no ad test switch, Revive and Double gold stay off the death screen, and Reroll on a level-up is free once per run (it deals three different cards, then reads "used"). `?adtest=1` shows those death buttons and sends Reroll through the ad placeholder. A placeholder opens only on the death screen or when that Reroll is tapped. Any other offer is dropped, and `?debug=1` logs that drop. Nothing is held for later, and nothing is requested from a network. Level-up cards and Restart ignore a tap for 300 ms after the screen appears. `?debug=1` shows a frames-per-second readout. `survivor.html?v=6&bench=1&debug=1` spawns 300 demons, ignores the first two seconds, then measures about ten seconds. The large result line shows average fps, minimum fps, how many frames took longer than 33 ms (and that share), screen size, and devicePixelRatio.
 
 Weapons and passives are data in `js/survivor-data.js`. `js/survivor-fx.js` is a stub the animation pass owns. Run gold amounts live in one `REWARDS` table.
 

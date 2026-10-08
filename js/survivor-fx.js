@@ -5,13 +5,14 @@
  *
  * Boss / elite hit silhouettes share one photosensitivity budget with the
  * evolution flash and with boss death silhouettes (at most 3 per second,
- * never closer than 0.34s, full-screen white never above 60%). The hit
- * payload has no stable enemy id today, so those hit silhouettes also share
- * a single 0.35s cooldown. If `id` or `fid` is present, the 0.35s wait is
- * per id (fixed 24-slot table). Sparks still spawn on every hit.
- * Death silhouettes are capped at 3 per 0.1s, drawn at 60% white, and
- * skipped entirely when reduced motion is on. Shards still play. A boss
- * death (`vis.boss` or type `'boss'`) also spends the shared flash budget.
+ * never closer than 0.34s). Every silhouette, hit or death, draws at most
+ * 60% white. Hit silhouettes also wait 0.35s per `id` or `fid` (one global
+ * timer when neither is set; fixed 24-slot table). Sparks still spawn on
+ * every hit. Death silhouettes are capped at 3 per 0.1s and skipped entirely
+ * when reduced motion is on. Shards still play. A boss death (`vis.boss` or
+ * type `'boss'`) also spends the shared flash budget. Gem pickups
+ * (`FX.pickup(x, y, 'gem', {chain})`) climb from 4 particles at 2px to
+ * 12 particles at 4px at chain 12.
  * A second full-screen evolve within 1s of the last one is a hero ring.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
@@ -32,33 +33,64 @@ const FX = (function () {
   const BLADE_W = 35;
   const BLADE_H = 18;
 
+  // A non-integer store first keeps these fields unboxed, so later writes do not allocate.
   const parts = new Array(CAP);
   for (let i = 0; i < CAP; i++) {
-    parts[i] = { life: 0, max: 1, x: 0, y: 0, vx: 0, vy: 0, w: 2, h: 2, tone: 0 };
+    const p = parts[i] = { life: 0.5, max: 0.5, x: 0.5, y: 0.5, vx: 0.5, vy: 0.5, w: 2, h: 2, tone: 0, peak: 0.5 };
+    p.life = 0;
+    p.max = 1;
+    p.x = 0;
+    p.y = 0;
+    p.vx = 0;
+    p.vy = 0;
+    p.peak = 1;
   }
   let partCursor = 0;
 
   const rings = new Array(RING_CAP);
   for (let i = 0; i < RING_CAP; i++) {
-    rings[i] = {
-      on: 0, age: 0, dur: 0.2, delay: 0,
-      x: 0, y: 0, r0: 0, r1: 0, thick: 2, space: 0, tone: 0,
+    const r = rings[i] = {
+      on: 0, age: 0.5, dur: 0.5, delay: 0.5,
+      x: 0.5, y: 0.5, r0: 0.5, r1: 0.5, thick: 2, space: 0, tone: 0,
     };
+    r.age = 0;
+    r.dur = 0.2;
+    r.delay = 0;
+    r.x = 0;
+    r.y = 0;
+    r.r0 = 0;
+    r.r1 = 0;
   }
 
   const sils = new Array(SIL_CAP);
   for (let i = 0; i < SIL_CAP; i++) {
-    sils[i] = { life: 0, x: 0, y: 0, sx: 0, sy: 0, sw: 0, sh: 0, scale: 1, flip: 0, pad: 0, a: 1 };
+    const s = sils[i] = { life: 0.5, x: 0.5, y: 0.5, sx: 0, sy: 0, sw: 0, sh: 0, scale: 0.5, flip: 0, pad: 0, a: 0.5 };
+    s.life = 0;
+    s.x = 0;
+    s.y = 0;
+    s.scale = 1;
+    s.a = 1;
   }
 
   const blades = new Array(MAX_B);
   for (let i = 0; i < MAX_B; i++) {
     const trail = new Array(TRAIL);
-    for (let t = 0; t < TRAIL; t++) trail[t] = { x: 0, y: 0, a: 0 };
-    blades[i] = {
-      x: 0, y: 0, a: 0, holdX: 0, holdY: 0, holdA: 0,
+    for (let t = 0; t < TRAIL; t++) {
+      const tr = trail[t] = { x: 0.5, y: 0.5, a: 0.5 };
+      tr.x = 0;
+      tr.y = 0;
+      tr.a = 0;
+    }
+    const b = blades[i] = {
+      x: 0.5, y: 0.5, a: 0.5, holdX: 0.5, holdY: 0.5, holdA: 0.5,
       samples: 0, live: 0, trail: trail,
     };
+    b.x = 0;
+    b.y = 0;
+    b.a = 0;
+    b.holdX = 0;
+    b.holdY = 0;
+    b.holdA = 0;
   }
 
   const cdKey = new Array(CD_N);
@@ -71,7 +103,7 @@ const FX = (function () {
   const flashStamp = [-10, -10, -10];
   const deathSilStamp = [-10, -10, -10];
   const trailAlpha = [0.55, 0.34, 0.2, 0.1];
-  const toneColor = ['#ffffff', '#c8cdd4', '#9aa3ad'];
+  const toneColor = ['#ffffff', '#c8cdd4', '#9aa3ad', '#5fd8ff'];
 
   let clock = 0;
   let vows = 0;
@@ -92,6 +124,9 @@ const FX = (function () {
   let reduce = false;
   let reduceChecked = -1;
   let reduceOverride = null;
+  let reduceQuery = null;
+  let reduceQueryRead = false;
+  const emptyCam = { x: 0, y: 0, zoom: 0 };
   let heroHalf = 0;
   let whiteAtlas = null;
   let bladeImg = null;
@@ -112,15 +147,16 @@ const FX = (function () {
   }
 
   function readReduced() {
-    try {
-      const fn = typeof matchMedia === 'function'
-        ? matchMedia
-        : (typeof window !== 'undefined' ? window.matchMedia : null);
-      if (typeof fn !== 'function') return false;
-      return !!fn('(prefers-reduced-motion: reduce)').matches;
-    } catch (e) {
-      return false;
+    if (!reduceQueryRead) {
+      reduceQueryRead = true;
+      try {
+        const fn = typeof matchMedia === 'function'
+          ? matchMedia
+          : (typeof window !== 'undefined' ? window.matchMedia : null);
+        if (typeof fn === 'function') reduceQuery = fn('(prefers-reduced-motion: reduce)');
+      } catch (e) {}
     }
+    return !!(reduceQuery && reduceQuery.matches);
   }
 
   function reducedNow() {
@@ -256,8 +292,9 @@ const FX = (function () {
     return sils[best];
   }
 
-  function spray(x, y, n, life, speed, w, h, whiteOnly) {
+  function spray(x, y, n, life, speed, w, h, whiteOnly, peak, gem) {
     const base = rand() * TAU;
+    const bright = peak > 0 ? (peak > 1 ? 1 : peak) : 1;
     for (let i = 0; i < n; i++) {
       const p = takePart();
       const a = base + i * 2.399963229728653;
@@ -270,24 +307,25 @@ const FX = (function () {
       p.vx = Math.cos(a) * sp;
       p.vy = Math.sin(a) * sp;
       p.w = w;
-      p.h = (i % 2 === 0) ? h : Math.max(2, h - 1);
-      p.tone = whiteOnly ? 0 : (i % 3);
+      p.h = gem ? h : ((i % 2 === 0) ? h : Math.max(2, h - 1));
+      p.tone = gem ? 3 : (whiteOnly ? 0 : (i % 3));
+      p.peak = bright;
     }
   }
 
-  function addRing(o) {
+  function addRing(space, x, y, r0, r1, thick, dur, delay, tone) {
     const r = takeRing();
     r.on = 1;
     r.age = 0;
-    r.dur = o.dur > 0 ? o.dur : 0.2;
-    r.delay = o.delay > 0 ? o.delay : 0;
-    r.x = ok(o.x) ? o.x : 0;
-    r.y = ok(o.y) ? o.y : 0;
-    r.r0 = ok(o.r0) ? o.r0 : 0;
-    r.r1 = ok(o.r1) ? o.r1 : 0;
-    r.thick = o.thick > 0 ? o.thick : 2;
-    r.space = o.space | 0;
-    r.tone = o.tone | 0;
+    r.dur = dur > 0 ? dur : 0.2;
+    r.delay = delay > 0 ? delay : 0;
+    r.x = ok(x) ? x : 0;
+    r.y = ok(y) ? y : 0;
+    r.r0 = ok(r0) ? r0 : 0;
+    r.r1 = ok(r1) ? r1 : 0;
+    r.thick = thick > 0 ? thick : 2;
+    r.space = space | 0;
+    r.tone = tone | 0;
   }
 
   function spawnSil(x, y, vis, alpha) {
@@ -304,7 +342,9 @@ const FX = (function () {
     s.scale = vis.scale > 0 ? vis.scale : 1;
     s.flip = vis.flip ? 1 : 0;
     s.pad = framePad(fr);
-    s.a = alpha > 0 ? alpha : 1;
+    let a = alpha > 0 ? alpha : 0.6;
+    if (a > 0.6) a = 0.6;
+    s.a = a;
   }
 
   function deathWindowOpen() {
@@ -421,16 +461,8 @@ const FX = (function () {
 
   function spawnNova(x, y, radius) {
     if (!(radius > 0)) return;
-    addRing({
-      space: 0, x: x, y: y, r0: 0, r1: radius,
-      thick: halo ? 3 : 2, dur: 0.25, tone: 0,
-    });
-    if (halo) {
-      addRing({
-        space: 0, x: x, y: y, r0: 0, r1: radius * 0.8,
-        thick: 2, dur: 0.25, delay: 0.04, tone: 0,
-      });
-    }
+    addRing(0, x, y, 0, radius, halo ? 3 : 2, 0.25, 0, 0);
+    if (halo) addRing(0, x, y, 0, radius * 0.8, 2, 0.25, 0.04, 0);
   }
 
   function bladeMul() {
@@ -581,7 +613,7 @@ const FX = (function () {
         const sy = s.y * tile + camY;
         const dx = Math.round(sx - dw / 2);
         const dy = Math.round(sy - foot);
-        ctx.globalAlpha = s.a > 0 ? s.a : 1;
+        ctx.globalAlpha = Math.min(0.6, s.a > 0 ? s.a : 0.6);
         if (s.flip) ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx + dw, dy, -dw, dh);
         else ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, dx, dy, dw, dh);
       }
@@ -594,13 +626,21 @@ const FX = (function () {
       const sx = Math.round(p.x * tile + camX);
       const sy = Math.round(p.y * tile + camY);
       if (sx < -20 || sy < -20 || sx > viewW + 20 || sy > viewH + 20) continue;
-      const a = p.max > 0 ? p.life / p.max : 0;
+      let a = p.max > 0 ? p.life / p.max : 0;
+      if (p.peak > 0 && p.peak < 1) a *= p.peak;
+      if (a > 1) a = 1;
       if (a <= 0.02) continue;
       ctx.globalAlpha = a;
       ctx.fillStyle = '#14120f';
       ctx.fillRect(sx - 1, sy - 1, p.w + 2, p.h + 2);
       ctx.fillStyle = toneColor[p.tone] || '#ffffff';
       ctx.fillRect(sx, sy, p.w, p.h);
+      if (p.tone === 3 && p.w > 1 && p.h > 1) {
+        ctx.fillStyle = '#ffffff';
+        const cw = p.w > 2 ? 2 : 1;
+        const ch = p.h > 2 ? 2 : 1;
+        ctx.fillRect(sx + ((p.w - cw) >> 1), sy + ((p.h - ch) >> 1), cw, ch);
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -675,7 +715,7 @@ const FX = (function () {
       const heavy = !!(vis && (vis.boss || vis.elite));
       if (heavy) spray(x, y, 6, 0.16, 5.6, 5, 5, true);
       else spray(x, y, 4, 0.12, 4.4, 3, 3, true);
-      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 1);
+      if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 0.6);
     },
 
     death: function (x, y, type, vis) {
@@ -703,27 +743,39 @@ const FX = (function () {
       }
     },
 
-    pickup: function (x, y) {
+    pickup: function (x, y, kind, info) {
       if (!ok(x) || !ok(y)) return;
-      spray(x, y, 4, 0.14, 3.4, 2, 2, true);
-      addRing({ space: 0, x: x, y: y, r0: 0.06, r1: 0.4, thick: 2, dur: 0.16, tone: 0 });
+      if (kind === 'gem') {
+        let c = (info && info.chain) || 1;
+        if (c < 1) c = 1;
+        if (c > 12) c = 12;
+        if (reducedNow()) c = 1;
+        const t = (c - 1) / 11;
+        const n = Math.round(4 + t * 8);
+        const size = Math.round(2 + t * 2);
+        const spread = 3.4 * (1 + t * 0.35);
+        const peak = 0.7 + t * 0.3;
+        spray(x, y, n, 0.14, spread, size, size, true, peak, true);
+      } else {
+        spray(x, y, 4, 0.14, 3.4, 2, 2, true);
+      }
+      addRing(0, x, y, 0.06, 0.4, 2, 0.16, 0, 0);
     },
 
     levelUp: function () {
-      addRing({ space: 1, r0: 8, r1: 22, thick: 2, dur: 0.3, tone: 1 });
+      addRing(1, 0, 0, 8, 22, 2, 0.3, 0, 1);
     },
 
     evolve: function (weapon) {
       if (weapon == null || weapon === '') return;
-      const id = String(weapon);
-      if (id === 'halo' || id === 'nova') halo = 1;
-      if (id === 'storm' || id === 'orbit') {
+      if (weapon === 'halo' || weapon === 'nova') halo = 1;
+      if (weapon === 'storm' || weapon === 'orbit') {
         popKind = 1;
         popOn = 1;
         popT = 0;
       }
       if (reducedNow() || clock - evolveFlashAt < 1 || !tryConsumeFlash()) {
-        addRing({ space: 1, r0: 12, r1: 28, thick: 2, dur: 0.24, tone: 0 });
+        addRing(1, 0, 0, 12, 28, 2, 0.24, 0, 0);
         return;
       }
       evolveFlashAt = clock;
@@ -739,8 +791,8 @@ const FX = (function () {
 
     secondChance: function (x, y) {
       if (!ok(x) || !ok(y)) return;
-      addRing({ space: 2, x: x, y: y, r0: 30, r1: 5, thick: 2, dur: 0.4, tone: 1 });
-      addRing({ space: 2, x: x, y: y, r0: 22, r1: 3, thick: 2, dur: 0.4, delay: 0.03, tone: 0 });
+      addRing(2, x, y, 30, 5, 2, 0.4, 0, 1);
+      addRing(2, x, y, 22, 3, 2, 0.4, 0.03, 0);
       if (!reducedNow()) spray(x, bodyY(y), 8, 0.28, 6.2, 4, 3, true);
     },
 
@@ -803,7 +855,7 @@ const FX = (function () {
 
     draw: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      paint(ctx, cam || {});
+      paint(ctx, cam || emptyCam);
     },
   };
 })();

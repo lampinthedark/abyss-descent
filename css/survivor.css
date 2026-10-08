@@ -168,6 +168,7 @@ body.sv-bench-run #sv-bench {
 
 #sv-end #sv-restart { margin-top: 8px; }
 #sv-revive.hidden, #sv-double.hidden, #sv-best.hidden, #sv-warn.hidden, #sv-boss.hidden { display: none; }
+#sv-double:disabled { opacity: 0.45; filter: grayscale(1); cursor: default; }
 
 .sv-warn {
   position: absolute;
@@ -183,6 +184,14 @@ body.sv-bench-run #sv-bench {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+.sv-warn.sv-pulse { animation: sv-warn-pulse 0.7s ease-in-out infinite; }
+@keyframes sv-warn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sv-warn.sv-pulse { animation: none; }
 }
 .sv-boss { margin-bottom: 6px; max-width: 420px; }
 .sv-boss span { display: block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #d0b4ff; margin-bottom: 3px; }
