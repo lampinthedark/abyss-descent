@@ -1300,14 +1300,13 @@ function pickCard(game, snap) {
   const ids = game.__svOffers();
   const owned = snap.owned || {};
   const order = [];
-  if ((owned.orbit || 0) >= 5 && !(owned.tempo > 0)) order.push('tempo');
-  else if ((owned.orbit || 0) >= 3 && !(owned.tempo > 0)) order.push('tempo');
+  if ((owned.orbit || 0) < 5) order.push('orbit');
+  if ((owned.orbit || 0) >= 3 && !(owned.tempo > 0)) order.push('tempo');
   if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+  order.push('bolt', 'might', 'vitality', 'pierce', 'haste', 'armor', 'nova', 'area');
   if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
   if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
-  order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'vitality', 'might', 'pierce', 'haste', 'area');
-  if (snap.life < snap.maxLife * 0.55) order.unshift('heal', 'vitality');
-  else if (snap.life < snap.maxLife * 0.8) order.unshift('vitality');
+  if (snap.life < snap.maxLife * 0.28) order.unshift('heal');
   let pick = 0;
   for (let p = 0; p < order.length; p++) {
     const at = ids.indexOf(order[p]);
@@ -1316,81 +1315,119 @@ function pickCard(game, snap) {
   return game.__svChoose(pick);
 }
 
+function watchRun(game, limit, kite) {
+  game.__svStart();
+  game.__svView(390, 844, 3);
+  let snap = game.__svSnap();
+  let evo = null;
+  let wardenSpawn = null;
+  let wardenKill = null;
+  let demonSpawn = null;
+  let demonKill = null;
+  let sawWarden = false;
+  let sawDemon = false;
+  let onSum = 0;
+  let onN = 0;
+  let on60 = null;
+  let on360 = null;
+  let death = null;
+  let lastHit = '';
+  let minLate = 1;
+  const steps = Math.ceil(limit / 0.05) + 40;
+  for (let n = 0; n < steps; n++) {
+    snap = game.__svStep(0.05);
+    if (!kite && snap.state === 'hermit') snap = game.__svDecline();
+    if (!kite && snap.state === 'levelup') {
+      if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
+      snap = pickCard(game, snap);
+    }
+    if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
+    if (!sawWarden && snap.boss === 'Grave Warden') {
+      sawWarden = true;
+      wardenSpawn = snap.time;
+    }
+    if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden') wardenKill = snap.time;
+    if (!sawDemon && snap.boss === 'Risen Demon') {
+      sawDemon = true;
+      demonSpawn = snap.time;
+    }
+    if (sawDemon && demonKill == null && snap.boss !== 'Risen Demon') demonKill = snap.time;
+    if (snap.time >= 45 && snap.time <= 75) {
+      onSum += game.__svOnScreen();
+      onN += 1;
+      if (on60 == null && snap.time >= 60) on60 = game.__svOnScreen();
+    }
+    if (on360 == null && snap.time >= 360) on360 = game.__svOnScreen();
+    if (snap.time >= 420 && snap.maxLife > 0) {
+      const ratio = snap.life / snap.maxLife;
+      if (ratio < minLate) minLate = ratio;
+    }
+    if (snap.state === 'dead' || snap.state === 'won') {
+      death = snap.time;
+      lastHit = snap.lastHit;
+      break;
+    }
+    if (snap.time > limit) break;
+  }
+  return {
+    end: death == null ? ('alive@' + snap.time.toFixed(1)) : death.toFixed(1),
+    state: snap.state,
+    hit: lastHit,
+    evo: evo == null ? null : evo,
+    wardenSpawn: wardenSpawn,
+    wardenKill: wardenKill,
+    demonSpawn: demonSpawn,
+    demonKill: demonKill,
+    avgOn: onN ? onSum / onN : null,
+    on60: on60,
+    on360: on360,
+    minLate: minLate,
+    life: Math.round(snap.life),
+    max: snap.maxLife,
+  };
+}
+
 function balanceTable() {
-  const idle = [];
-  for (let seed = 1; seed <= 8; seed++) {
+  const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
+  const idle = {};
+  want.forEach((seed) => {
     const game = boot(seed);
     game.__svStart();
     let deadAt = null;
-    let snap = game.__svSnap();
     for (let i = 0; i < 1600; i++) {
-      snap = game.__svIdleStep(0.05);
+      const snap = game.__svIdleStep(0.05);
       if (snap.state === 'dead') { deadAt = snap.time; break; }
     }
-    idle.push(deadAt == null ? 'alive' : deadAt.toFixed(1));
-  }
+    idle[seed] = deadAt == null ? 'alive' : deadAt.toFixed(1);
+  });
   const rows = [];
-  for (let seed = 1; seed <= 8; seed++) {
-    const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
-    game.__svStart();
-    game.__svView(390, 844, 3);
-    let snap = game.__svSnap();
-    let evo = null;
-    let wardenSpawn = null;
-    let wardenKill = null;
-    let sawWarden = false;
-    let onSum = 0;
-    let onN = 0;
-    let on60 = null;
-    let death = null;
-    let lastHit = '';
-    for (let n = 0; n < 12000; n++) {
-      snap = game.__svStep(0.05);
-      if (snap.state === 'hermit') snap = game.__svDecline();
-      if (snap.state === 'levelup') {
-        if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
-        snap = pickCard(game, snap);
-      }
-      if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
-      if (!sawWarden && snap.boss === 'Grave Warden') {
-        sawWarden = true;
-        wardenSpawn = snap.time;
-      }
-      if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden') wardenKill = snap.time;
-      if (snap.time >= 45 && snap.time <= 75) {
-        onSum += game.__svOnScreen();
-        onN += 1;
-        if (on60 == null && snap.time >= 60) on60 = game.__svOnScreen();
-      }
-      if (snap.state === 'dead' || snap.state === 'won') {
-        death = snap.time;
-        lastHit = snap.lastHit;
-        break;
-      }
-      if (snap.time > 360) break;
-    }
-    const after = (evo != null && death != null) ? (death - evo) : (evo != null ? (snap.time - evo) : null);
+  want.forEach((seed) => {
+    const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 560, false);
+    const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, true);
+    const ttk = (a, b) => (a != null && b != null) ? (b - a).toFixed(1) : '-';
     const row = {
       seed: seed,
-      idle: idle[seed - 1],
-      circle: death == null ? ('alive@' + snap.time.toFixed(1)) : death.toFixed(1),
-      hit: lastHit,
-      evo: evo == null ? '-' : evo.toFixed(1),
-      wardenAt: wardenSpawn == null ? '-' : wardenSpawn.toFixed(1),
-      wardenKill: wardenKill == null ? '-' : wardenKill.toFixed(1),
-      wardenTtk: (wardenSpawn != null && wardenKill != null) ? (wardenKill - wardenSpawn).toFixed(1) : '-',
-      afterEvo: after == null ? '-' : after.toFixed(1),
-      avgOn: onN ? (onSum / onN).toFixed(1) : '-',
-      on60: on60 == null ? '-' : String(on60),
-      state: snap.state,
+      idle: idle[seed],
+      circle: circle.end,
+      circleHit: circle.hit,
+      kite: kite.end,
+      kiteState: kite.state,
+      kiteHit: kite.hit,
+      kiteHp: kite.life + '/' + kite.max,
+      kiteMin: kite.minLate == null ? '-' : Math.round(kite.minLate * 100) + '%',
+      evo: circle.evo == null ? '-' : circle.evo.toFixed(1),
+      wardenTtk: ttk(circle.wardenSpawn, circle.wardenKill),
+      demonTtk: ttk(circle.demonSpawn, circle.demonKill),
+      avgOn: circle.avgOn == null ? '-' : circle.avgOn.toFixed(1),
+      on60: circle.on60 == null ? '-' : String(circle.on60),
+      on360: circle.on360 == null ? '-' : String(circle.on360),
     };
     rows.push(row);
     console.log(JSON.stringify(row));
-  }
-  console.log('idle ' + idle.join(' '));
-  console.log('seed idle circle hit evo wardenSpawn wardenKill ttk afterEvo avgOn45-75 on60');
+  });
+  console.log('seed idle circle hit kite kiteHit kiteMin kiteHp evo wardenTtk demonTtk avgOn on60 on360');
   rows.forEach((r) => {
-    console.log([r.seed, r.idle, r.circle, r.hit, r.evo, r.wardenAt, r.wardenKill, r.wardenTtk, r.afterEvo, r.avgOn, r.on60].join(' '));
+    console.log([r.seed, r.idle, r.circle, r.circleHit, r.kite, r.kiteHit, r.kiteMin, r.kiteHp, r.evo, r.wardenTtk, r.demonTtk, r.avgOn, r.on60, r.on360].join(' '));
   });
 }
 

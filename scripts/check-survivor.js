@@ -121,15 +121,15 @@ if ((again.SurvivorSave.loadProgress().upgrades || {}).vitality !== 1) fail('leg
 const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
-if (!html.includes('survivor.js?v=6.1')) fail('cache bust');
+if (!html.includes('survivor.js?v=6.1.1')) fail('cache bust');
 if (!html.includes('survivor-fx.js')) fail('fx hooks should load');
 const fxSrc = fs.readFileSync(path.join(root, 'js/survivor-fx.js'), 'utf8');
 if (!fxSrc.includes('hit:') || !fxSrc.includes('evolve:') || !fxSrc.includes('draw:')) fail('fx stub is missing a hook');
 if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file should not hold game logic');
-if (!html.includes('survivor-sprites.js?v=6.1')) fail('sprite module');
-if (!html.includes('survivor-items.js?v=6.1')) fail('items module');
+if (!html.includes('survivor-sprites.js?v=6.1.1')) fail('sprite module');
+if (!html.includes('survivor-items.js?v=6.1.1')) fail('items module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-if (!index.includes('survivor.html?v=6.1')) fail('descent title is missing the survivor link');
+if (!index.includes('survivor.html?v=6.1.1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
 
 const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');

@@ -11,9 +11,9 @@
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
-  // BALANCE 6.1 — one table. Revert this block to undo the mix pass.
-  // Keep the screen full. Survivability is the mix: one-hit trash and chip
-  // contact, with chargers, brutes and elites thinned before the Warden.
+  // BALANCE 6.1.1 — one table. Revert this block to undo the tuning pass.
+  // Evolutions wait for the clock. After the Demon, pressure ramps so a
+  // circle dies between 6:00 and 8:00 while the screen stays full.
   const BALANCE = {
     chip: 3,
     idleGrace: 8,
@@ -25,9 +25,20 @@
     hpScale: 48,
     edgeAt: 45,
     wardenHp: 1400,
-    demonHp: 2600,
+    demonHp: 3100,
     evoSlow: 0.5,
     evoScale: 0.3,
+    evoRank: 5,
+    evoPartner: 1,
+    evoAt: 95,
+    lateAt: 300,
+    lateRamp: 150,
+    lateRate: 64,
+    lateCap: 400,
+    lateEliteEvery: 14,
+    lateHpScale: 16,
+    lateShooter: 6,
+    lateShot: 9,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
@@ -49,7 +60,9 @@
   const seedMatch = /(?:^|[?&])seed=(\d+)(?:&|$)/.exec(search);
   const toolDebug = debug || freshSave || skelTest;
   const debugClock = toolDebug && debugClockMatch ? Number(debugClockMatch[1]) : 0;
-  const walkCircle = !!(toolDebug && /(?:^|[?&])walk=circle(?:&|$)/.test(search));
+  const walkMatch = toolDebug && /(?:^|[?&])walk=(circle|kite)(?:&|$)/.exec(search);
+  const walkCircle = !!(walkMatch && walkMatch[1] === 'circle');
+  const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
     Math.random = () => {
@@ -205,6 +218,7 @@
   let evolveFreeze = 0;
   let evoSlow = 0;
   let evoHold = false;
+  let evoIgnoreClock = false;
   let evoPollAt = 1;
   let evolvePending = '';
   const evolveQueue = [];
@@ -409,7 +423,12 @@
     else if (id === 'brute') hp = 12;
     if (bossKind === 'warden') return BALANCE.wardenHp;
     if (bossKind === 'demon') return BALANCE.demonHp;
-    if (time > BALANCE.hpScaleAt) hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / BALANCE.hpScale));
+    if (time > BALANCE.hpScaleAt) {
+      let div = BALANCE.hpScale;
+      const u = lateT();
+      if (u > 0) div = BALANCE.hpScale + (BALANCE.lateHpScale - BALANCE.hpScale) * u;
+      hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / div));
+    }
     if (curse > 0) hp = Math.round(hp * 1.35);
     return Math.max(1, hp);
   }
@@ -1208,9 +1227,25 @@
     return spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
   }
 
+  function lateT() {
+    if (!demonCleared || time < BALANCE.lateAt) return 0;
+    const span = BALANCE.lateRamp > 0 ? BALANCE.lateRamp : 1;
+    return Math.max(0, Math.min(1, (time - BALANCE.lateAt) / span));
+  }
+
+  function eliteInterval() {
+    const u = lateT();
+    if (u <= 0) return BALANCE.eliteEvery;
+    return Math.max(6, BALANCE.eliteEvery + (BALANCE.lateEliteEvery - BALANCE.eliteEvery) * u);
+  }
+
   function spawnKind() {
     const n = spawnSerial;
-    if (time >= MINI_AT && !wardenAlive() && n % 18 === 0) return 'shooter';
+    const u = lateT();
+    if (time >= MINI_AT && !wardenAlive()) {
+      const every = u > 0.2 ? BALANCE.lateShooter : 18;
+      if (every > 0 && n % every === 0) return 'shooter';
+    }
     if (time >= BALANCE.heavyAt && n % 18 === 0) return 'charger';
     if (time >= BALANCE.heavyAt && n % 14 === 0) return 'brute';
     if (n % 4 === 0) return 'imp';
@@ -1227,19 +1262,24 @@
     else if (time < 180) rate = 26;
     else if (time < 360) rate = 34;
     else rate = 40;
+    const u = lateT();
+    if (u > 0) rate = rate + (BALANCE.lateRate - rate) * u;
     if (swarm) rate *= 1.35;
     if (stillT > 0.7) rate *= 1.45;
     return rate;
   }
 
   function spawnCap() {
-    if (time < 12) return 14;
-    if (time < 35) return 32;
-    if (time < 70) return 72;
-    if (time < 120) return 140;
-    if (time < 200) return 220;
-    if (time < 360) return 320;
-    return 340;
+    let cap = 340;
+    if (time < 12) cap = 14;
+    else if (time < 35) cap = 32;
+    else if (time < 70) cap = 72;
+    else if (time < 120) cap = 140;
+    else if (time < 200) cap = 220;
+    else if (time < 360) cap = 320;
+    const u = lateT();
+    if (u > 0) cap = Math.round(cap + (BALANCE.lateCap - cap) * u);
+    return Math.min(LIVE_CAP, cap);
   }
 
   function spawnWave() {
@@ -1324,7 +1364,7 @@
       return;
     }
     if (time >= nextEliteAt && makeRoom()) {
-      nextEliteAt += BALANCE.eliteEvery;
+      nextEliteAt += eliteInterval();
       eliteN += 1;
       const spot = spawnRing(0.2);
       spawnEnemy('brute', spot.x, spot.y, { elite: true });
@@ -1762,7 +1802,8 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         const sp = 2.7;
-        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, 5);
+        const shot = 5 + lateT() * (BALANCE.lateShot - 5);
+        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -2323,6 +2364,12 @@
         }
       }
     }
+    if (!steered && walkKite) {
+      const aim = kiteVector();
+      sx = aim.x;
+      sy = aim.y;
+      steered = true;
+    }
     if (!steered && walkCircle) {
       const radius = pxToWorld(120);
       let omega = Math.PI * 2 / 8;
@@ -2425,6 +2472,7 @@
     evolveFreeze = 0;
     evoSlow = 0;
     evoHold = false;
+    evoIgnoreClock = false;
     evoPollAt = 1;
     evolvePending = '';
     evolveQueue.length = 0;
@@ -3095,22 +3143,130 @@
     checkEvolutions();
   }
 
+  function evoRanksReady(w) {
+    if (!w || !w.evolvesWith || evolved[w.id]) return false;
+    const needRank = BALANCE.evoRank || w.maxLevel;
+    const needPartner = BALANCE.evoPartner || 1;
+    return (owned[w.id] || 0) >= needRank && (owned[w.evolvesWith] || 0) >= needPartner;
+  }
+
   function checkEvolutions() {
     if (state !== 'playing') {
       evoHold = true;
       return;
     }
     const weapons = SurvivorData.WEAPONS;
+    let waitingClock = false;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
-      if (!w.evolvesWith || evolved[w.id]) continue;
-      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
-        evolved[w.id] = w.evolvesWith;
-        evoQueued[w.id] = false;
-        const evo = SurvivorData.evolutionFor(w.id);
-        grantEvolve(evo ? evo.id : w.id);
+      if (!evoRanksReady(w)) continue;
+      if (!evoIgnoreClock && time < BALANCE.evoAt) {
+        waitingClock = true;
+        continue;
+      }
+      evolved[w.id] = w.evolvesWith;
+      evoQueued[w.id] = false;
+      const evo = SurvivorData.evolutionFor(w.id);
+      grantEvolve(evo ? evo.id : w.id);
+    }
+    if (waitingClock) evoHold = true;
+  }
+
+  function kitePickIndex() {
+    const ids = offers.map((item) => item.id);
+    const order = [];
+    if ((owned.orbit || 0) < 5) order.push('orbit');
+    if ((owned.orbit || 0) >= 3 && (owned.tempo || 0) < (BALANCE.evoPartner || 1)) order.push('tempo');
+    if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+    order.push('bolt', 'might', 'vitality', 'pierce', 'haste', 'armor', 'nova', 'area');
+    if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
+    if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
+    if (player.life < player.maxLife * 0.28) order.unshift('heal');
+    let pick = 0;
+    for (let p = 0; p < order.length; p++) {
+      const at = ids.indexOf(order[p]);
+      if (at >= 0) { pick = at; break; }
+    }
+    return pick;
+  }
+
+  function kiteResolve() {
+    if (!walkKite) return;
+    if (state === 'hermit') {
+      declineHermit();
+      return;
+    }
+    if (state === 'levelup') {
+      uiGuardUntil = 0;
+      choose(kitePickIndex());
+    }
+  }
+
+  function kiteDanger(en) {
+    return !!(en && (en.boss || en.elite || en.eid === 'shooter' || en.eid === 'charger'));
+  }
+
+  function kiteVector() {
+    nearbyFill(player.x, player.y, 9);
+    let cx = 0;
+    let cy = 0;
+    let wsum = 0;
+    let nearest = 99;
+    for (let n = 0; n < nearCount; n++) {
+      const en = nearList[n];
+      if (!kiteDanger(en) || en.life <= 0 || en.dying > 0) continue;
+      const dx = en.x - player.x;
+      const dy = en.y - player.y;
+      const dist = len2(dx, dy) || 0.01;
+      if (dist < nearest) nearest = dist;
+      const weight = en.boss ? 8 : (en.eid === 'shooter' ? 5 : (en.elite ? 4 : 2));
+      cx += en.x * weight;
+      cy += en.y * weight;
+      wsum += weight;
+    }
+    let sx = 1;
+    let sy = 0;
+    if (wsum > 0) {
+      const ax = player.x - cx / wsum;
+      const ay = player.y - cy / wsum;
+      const ad = len2(ax, ay) || 1;
+      const prefer = 6.2;
+      sx = (ax / ad) * (prefer - ad) * 0.85;
+      sy = (ay / ad) * (prefer - ad) * 0.85;
+      sx += (-ay / ad) * 1.35;
+      sy += (ax / ad) * 1.35;
+    }
+    for (let i = 0; i < foeShots.length; i++) {
+      const shot = foeShots[i];
+      const dx = shot.x - player.x;
+      const dy = shot.y - player.y;
+      if (len2(dx, dy) > 3.2) continue;
+      const sp = len2(shot.vx, shot.vy) || 1;
+      sx += (-shot.vy / sp) * 2.4;
+      sy += (shot.vx / sp) * 2.4;
+    }
+    if (nearest > 4.2) {
+      let best = 5.5;
+      let gx = 0;
+      let gy = 0;
+      for (let i = 0; i < gems.length; i++) {
+        const gem = gems[i];
+        if (!gem || gem.kind === 'chest') continue;
+        const dx = gem.x - player.x;
+        const dy = gem.y - player.y;
+        const dist = len2(dx, dy);
+        if (dist < best && dist > 0.35) {
+          best = dist;
+          gx = dx;
+          gy = dy;
+        }
+      }
+      if (best < 5.5) {
+        sx += gx;
+        sy += gy;
       }
     }
+    return { x: sx, y: sy };
   }
 
   function choose(index) {
@@ -4213,6 +4369,7 @@
     fxDrawMs = 0;
     if (bench && typeof performance !== 'undefined' && performance.memory) heapAt = performance.memory.usedJSHeapSize;
     const updateStart = nowMs();
+    if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
     if (state === 'playing') sim(dt);
     else animT += dt;
     const updateMs = nowMs() - updateStart;
@@ -4426,6 +4583,7 @@
       return { gold: runGold, milli: goldMilli };
     };
     window.__svStep = (dt) => {
+      if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));
       return snapRun();
     };
@@ -4589,6 +4747,7 @@
       owned.nova = 5;
       owned.tempo = 1;
       owned.cinder = 1;
+      evoIgnoreClock = true;
       checkEvolutions();
       return snapRun();
     };
