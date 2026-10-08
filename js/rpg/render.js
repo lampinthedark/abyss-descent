@@ -705,11 +705,15 @@
         this.drawHeroRing(ctx, hx, hy);
         this.drawHero(ctx, hx, hy, hero, t);
       } else if (it.e) {
+        const a = it.e.alpha == null ? 1 : Math.max(0, Math.min(1, it.e.alpha));
+        if (a <= 0) continue;
+        if (a < 1) ctx.globalAlpha = a;
         if (typeof it.e.draw === 'function') it.e.draw(ctx, cam, t);
         else {
           this.drawShadow(ctx, it.e);
           this.drawSprite(ctx, it.e, t, false);
         }
+        if (a < 1) ctx.globalAlpha = 1;
       } else if (it.top) {
         this.drawSprite(ctx, it.top, t, true);
       } else if (it.fn) {
