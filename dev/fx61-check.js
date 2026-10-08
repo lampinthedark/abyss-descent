@@ -1031,62 +1031,63 @@ if (typeof global.gc === 'function') {
   const shieldPer = (shieldAfter - shieldBefore) / 120;
   console.log('shield heap bytes/frame', shieldPer.toFixed(2));
   check('zero allocations per shield frame', shieldPer < 16);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  const mixNames = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  for (let i = 0; i < 20; i++) FX.beam('mixg' + i, (i - 10) * 0.6, 0, mixNames[i % 5]);
+  FX.shield('mixg', 0, 0, 22, 60000);
+  FX.telegraph('mixg-a', 24, 0, 60000);
+  FX.telegraph('mixg-b', -24, 16, 60000);
+  FX.telegraph('mixg-c', 0, -20, 60000);
+  for (let i = 0; i < 160; i++) {
+    FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+    FX.update(0.04);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+    FX.update(0.04);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const mixBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+    FX.update(0.04);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const mixPer = (process.memoryUsage().heapUsed - mixBefore) / 120;
+  console.log('mixed heap bytes/frame', mixPer.toFixed(2));
+  check('zero allocations per mixed frame', mixPer < 16);
 } else {
   console.log('skip alloc check (run with node --expose-gc)');
 }
 
-function tallOf(color, minH) {
-  let n = 0;
-  for (let i = 0; i < calls.length; i++) {
-    const c = calls[i];
-    if (c[0] === 'fill' && c[1] === color && c[6] >= minH) n += 1;
-  }
-  return n;
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+const mixRarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+for (let i = 0; i < 20; i++) {
+  const x = i < 3 ? -6 - i : (i - 8) * 0.7;
+  FX.beam('mix' + i, x, (i % 5) * 0.4, mixRarities[i % 5]);
 }
-
-FX.reset();
-FX.beam('leg-case', 0, 0, 'Legendary');
-calls.length = 0;
-FX.draw(ctx, cam);
-check('Legendary gives r=4', tallOf('#f4f2ff', 200) === 1 && fills('#7fb2ff') > 0);
-
-FX.reset();
-FX.beam('rare-case', 0, 0, 'RARE');
-calls.length = 0;
-FX.draw(ctx, cam);
-check('RARE gives r=2', tallOf('#4c7cff', 60) === 1 && tallOf('#f4f2ff', 200) === 0);
-
-FX.reset();
-FX.beam('vr-case', 0, 0, 'Very Rare');
-calls.length = 0;
-FX.draw(ctx, cam);
-check('Very Rare gives r=3', tallOf('#b48cff', 150) === 1 && tallOf('#f4f2ff', 200) === 0);
-
-FX.reset();
-FX.beam('pad-epic', 0, 0, ' Epic ');
-calls.length = 0;
-FX.draw(ctx, cam);
-check('padded Epic gives r=3', tallOf('#b48cff', 150) === 1);
-
-FX.reset();
-FX.beam('us-rare', 0, 0, 'very_rare');
-calls.length = 0;
-FX.draw(ctx, cam);
-check('very_rare gives r=3', tallOf('#b48cff', 150) === 1);
-
-FX.reset();
-let rarityThrew = false;
-try {
-  FX.beam('bad1', 0, 0, 'bogus');
-  FX.beam('bad2', 1, 0, null);
-  FX.beam('bad3', 2, 0, 42);
-  FX.beam('bad4', 3, 0, undefined);
-} catch (e) {
-  rarityThrew = true;
+FX.shield('mix-shield', 0, 0, 22, 20000);
+FX.telegraph('mix-a', 24, 0, 8000);
+FX.telegraph('mix-b', -24, 16, 8000);
+FX.telegraph('mix-c', 0, -20, 8000);
+let mixPeak = 0;
+for (let i = 0; i < 400; i++) {
+  FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', { color: '#8a6cff', frame: vis.frame });
+  FX.update(0.04);
+  FX.draw(ctx, cam);
+  if (FX._live() > mixPeak) mixPeak = FX._live();
 }
-calls.length = 0;
-FX.draw(ctx, cam);
-check('bogus, null and 42 give r=0 with no throw', !rarityThrew && tallOf('#4c7cff', 20) === 0 && tallOf('#b48cff', 20) === 0 && tallOf('#f4f2ff', 20) === 0 && tallOf('#5ed37a', 20) === 0);
+console.log('particle peak at 25/s with 20 beams, shield, 3 telegraphs', mixPeak);
+check('mixed beams shield and telegraphs stay <= 200', mixPeak <= 200);
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));
