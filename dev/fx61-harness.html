@@ -317,7 +317,7 @@
     window.shotShield = function () {
       boot();
       props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
-      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
+      FX.shield('demon', 0.05, -0.42, 2.25, 4000);
       age(0.2);
       draw();
     };
@@ -325,12 +325,12 @@
     window.shotShieldHits = function () {
       boot();
       props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
-      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
-      var tipX = 0.05 * 16;
-      var tipY = -0.42 * 16 - 6;
-      FX.shieldHit('demon', tipX + 48, tipY - 6);
-      FX.shieldHit('demon', tipX - 36, tipY + 20);
-      FX.shieldHit('demon', tipX + 10, tipY - 50);
+      FX.shield('demon', 0.05, -0.42, 2.25, 4000);
+      var tipX = 0.05;
+      var tipY = -0.42;
+      FX.shieldHit('demon', tipX + 3, tipY - 0.375);
+      FX.shieldHit('demon', tipX - 2.25, tipY + 1.25);
+      FX.shieldHit('demon', tipX + 0.625, tipY - 3.125);
       age(0.05);
       draw();
     };
@@ -338,7 +338,7 @@
     window.shotShieldBreak = function () {
       boot();
       props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
-      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
+      FX.shield('demon', 0.05, -0.42, 2.25, 4000);
       FX.shieldBreak('demon');
       age(0.09);
       draw();
@@ -352,7 +352,7 @@
         var tx = Math.cos(ang) * rad;
         var ty = Math.sin(ang) * rad * 0.72;
         props.push({ kind: 'pad', x: tx, y: ty });
-        FX.spawn(tx * 16, ty * 16);
+        FX.spawn(tx, ty);
       }
       age(0.1);
       draw();
@@ -361,7 +361,7 @@
     window.runShieldBench = function (ms) {
       boot();
       draw();
-      FX.shield('demon', 0, -8, 26, 60000);
+      FX.shield('demon', 0, -0.5, 1.625, 60000);
       return new Promise(function (resolve) {
         var t0 = performance.now();
         var last = t0;
@@ -387,10 +387,10 @@
             FX.kill(rand() * 5 - 2.5, rand() * 3 - 1, 'skel', { frame: FRAME, color: '#8a6cff' });
           }
           for (var h = 0; h < hits; h++) {
-            FX.shieldHit('demon', (rand() - 0.5) * 80, -8 + (rand() - 0.5) * 80);
+            FX.shieldHit('demon', (rand() - 0.5) * 5, -0.5 + (rand() - 0.5) * 5);
           }
           for (var p = 0; p < pops; p++) {
-            FX.spawn((rand() - 0.5) * 180, (rand() - 0.5) * 140);
+            FX.spawn((rand() - 0.5) * 11.25, (rand() - 0.5) * 8.75);
           }
           FX.update(dt);
           draw();

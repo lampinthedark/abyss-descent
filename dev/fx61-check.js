@@ -741,7 +741,7 @@ function centroidX(color) {
 FX.reset();
 FX.setReducedMotion(false);
 FX.draw(ctx, cam);
-FX.shield('bubble', 0, 0, 20, 2000);
+FX.shield('bubble', 0, 0, 1.25, 2000);
 calls.length = 0;
 FX.draw(ctx, cam);
 const idleSteel = countStyle('#9fb4c8', 1);
@@ -757,24 +757,24 @@ FX.draw(ctx, cam);
 const spun = calls.map(function (c) { return c.join(','); }).join('|');
 check('shield hex rotates', spun !== idleSnap && countStyle('#ffffff', 1) === 1);
 
-FX.shield('bubble', 40, 0, 20, 500);
+FX.shield('bubble', 2.5, 0, 1.25, 500);
 advance(0.4);
 calls.length = 0;
 FX.draw(ctx, cam);
 check('same id restarts the shield', countStyle('#9fb4c8', 1) > 40);
-check('restarted shield sits on the new point', Math.abs(centroidX('#9fb4c8') - (40 * 3 + 195)) < 12);
+check('restarted shield sits on the new point', Math.abs(centroidX('#9fb4c8') - (2.5 * 16 * cam.zoom + cam.x)) < 12);
 advance(0.15);
 calls.length = 0;
 FX.draw(ctx, cam);
 check('restarted shield expires on its new duration', countStyle('#9fb4c8', 1) === 0);
 
-FX.shield('gone', 0, 0, 18, 2000);
+FX.shield('gone', 0, 0, 1.125, 2000);
 FX.shieldOff('gone');
 calls.length = 0;
 FX.draw(ctx, cam);
 check('shieldOff removes the bubble', countStyle('#9fb4c8', null) === 0);
 
-FX.shield('brief', 0, 0, 18, 200);
+FX.shield('brief', 0, 0, 1.125, 200);
 advance(0.1);
 calls.length = 0;
 FX.draw(ctx, cam);
@@ -788,8 +788,8 @@ function chevronWhites(n) {
   FX.reset();
   FX.setReducedMotion(false);
   FX.draw(ctx, cam);
-  FX.shield('hit', 0, 0, 20, 3000);
-  for (let i = 0; i < n; i++) FX.shieldHit('hit', 80, 0);
+  FX.shield('hit', 0, 0, 1.25, 3000);
+  for (let i = 0; i < n; i++) FX.shieldHit('hit', 5, 0);
   advance(0.12);
   calls.length = 0;
   FX.draw(ctx, cam);
@@ -804,7 +804,7 @@ check('a seventh hit is dropped', sevenHits === sixHits);
 FX.reset();
 FX.setReducedMotion(true);
 FX.draw(ctx, cam);
-FX.shield('still', 0, 0, 20, 2000);
+FX.shield('still', 0, 0, 1.25, 2000);
 calls.length = 0;
 FX.draw(ctx, cam);
 const stillShield = calls.map(function (c) { return c.join(','); }).join('|');
@@ -819,7 +819,7 @@ FX.reset();
 FX.setReducedMotion(false);
 FX._seed();
 const liveBefore = (FX.update(0.001), FX._live());
-FX.shield('pop', 0, 0, 18, 2000);
+FX.shield('pop', 0, 0, 1.125, 2000);
 FX.shieldBreak('pop');
 calls.length = 0;
 textCalls = 0;
@@ -839,7 +839,7 @@ FX.setReducedMotion(true);
 FX.draw(ctx, cam);
 FX.update(0.001);
 const calmLive = FX._live();
-FX.shield('calm', 0, 0, 18, 2000);
+FX.shield('calm', 0, 0, 1.125, 2000);
 FX.shieldBreak('calm');
 calls.length = 0;
 FX.draw(ctx, cam);
@@ -852,7 +852,7 @@ FX.setReducedMotion(false);
 FX.draw(ctx, cam);
 const seenBreak = [];
 for (let i = 0; i < 4; i++) {
-  FX.shield('b' + i, i * 70, 0, 16, 2000);
+  FX.shield('b' + i, i * 4.375, 0, 1, 2000);
   FX.shieldBreak('b' + i);
 }
 calls.length = 0;
@@ -864,7 +864,7 @@ for (let i = 0; i < calls.length; i++) {
   let nearest = 0;
   let best = 1e9;
   for (let s = 0; s < 4; s++) {
-    const cx = s * 70 * 3 + 195;
+    const cx = s * 4.375 * 16 * cam.zoom + cam.x;
     const d = px > cx ? px - cx : cx - px;
     if (d < best) {
       best = d;
@@ -885,7 +885,7 @@ FX.reset();
 FX.setReducedMotion(false);
 for (let i = 0; i < 50; i++) {
   FX.kill((i % 8) * 0.4, (i % 5) * 0.3, 'skel', vis);
-  FX.shield('wave', 0, 0, 18, 2000);
+  FX.shield('wave', 0, 0, 1.125, 2000);
   FX.shieldBreak('wave');
   calls.length = 0;
   FX.draw(ctx, cam);
@@ -926,7 +926,7 @@ check('spawn expires after 220ms', countStyle('#26252b', null) === 0);
 FX.reset();
 FX.setReducedMotion(false);
 FX.draw(ctx, cam);
-for (let i = 0; i < 40; i++) FX.spawn((i - 20) * 80, 0);
+for (let i = 0; i < 40; i++) FX.spawn((i - 20) * 5, 0);
 calls.length = 0;
 FX.draw(ctx, cam);
 const capped = countStyle('#26252b', null);
@@ -944,6 +944,80 @@ advance(0.1);
 calls.length = 0;
 FX.draw(ctx, cam);
 check('reduced motion spawn does not expand', calls.map(function (c) { return c.join(','); }).join('|') === spawnStill);
+
+function steelCentre() {
+  return fillCentroid(function (c) {
+    return c[1] === '#9fb4c8' && Math.abs(c[2] - 1) < 0.001;
+  });
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+const demon = { id: 41, x: 1.7, y: 0.15, radius: 1.35 };
+const shieldR = demon.radius + 0.9;
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const demonX = demon.x * 16 * cam.zoom + cam.x;
+const demonY = demon.y * 16 * cam.zoom + cam.y;
+const hexAt = steelCentre();
+check('shield centre matches the demon', hexAt.n > 0 && Math.abs(hexAt.x - demonX) <= 1 && Math.abs(hexAt.y - demonY) <= 1);
+let hexReach = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#9fb4c8' || Math.abs(c[2] - 1) > 0.001) continue;
+  const dx = c[3] + c[5] * 0.5 - demonX;
+  const dy = c[4] + c[6] * 0.5 - demonY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > hexReach) hexReach = dist;
+}
+const spritePx = demon.radius * 16 * cam.zoom;
+console.log('demon hex reach', hexReach.toFixed(2), 'sprite px', spritePx.toFixed(2));
+check('shield hex radius covers the demon sprite', hexReach >= spritePx);
+
+FX.shield(demon.id, demon.x + 0.8, demon.y - 0.35, shieldR, 4000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const moved = steelCentre();
+const movedX = (demon.x + 0.8) * 16 * cam.zoom + cam.x;
+const movedY = (demon.y - 0.35) * 16 * cam.zoom + cam.y;
+check('shield follows a later tile update', moved.n > 0 && Math.abs(moved.x - movedX) <= 1 && Math.abs(moved.y - movedY) <= 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000);
+FX.shieldHit(demon.id, demon.x + shieldR, demon.y);
+calls.length = 0;
+FX.draw(ctx, cam);
+let hitX = 0;
+let hitY = 0;
+let hitN = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff' || Math.abs(c[2] - 1) > 0.001) continue;
+  const px = c[3] + c[5] * 0.5;
+  const py = c[4] + c[6] * 0.5;
+  if (px < demonX + 40) continue;
+  hitX += px;
+  hitY += py;
+  hitN += 1;
+}
+const rimX = demonX + Math.round(shieldR * 16 * Math.cos(Math.PI / 6)) * cam.zoom;
+const hitDx = hitN ? hitX / hitN - rimX : 99;
+const hitDy = hitN ? hitY / hitN - demonY : 99;
+console.log('shield hit rim dx', hitDx.toFixed(2), 'dy', hitDy.toFixed(2));
+check('shield hit lands on the demon rim', hitN > 0 && Math.abs(hitDx) <= 1 && Math.abs(hitDy) <= 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.spawn(demon.x, demon.y);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spawnAt = fillCentroid(function (c) { return c[1] === '#26252b' || c[1] === '#141318'; });
+check('spawn centre matches the demon', spawnAt.n > 0 && Math.abs(spawnAt.x - demonX) <= 1 && Math.abs(spawnAt.y - demonY) <= 1);
 
 function quietCtx() {
   return {
@@ -997,12 +1071,12 @@ if (typeof global.gc === 'function') {
   FX.reset();
   FX.setReducedMotion(false);
   FX.draw(quiet, cam);
-  FX.shield('s', 0, 0, 22, 20000);
-  for (let i = 0; i < 8; i++) FX.spawn((i - 4) * 20, 8);
+  FX.shield('s', 0, 0, 1.375, 20000);
+  for (let i = 0; i < 8; i++) FX.spawn((i - 4) * 1.25, 0.5);
   for (let i = 0; i < 160; i++) {
     if (i % 8 === 0) {
-      FX.spawn((i % 5) * 14, (i % 3) * 10);
-      FX.shieldHit('s', 40, 0);
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
     }
     FX.update(0.016);
     FX.draw(quiet, cam);
@@ -1010,8 +1084,8 @@ if (typeof global.gc === 'function') {
   global.gc();
   for (let i = 0; i < 80; i++) {
     if (i % 8 === 0) {
-      FX.spawn((i % 5) * 14, (i % 3) * 10);
-      FX.shieldHit('s', 40, 0);
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
     }
     FX.update(0.016);
     FX.draw(quiet, cam);
@@ -1020,8 +1094,8 @@ if (typeof global.gc === 'function') {
   const shieldBefore = process.memoryUsage().heapUsed;
   for (let i = 0; i < 120; i++) {
     if (i % 8 === 0) {
-      FX.spawn((i % 5) * 14, (i % 3) * 10);
-      FX.shieldHit('s', 40, 0);
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
     }
     FX.update(0.016);
     FX.draw(quiet, cam);
@@ -1037,10 +1111,10 @@ if (typeof global.gc === 'function') {
   FX.draw(quiet, cam);
   const mixNames = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
   for (let i = 0; i < 20; i++) FX.beam('mixg' + i, (i - 10) * 0.6, 0, mixNames[i % 5]);
-  FX.shield('mixg', 0, 0, 22, 60000);
-  FX.telegraph('mixg-a', 24, 0, 60000);
-  FX.telegraph('mixg-b', -24, 16, 60000);
-  FX.telegraph('mixg-c', 0, -20, 60000);
+  FX.shield('mixg', 0, 0, 1.375, 60000);
+  FX.telegraph('mixg-a', 1.5, 0, 60000);
+  FX.telegraph('mixg-b', -1.5, 1, 60000);
+  FX.telegraph('mixg-c', 0, -1.25, 60000);
   for (let i = 0; i < 160; i++) {
     FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
     FX.update(0.04);
@@ -1075,10 +1149,10 @@ for (let i = 0; i < 20; i++) {
   const x = i < 3 ? -6 - i : (i - 8) * 0.7;
   FX.beam('mix' + i, x, (i % 5) * 0.4, mixRarities[i % 5]);
 }
-FX.shield('mix-shield', 0, 0, 22, 20000);
-FX.telegraph('mix-a', 24, 0, 8000);
-FX.telegraph('mix-b', -24, 16, 8000);
-FX.telegraph('mix-c', 0, -20, 8000);
+FX.shield('mix-shield', 0, 0, 1.375, 20000);
+FX.telegraph('mix-a', 1.5, 0, 8000);
+FX.telegraph('mix-b', -1.5, 1, 8000);
+FX.telegraph('mix-c', 0, -1.25, 8000);
 let mixPeak = 0;
 for (let i = 0; i < 400; i++) {
   FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', { color: '#8a6cff', frame: vis.frame });

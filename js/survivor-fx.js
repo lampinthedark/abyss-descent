@@ -1210,8 +1210,9 @@ const FX = (function () {
     let bestD = -1;
     for (let i = 0; i < SH_N; i++) {
       const s = shields[i];
-      const dx = s.x * zoom + lastCamX - hx;
-      const dy = s.y * zoom + lastCamY - hy;
+      const span = tileSpan(zoom);
+      const dx = s.x * span + lastCamX - hx;
+      const dy = s.y * span + lastCamY - hy;
       const d = dx * dx + dy * dy;
       if (d > bestD) {
         bestD = d;
@@ -1303,8 +1304,9 @@ const FX = (function () {
     const idx = findShield(id);
     if (idx < 0 || !ok(x) || !ok(y)) return;
     const s = shields[idx];
-    layHex(shieldSpin(), s.r);
-    const edge = shieldNearest(x - s.x, y - s.y);
+    const frame = framePx();
+    layHex(shieldSpin(), s.r * frame);
+    const edge = shieldNearest((x - s.x) * frame, (y - s.y) * frame);
     const base = idx * CH_PER;
     let slot = -1;
     for (let k = 0; k < CH_PER; k++) {
@@ -1328,8 +1330,8 @@ const FX = (function () {
     const ch = chevs[slot];
     ch.on = 1;
     ch.age = 0;
-    ch.x = s.x + shQx;
-    ch.y = s.y + shQy;
+    ch.x = s.x + shQx / frame;
+    ch.y = s.y + shQy / frame;
     ch.nx = nx;
     ch.ny = ny;
     ch.px = -ny;
@@ -1350,16 +1352,13 @@ const FX = (function () {
   }
 
   function shatterShards(x, y, r) {
-    const frame = framePx();
     for (let i = 0; i < 12; i++) {
       const p = takePart();
       const a = (i / 12) * TAU;
-      const artX = x + Math.cos(a) * r;
-      const artY = y + Math.sin(a) * r;
       p.life = 0.18;
       p.max = 0.18;
-      p.x = artX / frame;
-      p.y = artY / frame;
+      p.x = x + Math.cos(a) * r;
+      p.y = y + Math.sin(a) * r;
       p.vx = Math.cos(a) * 4;
       p.vy = Math.sin(a) * 4;
       p.w = 2;
@@ -1407,8 +1406,9 @@ const FX = (function () {
     let bestD = -1;
     for (let i = 0; i < SP_N; i++) {
       const s = spawns[i];
-      const dx = s.x * zoom + lastCamX - hx;
-      const dy = s.y * zoom + lastCamY - hy;
+      const span = tileSpan(zoom);
+      const dx = s.x * span + lastCamX - hx;
+      const dy = s.y * span + lastCamY - hy;
       const d = dx * dx + dy * dy;
       if (d > bestD) {
         bestD = d;
@@ -1440,10 +1440,9 @@ const FX = (function () {
     if (fade < 0) fade = 0;
     if (fade <= 0.02) return;
     const dist = u * 4;
-    const px = ch.x + ch.nx * dist;
-    const py = ch.y + ch.ny * dist;
-    const sx = px * zoom + camX;
-    const sy = py * zoom + camY;
+    const span = tileSpan(zoom);
+    const sx = ch.x * span + camX + ch.nx * dist * zoom;
+    const sy = ch.y * span + camY + ch.ny * dist * zoom;
     ctx.globalAlpha = fade;
     ctx.fillStyle = '#ffffff';
     plotArt(ctx, sx, sy, Math.round(ch.nx), Math.round(ch.ny), zoom, cell, half);
@@ -1452,11 +1451,13 @@ const FX = (function () {
   }
 
   function paintShield(ctx, s, idx, zoom, camX, camY, calm) {
-    const sx = s.x * zoom + camX;
-    const sy = s.y * zoom + camY;
+    const span = tileSpan(zoom);
+    const sx = s.x * span + camX;
+    const sy = s.y * span + camY;
     const cell = telCell(zoom);
     const half = cell >> 1;
-    layHex(shieldSpin(), s.r);
+    const radArt = s.r * framePx();
+    layHex(shieldSpin(), radArt);
     ctx.globalAlpha = 1;
     const base = idx * CH_PER;
     for (let i = 0; i < 6; i++) {
@@ -1464,7 +1465,7 @@ const FX = (function () {
       const color = shEdge[base + i] > 0 ? '#ffffff' : '#9fb4c8';
       artLine(ctx, sx, sy, hexVX[i], hexVY[i], hexVX[j], hexVY[j], zoom, cell, half, color);
     }
-    const inner = Math.round(s.r - 2);
+    const inner = Math.round(radArt - 2);
     if (inner >= 2) {
       ctx.globalAlpha = 0.35;
       paintPixelRing(ctx, sx, sy, inner, zoom, '#9fb4c8', 0);
@@ -1500,18 +1501,20 @@ const FX = (function () {
     for (let i = 0; i < BR_N; i++) {
       const b = breaks[i];
       if (!b.on) continue;
-      const sx = b.x * zoom + camX;
-      const sy = b.y * zoom + camY;
+      const span = tileSpan(zoom);
+      const sx = b.x * span + camX;
+      const sy = b.y * span + camY;
       let u = b.age / 0.18;
       if (u < 0) u = 0;
       if (u > 1) u = 1;
-      const rad = Math.round(b.r + 8 * u);
+      const radArt = b.r * framePx();
+      const rad = Math.round(radArt + 8 * u);
       ctx.globalAlpha = 1;
       if (rad >= 1) paintPixelRing(ctx, sx, sy, rad, zoom, '#9fb4c8', 0);
       if (b.flash && b.age < 0.012) {
         const cell = telCell(zoom);
         const half = cell >> 1;
-        layHex(shieldSpin(), b.r);
+        layHex(shieldSpin(), radArt);
         ctx.globalAlpha = 0.6;
         for (let e = 0; e < 6; e++) {
           const j = e === 5 ? 0 : e + 1;
@@ -1523,8 +1526,9 @@ const FX = (function () {
   }
 
   function paintSpawnOne(ctx, s, zoom, camX, camY, calm) {
-    const sx = s.x * zoom + camX;
-    const sy = s.y * zoom + camY;
+    const span = tileSpan(zoom);
+    const sx = s.x * span + camX;
+    const sy = s.y * span + camY;
     ctx.globalAlpha = 1;
     if (calm) {
       paintPixelRing(ctx, sx, sy, 6, zoom, '#26252b', 0);
@@ -1562,8 +1566,9 @@ const FX = (function () {
       for (let i = 0; i < SP_N; i++) {
         const s = spawns[i];
         if (!s.on || s.mark === spGen) continue;
-        const dx = s.x * zoom + camX - hx;
-        const dy = s.y * zoom + camY - hy;
+        const span = tileSpan(zoom);
+        const dx = s.x * span + camX - hx;
+        const dy = s.y * span + camY - hy;
         const d = dx * dx + dy * dy;
         if (best < 0 || d < bestD) {
           best = i;
