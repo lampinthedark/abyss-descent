@@ -180,7 +180,7 @@
     spawns: [
       { monsterId: 'rat', x: 9, y: 33, n: 3, leash: 4 },
       { monsterId: 'rat', x: 4, y: 35, n: 2, leash: 4 },
-      { monsterId: 'goblin', x: 19, y: 37, n: 2, leash: 4 },
+      { monsterId: 'goblin', x: 6, y: 32, n: 2, leash: 4 },
     ],
   };
   // Forest ring so the town reads as a clearing (decor, blocks).
