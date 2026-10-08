@@ -20,6 +20,12 @@
  * front edge in art px, or -1 when no sweep is running.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
+ * FX.telegraph(id, x, y, ms, opts) warns at a cast point. x and y are tile
+ * coordinates, the same units as FX.beam, FX.kill, and FX.pickup. Screen position
+ * is x * framePx * zoom + cam, matching those calls. Spark size and the default
+ * ring stay in art px. A numeric opts.radius, opts.r, or opts.size is a radius
+ * in tiles. It uses its own 32-slot table, never the particle pool, and never a
+ * white flash. opts.boss enlarges the default ring.
  */
 const FX = (function () {
   'use strict';
@@ -38,6 +44,8 @@ const FX = (function () {
   // drawn round(zoom / 2) device px wide, which matches a CSS pixel when
   // zoom is cssPerArt * dpr.
   const BEAM_CSS_PER_ART = 2;
+  const TEL_N = 32;
+  const TEL_DRAW = 24;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
@@ -143,6 +151,17 @@ const FX = (function () {
     b.age = 0;
   }
 
+  const tels = new Array(TEL_N);
+  for (let i = 0; i < TEL_N; i++) {
+    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0 };
+    t.x = 0;
+    t.y = 0;
+    t.age = 0;
+    t.dur = 0.7;
+    t.rad = 0;
+  }
+  let telGen = 0;
+
   const shakeOut = { x: 0.5, y: 0.5 };
   shakeOut.x = 0;
   shakeOut.y = 0;
@@ -173,7 +192,11 @@ const FX = (function () {
   let lastW = 0;
   let lastH = 0;
   let lastZoom = 0.5;
+  let lastCamX = 0.5;
+  let lastCamY = 0.5;
   lastZoom = 0;
+  lastCamX = 0;
+  lastCamY = 0;
 
   const GROUND_N = 20;
   const groundX = new Array(GROUND_N);
@@ -887,6 +910,178 @@ const FX = (function () {
     return sweepFront();
   }
 
+  function telCell(zoom) {
+    const cell = zoom >= 1 ? Math.round(zoom) : 1;
+    return cell > 0 ? cell : 1;
+  }
+
+  function telPlot(ctx, sx, sy, ix, iy, rad, zoom, cell, half, color, mark) {
+    ctx.fillStyle = (mark && iy === 0 && (ix === rad || ix === -rad)) ? '#ffffff' : color;
+    ctx.fillRect(Math.round(sx + ix * zoom) - half, Math.round(sy + iy * zoom) - half, cell, cell);
+  }
+
+  function telOct(ctx, sx, sy, x, y, rad, zoom, cell, half, color, mark) {
+    telPlot(ctx, sx, sy, x, y, rad, zoom, cell, half, color, mark);
+    if (x) telPlot(ctx, sx, sy, -x, y, rad, zoom, cell, half, color, mark);
+    if (y) telPlot(ctx, sx, sy, x, -y, rad, zoom, cell, half, color, mark);
+    if (x && y) telPlot(ctx, sx, sy, -x, -y, rad, zoom, cell, half, color, mark);
+    if (x !== y) {
+      telPlot(ctx, sx, sy, y, x, rad, zoom, cell, half, color, mark);
+      if (y) telPlot(ctx, sx, sy, -y, x, rad, zoom, cell, half, color, mark);
+      if (x) telPlot(ctx, sx, sy, y, -x, rad, zoom, cell, half, color, mark);
+      if (x && y) telPlot(ctx, sx, sy, -y, -x, rad, zoom, cell, half, color, mark);
+    }
+  }
+
+  // 1 art-px lilac ring on the pixel grid. mark draws the left and right pixels white.
+  function paintPixelRing(ctx, sx, sy, radArt, zoom, color, mark) {
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    const r = radArt | 0;
+    let x = 0;
+    let y = r;
+    let d = 1 - r;
+    while (x <= y) {
+      telOct(ctx, sx, sy, x, y, r, zoom, cell, half, color, mark);
+      x += 1;
+      if (d < 0) d += 2 * x + 1;
+      else {
+        y -= 1;
+        d += 2 * (x - y) + 1;
+      }
+    }
+  }
+
+  function tileSpan(zoom) {
+    const z = zoom > 0 ? zoom : 1;
+    return framePx() * z;
+  }
+
+  function paintTelegraph(ctx, t, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    const sx = t.x * span + camX;
+    const sy = t.y * span + camY;
+    ctx.globalAlpha = 1;
+    if (calm) {
+      paintPixelRing(ctx, sx, sy, t.boss ? 7 : 4, zoom, '#c9a8ff', 1);
+      return;
+    }
+    let u = t.dur > 0 ? t.age / t.dur : 1;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const eased = u * u;
+    let r0 = t.boss ? 18 : 10;
+    if (t.rad > 0) r0 = t.rad * framePx();
+    const rad = r0 + (2 - r0) * eased;
+    const n = t.boss ? 14 : 8;
+    const cell = telCell(zoom);
+    const s = (t.boss ? 2 : 1) * cell;
+    const half = s >> 1;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU - 1.5707963267948966;
+      const px = Math.round(sx + Math.cos(a) * rad * zoom) - half;
+      const py = Math.round(sy + Math.sin(a) * rad * zoom) - half;
+      ctx.fillStyle = (i & 1) ? '#c9a8ff' : '#ffffff';
+      ctx.fillRect(px, py, s, s);
+    }
+    if (t.dur - t.age <= 0.08) paintPixelRing(ctx, sx, sy, 3, zoom, '#c9a8ff', 0);
+  }
+
+  function paintTels(ctx, zoom, camX, camY, viewW, viewH, calm) {
+    telGen += 1;
+    if (telGen > 1000000000) {
+      telGen = 1;
+      for (let i = 0; i < TEL_N; i++) tels[i].mark = 0;
+    }
+    let active = 0;
+    for (let i = 0; i < TEL_N; i++) if (tels[i].on) active += 1;
+    const limit = active > TEL_DRAW ? TEL_DRAW : active;
+    const hx = viewW * 0.5;
+    const hy = viewH * 0.5;
+    for (let n = 0; n < limit; n++) {
+      let best = -1;
+      let bestD = 0;
+      for (let i = 0; i < TEL_N; i++) {
+        const t = tels[i];
+        if (!t.on || t.mark === telGen) continue;
+        const span = tileSpan(zoom);
+        const dx = t.x * span + camX - hx;
+        const dy = t.y * span + camY - hy;
+        const d = dx * dx + dy * dy;
+        if (best < 0 || d < bestD) {
+          best = i;
+          bestD = d;
+        }
+      }
+      if (best < 0) break;
+      tels[best].mark = telGen;
+      paintTelegraph(ctx, tels[best], zoom, camX, camY, calm);
+    }
+  }
+
+  function telFarSlot() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const hx = w * 0.5;
+    const hy = h * 0.5;
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < TEL_N; i++) {
+      const t = tels[i];
+      const span = tileSpan(zoom);
+      const dx = t.x * span + lastCamX - hx;
+      const dy = t.y * span + lastCamY - hy;
+      const d = dx * dx + dy * dy;
+      if (d > bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return tels[best];
+  }
+
+  function telegraphOn(id, x, y, ms, opts) {
+    if (!ok(x) || !ok(y)) return;
+    let dur = 0.7;
+    if (ok(ms) && ms > 0) dur = ms * 0.001;
+    const boss = opts && opts.boss ? 1 : 0;
+    let rad = 0;
+    if (opts && opts.radius > 0) rad = opts.radius;
+    else if (opts && opts.r > 0) rad = opts.r;
+    else if (opts && opts.size > 0) rad = opts.size;
+    let slot = null;
+    for (let i = 0; i < TEL_N; i++) {
+      if (tels[i].on && tels[i].id === id) {
+        slot = tels[i];
+        break;
+      }
+    }
+    if (!slot) {
+      for (let i = 0; i < TEL_N; i++) {
+        if (!tels[i].on) {
+          slot = tels[i];
+          break;
+        }
+      }
+    }
+    if (!slot) slot = telFarSlot();
+    slot.on = 1;
+    slot.id = id;
+    slot.x = x;
+    slot.y = y;
+    slot.age = 0;
+    slot.dur = dur;
+    slot.boss = boss;
+    slot.rad = rad;
+  }
+
+  function telegraphClear(id) {
+    for (let i = 0; i < TEL_N; i++) {
+      if (tels[i].on && tels[i].id === id) tels[i].on = 0;
+    }
+  }
+
   function step(dt) {
     if (!(dt > 0)) return;
     frameTick += 1;
@@ -951,6 +1146,12 @@ const FX = (function () {
     }
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on) beams[i].age += dt;
+    }
+    for (let i = 0; i < TEL_N; i++) {
+      const t = tels[i];
+      if (!t.on) continue;
+      t.age += dt;
+      if (t.age >= t.dur) t.on = 0;
     }
   }
 
@@ -1269,6 +1470,8 @@ const FX = (function () {
     lastW = viewW;
     lastH = viewH;
     lastZoom = zoom;
+    lastCamX = camX;
+    lastCamY = camY;
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = false;
@@ -1385,6 +1588,7 @@ const FX = (function () {
     paintEmbers(ctx, zoom, calm);
     if (!skipBeams) paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
+    paintTels(ctx, zoom, camX, camY, viewW, viewH, calm);
 
     if (flashLeft > 0) {
       let a = 0.6 * (flashLeft / FLASH_LIFE);
@@ -1532,6 +1736,7 @@ const FX = (function () {
       for (let i = 0; i < RING_CAP; i++) rings[i].on = 0;
       for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
+      for (let i = 0; i < TEL_N; i++) tels[i].on = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
@@ -1613,6 +1818,14 @@ const FX = (function () {
 
     beamOff: function (id) {
       beamClear(id);
+    },
+
+    telegraph: function (id, x, y, ms, opts) {
+      telegraphOn(id, x, y, ms, opts);
+    },
+
+    telegraphOff: function (id) {
+      telegraphClear(id);
     },
 
     shakeOffset: function () {

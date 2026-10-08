@@ -210,6 +210,104 @@
         requestAnimationFrame(frame);
       });
     };
+
+    function age(seconds) {
+      var left = seconds;
+      while (left > 0.000001) {
+        var d = left > 0.05 ? 0.05 : left;
+        FX.update(d);
+        left -= d;
+      }
+    }
+
+    window.shotCaster = function () {
+      boot();
+      props.push({ kind: 'foe', x: 0.15, y: -0.45, color: '#8a6cff' });
+      FX.telegraph('caster', 0.15, -0.45, 700);
+      age(0.35);
+      draw();
+    };
+
+    window.shotBossTel = function () {
+      boot();
+      props.push({ kind: 'foe', x: 0.1, y: -0.35, color: '#7b4fd4' });
+      FX.telegraph('boss', 0.1, -0.35, 550, { boss: true });
+      age(0.28);
+      draw();
+    };
+
+    window.shotTelCrowd = function () {
+      boot();
+      for (var i = 0; i < 20; i++) {
+        var ang = (i / 20) * 6.283185307179586;
+        var rad = 1.05 + (i % 3) * 0.42;
+        var tx = Math.cos(ang) * rad;
+        var ty = Math.sin(ang) * rad * 0.7;
+        var boss = i % 7 === 0;
+        props.push({ kind: 'foe', x: tx, y: ty, color: boss ? '#7b4fd4' : '#8a6cff' });
+        FX.telegraph('crowd' + i, tx, ty, boss ? 550 : 700, boss ? { boss: true } : null);
+      }
+      age(0.3);
+      draw();
+    };
+
+    window.runTelegraphBench = function (ms) {
+      boot();
+      draw();
+      for (var i = 0; i < 40; i++) {
+        FX.telegraph(i, (i - 20) * 1.75, ((i % 8) - 4) * 1.375, 8000, i % 9 === 0 ? { boss: true } : null);
+      }
+      for (var m = 0; m < 150; m++) {
+        FX.kill((m % 15) * 0.4 - 3, ((m / 15) | 0) * 0.35 - 1.2, 'skel', { frame: FRAME, color: '#8a6cff' });
+      }
+      return new Promise(function (resolve) {
+        var t0 = performance.now();
+        var last = t0;
+        var frames = 0;
+        var sum = 0;
+        var minF = 1e9;
+        var slow = 0;
+        var seed = 7;
+        function rand() {
+          seed = (seed * 1664525 + 1013904223) >>> 0;
+          return seed / 4294967296;
+        }
+        function frame(now) {
+          var dtMs = now - last;
+          last = now;
+          var dt = dtMs / 1000;
+          if (dt > 0.05) dt = 0.05;
+          if (dt < 0) dt = 0;
+          var kills = Math.max(1, Math.round(dt * 25));
+          for (var k = 0; k < kills; k++) {
+            FX.kill(rand() * 5 - 2.5, rand() * 3 - 1, 'skel', { frame: FRAME, color: '#8a6cff' });
+          }
+          FX.update(dt);
+          draw();
+          if (dtMs > 0 && frames > 0) {
+            var fps = 1000 / dtMs;
+            sum += fps;
+            if (fps < minF) minF = fps;
+            if (dtMs > 33.3) slow += 1;
+          }
+          frames += 1;
+          if (now - t0 >= ms) {
+            var n = Math.max(1, frames - 1);
+            resolve({
+              avg: sum / n,
+              min: minF,
+              slow: slow,
+              frames: frames,
+              slowPct: (slow / n) * 100,
+              ms: now - t0
+            });
+            return;
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      });
+    };
   </script>
 </body>
 </html>

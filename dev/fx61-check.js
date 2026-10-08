@@ -9,13 +9,16 @@ const vm = require('vm');
 const srcPath = path.join(__dirname, '..', 'js', 'survivor-fx.js');
 let src = fs.readFileSync(srcPath, 'utf8');
 if (src.indexOf('owned') >= 0) throw new Error('owned leaked into fx');
+if (src.indexOf('fillText') >= 0 || src.indexOf('strokeText') >= 0) {
+  throw new Error('survivor-fx.js should not draw text');
+}
 src = src.replace(
   'function step(dt) {',
-  'let __peak = 0;\nfunction __tally() {\n  let n = 0;\n  for (let i = 0; i < CAP; i++) if (parts[i].life > 0) n++;\n  if (n > __peak) __peak = n;\n}\nfunction step(dt) {\n  __tally();'
+  'let __peak = 0;\nlet __live = 0;\nfunction __tally() {\n  let n = 0;\n  for (let i = 0; i < CAP; i++) if (parts[i].life > 0) n++;\n  __live = n;\n  if (n > __peak) __peak = n;\n}\nfunction __seed() { rng = 1; }\nfunction step(dt) {\n  __tally();'
 );
 src = src.replace(
   'LEVELUP_RADIUS: LEVELUP_RADIUS,',
-  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
+  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _live: function () { return __live; },\n    _seed: function () { __seed(); },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
 );
 
 function makeCtx() {
@@ -44,9 +47,12 @@ function makeCtx() {
     save: function () {},
     restore: function () {},
     setTransform: function () {},
+    fillText: function () { textCalls += 1; },
+    strokeText: function () { textCalls += 1; },
   };
   return { ctx: ctx, calls: calls };
 }
+let textCalls = 0;
 
 const { ctx, calls } = makeCtx();
 const sandbox = {
@@ -511,6 +517,251 @@ FX.beam('under', 0, 0, 'rare');
 calls.length = 0;
 FX.draw(ctx, cam);
 check('restart still paints beams', tallOf('#4c7cff', 140) === 1);
+
+// Cast telegraphs. x,y are tile coordinates, same as FX.kill.
+function telColors() {
+  let white = 0;
+  let lilac = 0;
+  let cyan = 0;
+  let far = 0;
+  let maxArt = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill') continue;
+    if (c[1] === '#5fd8ff') cyan += 1;
+    if (c[1] !== '#ffffff' && c[1] !== '#c9a8ff') continue;
+    const cx = c[3] + c[5] * 0.5;
+    const cy = c[4] + c[6] * 0.5;
+    const art = Math.abs(cx - 195) / 3;
+    if (art > maxArt) maxArt = art;
+    if (art > 1000) far += 1;
+    if (c[1] === '#ffffff') white += 1;
+    else lilac += 1;
+  }
+  return { white: white, lilac: lilac, cyan: cyan, far: far, maxArt: maxArt, n: white + lilac };
+}
+
+function meanArtRadius() {
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill') continue;
+    if (c[1] !== '#ffffff' && c[1] !== '#c9a8ff') continue;
+    const cx = c[3] + c[5] * 0.5;
+    const cy = c[4] + c[6] * 0.5;
+    sum += Math.sqrt((cx - 195) * (cx - 195) + (cy - 422) * (cy - 422)) / 3;
+    n += 1;
+  }
+  return n ? sum / n : 0;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph('mage', 0, 0, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const freshR = meanArtRadius();
+check('caster ring starts near 10 art px', freshR > 9 && freshR < 11);
+check('caster spark count is 8', telColors().n === 8);
+advance(0.35);
+calls.length = 0;
+FX.draw(ctx, cam);
+const midR = meanArtRadius();
+check('caster ring eases in', midR > 7 && midR < 9);
+FX.telegraph('mage', 0, 0, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const restartR = meanArtRadius();
+check('same id restarts the ring', restartR > 9 && restartR < 11);
+check('same id does not add a second ring', telColors().n === 8);
+
+FX.telegraphOff('mage');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('telegraphOff removes the ring', telColors().n === 0);
+
+FX.telegraph('brief', 0, 0, 200);
+advance(0.1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('telegraph still up before its duration', telColors().n === 8);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('telegraph expires after ms', telColors().n === 0);
+
+FX.telegraph('hitch', 0, 0, 700);
+FX.update(1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('a hitch only spends the 0.05s clamp', meanArtRadius() > 9.5);
+check('a hitch does not expire a 700ms tell', telColors().n === 8);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph('end', 0, 0, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const lilacEarly = telColors().lilac;
+advance(0.64);
+calls.length = 0;
+FX.draw(ctx, cam);
+const endCols = telColors();
+check('final 80ms adds the lilac release ring', endCols.lilac > lilacEarly + 8);
+check('release ring is not cyan', endCols.cyan === 0);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.telegraph('still', 0, 0, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const stillA = telColors();
+const snap = calls.map(function (c) { return c.join(','); }).join('|');
+advance(0.3);
+calls.length = 0;
+FX.draw(ctx, cam);
+const stillB = telColors();
+const snapB = calls.map(function (c) { return c.join(','); }).join('|');
+check('reduced motion is a static ring', snap === snapB && stillA.n > 0);
+check('reduced motion ring has 2 white pixels', stillA.white === 2 && stillB.white === 2);
+check('reduced motion caster stays at radius 4', stillA.maxArt > 3 && stillA.maxArt < 6);
+FX.telegraphOff('still');
+FX.telegraph('boss-still', 0, 0, 550, { boss: true });
+calls.length = 0;
+FX.draw(ctx, cam);
+const bossStill = telColors();
+check('reduced motion boss ring is larger', bossStill.maxArt > 6 && bossStill.maxArt < 9);
+check('reduced motion boss has 2 white pixels', bossStill.white === 2);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph('boss', 0, 0, 550, { boss: true });
+calls.length = 0;
+FX.draw(ctx, cam);
+const bossR = meanArtRadius();
+check('boss ring starts near 18 art px', bossR > 17 && bossR < 19);
+check('boss uses 14 sparks', telColors().n === 14);
+check('boss sparks are 2 art px', calls.some(function (c) { return c[0] === 'fill' && c[5] === 6 && c[6] === 6; }));
+
+function fillCentroid(match) {
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || !match(c)) continue;
+    sx += c[3] + c[5] * 0.5;
+    sy += c[4] + c[6] * 0.5;
+    n += 1;
+  }
+  return n ? { x: sx / n, y: sy / n, n: n } : { x: 0, y: 0, n: 0 };
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph('sized', 0, 0, 700, { radius: 1 });
+calls.length = 0;
+FX.draw(ctx, cam);
+check('opts.radius is a tile radius', meanArtRadius() > 15 && meanArtRadius() < 17);
+
+const caster = { id: 7, x: 2.5, y: -0.15 };
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph(caster.id, caster.x, caster.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const telAt = fillCentroid(function (c) { return c[1] === '#ffffff' || c[1] === '#c9a8ff'; });
+const casterX = caster.x * 16 * cam.zoom + cam.x;
+const casterY = caster.y * 16 * cam.zoom + cam.y;
+check('telegraph centre matches the caster', telAt.n > 0 && Math.abs(telAt.x - casterX) <= 1 && Math.abs(telAt.y - casterY) <= 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+calls.length = 0;
+FX.draw(ctx, cam);
+for (let i = 0; i < 40; i++) FX.telegraph('c' + i, (i - 20) * 5, 0, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const cap = telColors();
+console.log('telegraph draw cap fills', cap.n, 'max art', cap.maxArt.toFixed(1));
+check('draw cap is 24 telegraphs', cap.n === 24 * 8);
+check('draw cap keeps the telegraphs nearest the view', cap.far === 0 && cap.maxArt < 1000);
+
+function monsterFlash(withTel) {
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(ctx, cam);
+  if (withTel) {
+    for (let i = 0; i < 40; i++) FX.telegraph(i, (i - 20) * 1.875, (i % 5) * 0.75, 700, i % 11 === 0 ? { boss: true } : null);
+  }
+  FX._seed();
+  for (let i = 0; i < 150; i++) FX.kill((i % 15) * 0.45, ((i / 15) | 0) * 0.4, 'skel', vis);
+  FX.update(0.001);
+  calls.length = 0;
+  textCalls = 0;
+  FX.draw(ctx, cam);
+  return { live: FX._live(), flash: sils().n, text: textCalls };
+}
+const bareMonsters = monsterFlash(false);
+const telMonsters = monsterFlash(true);
+console.log('150 monsters particles', bareMonsters.live, 'with 40 telegraphs', telMonsters.live, 'flashes', bareMonsters.flash, telMonsters.flash);
+check('particles stay <= 200 with telegraphs', telMonsters.live <= 200);
+check('telegraphs do not change the particle count', telMonsters.live === bareMonsters.live);
+check('telegraphs do not change the flash count', telMonsters.flash === bareMonsters.flash);
+check('telegraph frames draw no text', telMonsters.text === 0 && textCalls === 0);
+
+function quietCtx() {
+  return {
+    canvas: { width: 390, height: 844 },
+    imageSmoothingEnabled: false,
+    globalAlpha: 1,
+    fillStyle: '#ffffff',
+    strokeStyle: '#ffffff',
+    lineWidth: 1,
+    globalCompositeOperation: 'source-over',
+    fillRect: function () {},
+    drawImage: function () {},
+    beginPath: function () {},
+    arc: function () {},
+    stroke: function () {},
+    save: function () {},
+    restore: function () {},
+    setTransform: function () {},
+    fillText: function () { textCalls += 1; },
+    strokeText: function () { textCalls += 1; },
+  };
+}
+if (typeof global.gc === 'function') {
+  const quiet = quietCtx();
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  for (let i = 0; i < 32; i++) FX.telegraph(i, (i - 16) * 1.5, (i % 6), 8000, i === 3 ? { boss: true } : null);
+  for (let i = 0; i < 150; i++) FX.kill((i % 12) * 0.4, ((i / 12) | 0) * 0.35, 'skel', vis);
+  for (let i = 0; i < 160; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const before = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const after = process.memoryUsage().heapUsed;
+  const per = (after - before) / 120;
+  console.log('telegraph heap bytes/frame', per.toFixed(2));
+  check('zero allocations per telegraph frame', per < 16);
+} else {
+  console.log('skip alloc check (run with node --expose-gc)');
+}
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));
