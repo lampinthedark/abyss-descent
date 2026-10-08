@@ -182,6 +182,15 @@
       align-items: stretch;
     }
     .beam i { display: block; height: 100%; flex: 0 0 auto; min-width: 1px; }
+    .leader {
+      position: absolute;
+      z-index: 1;
+      height: 1px;
+      background: #2a241c;
+      transform-origin: 0 50%;
+      display: none;
+      pointer-events: none;
+    }
     .plate {
       position: absolute;
       z-index: 2;

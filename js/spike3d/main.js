@@ -222,9 +222,19 @@ function boot() {
   let frustumW = 10;
   let frustumH = 10;
   let lookShift = 0;
+  let viewMinX = -5;
+  let viewMaxX = 5;
+  let viewMinZ = -12;
+  let viewMaxZ = 12;
+  let viewCx = 0;
+  let viewCz = 0;
+  let viewHx = 5;
+  let viewHz = 12;
   const right = new Vector3(1, 0, 0);
   const up = new Vector3(0, 1, 0);
   const tmp = new Vector3();
+  const ndcNear = new Vector3();
+  const ndcFar = new Vector3();
 
   const world = buildWorld();
   const worldScene = new Scene();
@@ -235,7 +245,7 @@ function boot() {
   sim.hero.weapon = 0;
   sim.hero.shield = 1;
   if (glance || stand || mock) sim.setFrozen(true);
-  if (stand || mock) sim.setHold(true);
+  if (stand || mock || glance) sim.setHold(true);
 
   const ringTex = ringTexture();
   const ring = new Mesh(new PlaneGeometry(1, 1), ringMaterial(ringTex));
@@ -421,8 +431,42 @@ function boot() {
     pushFrame(batch, weapon, dir, anim, frame, x, yy, z, tint, scale, 1, 0, shine);
   }
 
+  function groundAtNdc(nx, ny) {
+    ndcNear.set(nx, ny, -1).unproject(camera);
+    ndcFar.set(nx, ny, 1).unproject(camera);
+    const dy = ndcFar.y - ndcNear.y;
+    const t = dy === 0 ? 0 : -ndcNear.y / dy;
+    tmp.x = ndcNear.x + (ndcFar.x - ndcNear.x) * t;
+    tmp.z = ndcNear.z + (ndcFar.z - ndcNear.z) * t;
+    return tmp;
+  }
+
+  function measureView() {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const g = groundAtNdc((i & 1) ? 1 : -1, (i & 2) ? 1 : -1);
+      if (g.x < minX) minX = g.x;
+      if (g.x > maxX) maxX = g.x;
+      if (g.z < minZ) minZ = g.z;
+      if (g.z > maxZ) maxZ = g.z;
+    }
+    viewMinX = minX;
+    viewMaxX = maxX;
+    viewMinZ = minZ;
+    viewMaxZ = maxZ;
+    viewCx = (minX + maxX) * 0.5;
+    viewCz = (minZ + maxZ) * 0.5;
+    viewHx = Math.max(1, (maxX - minX) * 0.5);
+    viewHz = Math.max(1, (maxZ - minZ) * 0.5);
+    sim.setView(viewCx, viewCz, viewHx, viewHz);
+    api.viewHx = viewHx;
+    api.viewHz = viewHz;
+  }
+
   function layoutActors() {
-    heroWorld = spriteHeight();
     const h = sim.hero;
     if (glance || stand === 'grass') {
       h.x = GRASS.x;
@@ -432,10 +476,15 @@ function boot() {
       h.z = 0;
       h.x = pathX(h.z);
     }
-    const spanX = Math.max(4, frustumW * 0.92);
-    const spanZ = Math.max(6, (frustumH / Math.sin(PITCH)) * 0.86);
-    const cols = Math.max(3, Math.round(Math.sqrt(count * (spanX / Math.max(1, spanZ)))));
+    const x0 = viewMinX + 0.35;
+    const x1 = viewMaxX - 0.35;
+    const z0 = viewMinZ + 0.45;
+    const z1 = viewMaxZ - 0.85;
+    const spanX = Math.max(1, x1 - x0);
+    const spanZ = Math.max(1, z1 - z0);
+    const cols = Math.max(3, Math.round(Math.sqrt(count * (spanX / spanZ))));
     const rows = Math.ceil(count / cols);
+    const keep = 0.85;
     for (let i = 0; i < count; i++) {
       let px;
       let pz;
@@ -450,12 +499,19 @@ function boot() {
         const r = (i / cols) | 0;
         const u = cols <= 1 ? 0.5 : c / (cols - 1);
         const v = rows <= 1 ? 0.5 : r / (rows - 1);
-        px = h.x + (u - 0.5) * spanX * 0.86;
-        pz = h.z + (v - 0.38) * spanZ * 0.72;
-        if (Math.hypot(px - h.x, pz - h.z) < heroWorld * 1.15) {
-          px += spanX * 0.18;
-          pz += spanZ * 0.08;
+        px = x0 + u * spanX;
+        pz = z0 + v * spanZ;
+        const dx = px - h.x;
+        const dz = pz - h.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < keep && dist > 0.001) {
+          px = h.x + (dx / dist) * keep;
+          pz = h.z + (dz / dist) * keep;
         }
+        if (px < x0) px = x0;
+        else if (px > x1) px = x1;
+        if (pz < z0) pz = z0;
+        else if (pz > z1) pz = z1;
       }
       const isBoss = bossOn && i === count - 1;
       const crowd = ROLES[CROWD[i % CROWD.length]];
@@ -508,11 +564,23 @@ function boot() {
 
   function visibleCount() {
     let n = 0;
+    let above = 0;
+    let minY = viewH;
+    let maxY = 0;
+    const hy = projectCss(sim.hero.x, heightAt(sim.hero.x, sim.hero.z), sim.hero.z).y;
     for (let i = 0; i < sim.count; i++) {
       if (sim.state[i] === ANIM.DEAD && sim.fade[i] < 0.05) continue;
       const p = projectCss(sim.x[i], heightAt(sim.x[i], sim.z[i]) + 0.2, sim.z[i]);
-      if (p.z < 1 && p.x >= 0 && p.x <= viewW && p.y >= 0 && p.y <= viewH) n += 1;
+      if (p.z < 1 && p.x >= 0 && p.x <= viewW && p.y >= 0 && p.y <= viewH) {
+        n += 1;
+        if (p.y < hy - 8) above += 1;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
     }
+    api.above = above;
+    api.minY = n ? minY : 0;
+    api.maxY = n ? maxY : 0;
     return n;
   }
 
@@ -576,8 +644,15 @@ function boot() {
     }
     const manual = ix !== 0 || iz !== 0;
     if (!spawned) {
-      layoutActors();
-      spawned = true;
+      const h = sim.hero;
+      if (glance || stand === 'grass') {
+        h.x = GRASS.x;
+        h.z = GRASS.z;
+      } else {
+        h.orbit = 0;
+        h.z = 0;
+        h.x = pathX(h.z);
+      }
     }
     sim.hero.tier = desiredTier;
     sim.update(dt, ix, iz, manual, FWD_X, FWD_Z, RIGHT_X, RIGHT_Z, heroWorld, compare || !!stand);
@@ -647,6 +722,11 @@ function boot() {
     api.chest = projectCss(hx, hy + drawH * 0.5, hz).y / Math.max(1, viewH);
     api.heroScreen = feet.y / Math.max(1, viewH);
     heroWorld = drawH;
+    measureView();
+    if (!spawned) {
+      layoutActors();
+      spawned = true;
+    }
     api.visible = visibleCount();
 
     enemies.begin();
@@ -711,7 +791,7 @@ function boot() {
     }
     heroBatch.end();
 
-    paintDrops();
+    paintDrops(head);
     paintBoss(boss, drawH);
     paintLevel(head);
     paintHud(now);
@@ -749,23 +829,165 @@ function boot() {
     el.style.display = on ? '' : 'none';
   }
 
-  function placePlate(el, x, y) {
-    el.style.left = x + 'px';
-    el.style.top = y + 'px';
-    const r = el.getBoundingClientRect();
-    let dx = 0;
-    let dy = 0;
-    if (r.left < 4) dx = 4 - r.left;
-    if (r.right > viewW - 4) dx = (viewW - 4) - r.right;
-    if (r.top < 132) dy = 132 - r.top;
-    if (r.bottom > viewH - 4) dy = (viewH - 4) - r.bottom;
-    if (dx || dy) {
-      el.style.left = (x + dx) + 'px';
-      el.style.top = (y + dy) + 'px';
+  const LABEL_CAP = 6;
+  const labelOrd = new Uint8Array(LABEL_CAP);
+  const labelPri = new Uint8Array(LABEL_CAP);
+  const occL = new Float32Array(8);
+  const occT = new Float32Array(8);
+  const occR = new Float32Array(8);
+  const occB = new Float32Array(8);
+  const NUDGE_Y = new Float32Array([0, -18, -36, -54, -72, 22, 44, 66, -90, 88, -108, 110]);
+  const NUDGE_X = new Float32Array([0, -28, 28, -56, 56, -84, 84, -112, 112]);
+  const PRI = { chase: 6, legendary: 5, veryrare: 4, rare: 3, material: 2, normal: 1 };
+  let occN = 0;
+  let spotL = 0;
+  let spotT = 0;
+  let spotR = 0;
+  let spotB = 0;
+  let labelsReady = false;
+  let levelW = 92;
+  let levelH = 16;
+
+  function overlaps(l, t, r, b) {
+    for (let i = 0; i < occN; i++) {
+      if (r > occL[i] && l < occR[i] && b > occT[i] && t < occB[i]) return true;
+    }
+    return false;
+  }
+
+  function trySpot(ax, ay, pw, ph, pad) {
+    const l = ax - pw * 0.5;
+    const t = ay - ph * 1.3;
+    const r = l + pw;
+    const b = t + ph;
+    const topLim = bare ? 4 : 132;
+    if (l < 2 || r > viewW - 2 || t < topLim || b > viewH - 2) return false;
+    if (overlaps(l - pad, t - pad, r + pad, b + pad)) return false;
+    spotL = l;
+    spotT = t;
+    spotR = r;
+    spotB = b;
+    return true;
+  }
+
+  function sortLabels() {
+    const n = drops.length;
+    for (let i = 1; i < n; i++) {
+      const id = labelOrd[i];
+      const pr = labelPri[id];
+      let j = i - 1;
+      while (j >= 0 && labelPri[labelOrd[j]] < pr) {
+        labelOrd[j + 1] = labelOrd[j];
+        j -= 1;
+      }
+      labelOrd[j + 1] = id;
     }
   }
 
-  function paintDrops() {
+  function solveLabels(feetX, feetY, headX, headY) {
+    if (!drops) return;
+    if (!labelsReady) {
+      const n = drops.length;
+      for (let i = 0; i < n; i++) {
+        labelOrd[i] = i;
+        labelPri[i] = PRI[drops[i].rarity] || 1;
+        const plate = drops[i].plate;
+        drops[i].boxW = plate.offsetWidth || 48;
+        drops[i].boxH = plate.offsetHeight || 16;
+      }
+      levelW = levelEl.offsetWidth || levelW;
+      levelH = levelEl.offsetHeight || levelH;
+      labelsReady = true;
+    }
+    sortLabels();
+    const half = heroPx * 0.46;
+    occL[0] = feetX - half;
+    occT[0] = headY;
+    occR[0] = feetX + half;
+    occB[0] = feetY;
+    occN = 1;
+    if (mock) {
+      occL[1] = headX - levelW * 0.5 - 4;
+      occR[1] = headX + levelW * 0.5 + 4;
+      occB[1] = headY - 6;
+      occT[1] = occB[1] - levelH - 4;
+      occN = 2;
+    }
+    const n = drops.length;
+    for (let k = 0; k < n; k++) {
+      const i = labelOrd[k];
+      const drop = drops[i];
+      const leader = drop.leader;
+      if (!drop.on) {
+        showEl(drop.plate, false);
+        showEl(leader, false);
+        continue;
+      }
+      const pw = drop.boxW;
+      const ph = drop.boxH;
+      const pad = (drop.pad || 0) + 3;
+      const ax = drop.ax;
+      const ay = drop.ay;
+      let found = false;
+      for (let yi = 0; yi < NUDGE_Y.length; yi++) {
+        if (trySpot(ax, ay + NUDGE_Y[yi], pw, ph, pad)) { found = true; break; }
+      }
+      if (!found) {
+        for (let yi = 0; yi < NUDGE_Y.length && !found; yi++) {
+          for (let xi = 1; xi < NUDGE_X.length; xi++) {
+            if (trySpot(ax + NUDGE_X[xi], ay + NUDGE_Y[yi], pw, ph, pad)) { found = true; break; }
+          }
+        }
+      }
+      const normal = labelPri[i] <= 1;
+      if (!found && normal) {
+        showEl(drop.plate, false);
+        showEl(leader, false);
+        continue;
+      }
+      let left = ax;
+      let top = ay;
+      if (found) {
+        left = (spotL + spotR) * 0.5;
+        top = spotT + ph * 1.3;
+        occL[occN] = spotL - pad;
+        occT[occN] = spotT - pad;
+        occR[occN] = spotR + pad;
+        occB[occN] = spotB + pad;
+        occN += 1;
+      }
+      drop.plate.style.left = left + 'px';
+      drop.plate.style.top = top + 'px';
+      showEl(drop.plate, true);
+      const moved = Math.hypot(left - ax, top - ay);
+      if (moved > 8 && leader) {
+        const l = left - pw * 0.5;
+        const t = top - ph * 1.3;
+        const r = l + pw;
+        const b = t + ph;
+        let nx = drop.ix;
+        let ny = drop.iy;
+        if (nx < l) nx = l;
+        else if (nx > r) nx = r;
+        if (ny < t) ny = t;
+        else if (ny > b) ny = b;
+        const dx = nx - drop.ix;
+        const dy = ny - drop.iy;
+        const len = Math.hypot(dx, dy);
+        if (len > 2) {
+          leader.style.display = 'block';
+          leader.style.left = drop.ix + 'px';
+          leader.style.top = drop.iy + 'px';
+          leader.style.width = len + 'px';
+          leader.style.transform = 'rotate(' + Math.atan2(dy, dx) + 'rad)';
+        } else leader.style.display = 'none';
+      } else if (leader) {
+        leader.style.display = 'none';
+      }
+    }
+  }
+
+  function paintDrops(head) {
     const info = [];
     for (let i = 0; i < drops.length; i++) {
       const drop = drops[i];
@@ -773,11 +995,11 @@ function boot() {
       const p = projectCss(drop.x, y, drop.z);
       const on = p.z < 1 && p.x >= -4 && p.x <= viewW + 4 && p.y >= -4 && p.y <= viewH + 4;
       showEl(drop.beam, on);
-      showEl(drop.plate, on);
       showEl(drop.ring, on);
       showEl(drop.badge, on);
       showEl(drop.gem, on);
       showEl(drop.flash, on);
+      drop.on = on;
       if (!on) {
         info.push({ rarity: drop.rarity, on: false });
         continue;
@@ -805,7 +1027,10 @@ function boot() {
         drop.flash.style.left = p.x + 'px';
         drop.flash.style.top = p.y + 'px';
       }
-      placePlate(drop.plate, p.x, drop.badge ? p.y - 20 : p.y - 12);
+      drop.ix = p.x;
+      drop.iy = p.y;
+      drop.ax = p.x;
+      drop.ay = drop.badge ? p.y - 20 : p.y - 12;
       info.push({
         rarity: drop.rarity,
         on: true,
@@ -816,6 +1041,7 @@ function boot() {
         name: drop.plate.style.color,
       });
     }
+    solveLabels(api.fx, api.fy, head.x, head.y);
     api.loot = info;
   }
 
@@ -1168,6 +1394,9 @@ function createDrops() {
       } else plate.style.borderColor = spec.border;
     }
     fx.appendChild(plate);
+    const leader = document.createElement('div');
+    leader.className = 'leader';
+    fx.appendChild(leader);
     let flash = null;
     if (spec.flash) {
       flash = document.createElement('div');
@@ -1184,6 +1413,9 @@ function createDrops() {
       z: 0,
       beam: beam,
       plate: plate,
+      leader: leader,
+      pad: spec.plateBands ? 4 : 0,
+      on: false,
       ring: ring,
       badge: badge,
       gem: gem,
