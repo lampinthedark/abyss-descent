@@ -84,6 +84,11 @@
           ctx.fillStyle = p.color;
           ctx.fillRect(s.x - 6, s.y - 14, 12, 12);
         }
+        if (p.kind === 'pad') {
+          var pad = world(p.x, p.y);
+          ctx.fillStyle = '#3c3a44';
+          ctx.fillRect(pad.x - 16, pad.y - 16, 32, 32);
+        }
       }
     }
 
@@ -281,6 +286,111 @@
           var kills = Math.max(1, Math.round(dt * 25));
           for (var k = 0; k < kills; k++) {
             FX.kill(rand() * 5 - 2.5, rand() * 3 - 1, 'skel', { frame: FRAME, color: '#8a6cff' });
+          }
+          FX.update(dt);
+          draw();
+          if (dtMs > 0 && frames > 0) {
+            var fps = 1000 / dtMs;
+            sum += fps;
+            if (fps < minF) minF = fps;
+            if (dtMs > 33.3) slow += 1;
+          }
+          frames += 1;
+          if (now - t0 >= ms) {
+            var n = Math.max(1, frames - 1);
+            resolve({
+              avg: sum / n,
+              min: minF,
+              slow: slow,
+              frames: frames,
+              slowPct: (slow / n) * 100,
+              ms: now - t0
+            });
+            return;
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      });
+    };
+
+    window.shotShield = function () {
+      boot();
+      props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
+      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
+      age(0.2);
+      draw();
+    };
+
+    window.shotShieldHits = function () {
+      boot();
+      props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
+      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
+      var tipX = 0.05 * 16;
+      var tipY = -0.42 * 16 - 6;
+      FX.shieldHit('demon', tipX + 48, tipY - 6);
+      FX.shieldHit('demon', tipX - 36, tipY + 20);
+      FX.shieldHit('demon', tipX + 10, tipY - 50);
+      age(0.05);
+      draw();
+    };
+
+    window.shotShieldBreak = function () {
+      boot();
+      props.push({ kind: 'foe', x: 0.05, y: -0.42, color: '#7f8ea0' });
+      FX.shield('demon', 0.05 * 16, -0.42 * 16 - 6, 22, 4000);
+      FX.shieldBreak('demon');
+      age(0.09);
+      draw();
+    };
+
+    window.shotSpawnCrowd = function () {
+      boot();
+      for (var i = 0; i < 16; i++) {
+        var ang = (i / 16) * 6.283185307179586;
+        var rad = 0.85 + (i % 3) * 0.38;
+        var tx = Math.cos(ang) * rad;
+        var ty = Math.sin(ang) * rad * 0.72;
+        props.push({ kind: 'pad', x: tx, y: ty });
+        FX.spawn(tx * 16, ty * 16);
+      }
+      age(0.1);
+      draw();
+    };
+
+    window.runShieldBench = function (ms) {
+      boot();
+      draw();
+      FX.shield('demon', 0, -8, 26, 60000);
+      return new Promise(function (resolve) {
+        var t0 = performance.now();
+        var last = t0;
+        var frames = 0;
+        var sum = 0;
+        var minF = 1e9;
+        var slow = 0;
+        var seed = 11;
+        function rand() {
+          seed = (seed * 1664525 + 1013904223) >>> 0;
+          return seed / 4294967296;
+        }
+        function frame(now) {
+          var dtMs = now - last;
+          last = now;
+          var dt = dtMs / 1000;
+          if (dt > 0.05) dt = 0.05;
+          if (dt < 0) dt = 0;
+          var kills = Math.max(1, Math.round(dt * 25));
+          var hits = Math.max(1, Math.round(dt * 30));
+          var pops = Math.max(1, Math.round(dt * 20));
+          for (var k = 0; k < kills; k++) {
+            FX.kill(rand() * 5 - 2.5, rand() * 3 - 1, 'skel', { frame: FRAME, color: '#8a6cff' });
+          }
+          for (var h = 0; h < hits; h++) {
+            FX.shieldHit('demon', (rand() - 0.5) * 80, -8 + (rand() - 0.5) * 80);
+          }
+          for (var p = 0; p < pops; p++) {
+            FX.spawn((rand() - 0.5) * 180, (rand() - 0.5) * 140);
           }
           FX.update(dt);
           draw();

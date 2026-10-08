@@ -26,6 +26,11 @@
  * ring stay in art px. A numeric opts.radius, opts.r, or opts.size is a radius
  * in tiles. It uses its own 32-slot table, never the particle pool, and never a
  * white flash. opts.boss enlarges the default ring.
+ * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
+ * Shield radius is in tiles. Line width and pixel snap stay in art px.
+ * Its bubble, chevrons, and arrival puffs sit on fixed tables. Only a shield
+ * break's shards use the particle pool, and its one white flash shares the
+ * 3-per-0.1s death window.
  */
 const FX = (function () {
   'use strict';
@@ -46,6 +51,13 @@ const FX = (function () {
   const BEAM_CSS_PER_ART = 2;
   const TEL_N = 32;
   const TEL_DRAW = 24;
+  const SH_N = 8;
+  const CH_PER = 6;
+  const CH_N = SH_N * CH_PER;
+  const SP_N = 32;
+  const SP_DRAW = 24;
+  const BR_N = 8;
+  const SPAWN_MS = 220;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
@@ -161,6 +173,63 @@ const FX = (function () {
     t.rad = 0;
   }
   let telGen = 0;
+
+  const shields = new Array(SH_N);
+  const shEdge = new Array(CH_N);
+  for (let i = 0; i < SH_N; i++) {
+    const s = shields[i] = { on: 0, id: null, x: 0.5, y: 0.5, r: 0.5, age: 0.5, dur: 0.5 };
+    s.x = 0;
+    s.y = 0;
+    s.r = 16;
+    s.age = 0;
+    s.dur = 1;
+  }
+  for (let i = 0; i < CH_N; i++) shEdge[i] = 0;
+
+  const chevs = new Array(CH_N);
+  for (let i = 0; i < CH_N; i++) {
+    const c = chevs[i] = { on: 0, age: 0.5, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5, px: 0.5, py: 0.5 };
+    c.age = 0;
+    c.x = 0;
+    c.y = 0;
+    c.nx = 1;
+    c.ny = 0;
+    c.px = 0;
+    c.py = 1;
+  }
+
+  const spawns = new Array(SP_N);
+  for (let i = 0; i < SP_N; i++) {
+    const s = spawns[i] = { on: 0, x: 0.5, y: 0.5, age: 0.5, mark: 0 };
+    s.x = 0;
+    s.y = 0;
+    s.age = 0;
+  }
+  let spGen = 0;
+
+  const breaks = new Array(BR_N);
+  for (let i = 0; i < BR_N; i++) {
+    const b = breaks[i] = { on: 0, x: 0.5, y: 0.5, r: 0.5, age: 0.5, flash: 0 };
+    b.x = 0;
+    b.y = 0;
+    b.r = 0;
+    b.age = 0;
+  }
+
+  const hexUx = new Array(6);
+  const hexUy = new Array(6);
+  const hexVX = new Array(6);
+  const hexVY = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    const a = -1.5707963267948966 + (i / 6) * TAU;
+    hexUx[i] = Math.cos(a);
+    hexUy[i] = Math.sin(a);
+    hexVX[i] = 0;
+    hexVY[i] = 0;
+  }
+  let shieldTone = 0;
+  let shQx = 0;
+  let shQy = 0;
 
   const shakeOut = { x: 0.5, y: 0.5 };
   shakeOut.x = 0;
@@ -454,6 +523,7 @@ const FX = (function () {
     tintCursor = (tintCursor + 1) % TINT_N;
     return id;
   }
+  shieldTone = colorTone('#9fb4c8');
 
   function noteKill() {
     killStamp[killSlot] = clock;
@@ -1082,6 +1152,430 @@ const FX = (function () {
     }
   }
 
+  function plotArt(ctx, sx, sy, ix, iy, zoom, cell, half) {
+    ctx.fillRect(Math.round(sx + ix * zoom) - half, Math.round(sy + iy * zoom) - half, cell, cell);
+  }
+
+  function artLine(ctx, sx, sy, x0, y0, x1, y1, zoom, cell, half, color) {
+    ctx.fillStyle = color;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const adx = dx < 0 ? -dx : dx;
+    const ady = dy < 0 ? -dy : dy;
+    const steps = adx > ady ? adx : ady;
+    if (!(steps > 0)) {
+      plotArt(ctx, sx, sy, x0, y0, zoom, cell, half);
+      return;
+    }
+    const inv = 1 / steps;
+    for (let i = 0; i <= steps; i++) {
+      const t = i * inv;
+      plotArt(ctx, sx, sy, Math.round(x0 + dx * t), Math.round(y0 + dy * t), zoom, cell, half);
+    }
+  }
+
+  function layHex(rot, r) {
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    for (let i = 0; i < 6; i++) {
+      const bx = hexUx[i] * r;
+      const by = hexUy[i] * r;
+      hexVX[i] = Math.round(bx * c - by * s);
+      hexVY[i] = Math.round(bx * s + by * c);
+    }
+  }
+
+  function shieldSpin() {
+    if (reducedNow()) return 0;
+    return clock * 0.25 * TAU;
+  }
+
+  function clearChevrons(slot) {
+    const base = slot * CH_PER;
+    for (let k = 0; k < CH_PER; k++) chevs[base + k].on = 0;
+  }
+
+  function clearEdges(slot) {
+    const base = slot * CH_PER;
+    for (let k = 0; k < CH_PER; k++) shEdge[base + k] = 0;
+  }
+
+  function shieldFar() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const hx = w * 0.5;
+    const hy = h * 0.5;
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < SH_N; i++) {
+      const s = shields[i];
+      const dx = s.x * zoom + lastCamX - hx;
+      const dy = s.y * zoom + lastCamY - hy;
+      const d = dx * dx + dy * dy;
+      if (d > bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  function findShield(id) {
+    for (let i = 0; i < SH_N; i++) {
+      if (shields[i].on && shields[i].id === id) return i;
+    }
+    return -1;
+  }
+
+  function shieldOn(id, x, y, r, ms) {
+    if (!ok(x) || !ok(y) || !(r > 0)) return;
+    let dur = 1;
+    if (ok(ms) && ms > 0) dur = ms * 0.001;
+    let idx = findShield(id);
+    if (idx < 0) {
+      for (let i = 0; i < SH_N; i++) {
+        if (!shields[i].on) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) idx = shieldFar();
+    else if (!shields[idx].on) clearChevrons(idx);
+    if (!shields[idx].on || shields[idx].id !== id) {
+      clearChevrons(idx);
+      clearEdges(idx);
+    }
+    const s = shields[idx];
+    s.on = 1;
+    s.id = id;
+    s.x = x;
+    s.y = y;
+    s.r = r;
+    s.age = 0;
+    s.dur = dur;
+    clearEdges(idx);
+  }
+
+  function shieldClear(id) {
+    const idx = findShield(id);
+    if (idx < 0) return;
+    shields[idx].on = 0;
+    clearEdges(idx);
+    clearChevrons(idx);
+  }
+
+  function shieldNearest(dx, dy) {
+    let bestD = 1e18;
+    let bestE = 0;
+    let bestX = 0;
+    let bestY = 0;
+    for (let i = 0; i < 6; i++) {
+      const j = i === 5 ? 0 : i + 1;
+      const ax = hexVX[i];
+      const ay = hexVY[i];
+      const abx = hexVX[j] - ax;
+      const aby = hexVY[j] - ay;
+      const ab2 = abx * abx + aby * aby;
+      let t = 0;
+      if (ab2 > 0) t = ((dx - ax) * abx + (dy - ay) * aby) / ab2;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      const qx = ax + abx * t;
+      const qy = ay + aby * t;
+      const ex = dx - qx;
+      const ey = dy - qy;
+      const d = ex * ex + ey * ey;
+      if (d < bestD) {
+        bestD = d;
+        bestE = i;
+        bestX = qx;
+        bestY = qy;
+      }
+    }
+    shQx = bestX;
+    shQy = bestY;
+    return bestE;
+  }
+
+  function shieldHit(id, x, y) {
+    const idx = findShield(id);
+    if (idx < 0 || !ok(x) || !ok(y)) return;
+    const s = shields[idx];
+    layHex(shieldSpin(), s.r);
+    const edge = shieldNearest(x - s.x, y - s.y);
+    const base = idx * CH_PER;
+    let slot = -1;
+    for (let k = 0; k < CH_PER; k++) {
+      if (!chevs[base + k].on) {
+        slot = base + k;
+        break;
+      }
+    }
+    shEdge[base + edge] = 0.08;
+    if (slot < 0) return;
+    let nx = shQx;
+    let ny = shQy;
+    let len = Math.sqrt(nx * nx + ny * ny);
+    if (!(len > 0.001)) {
+      nx = 1;
+      ny = 0;
+      len = 1;
+    }
+    nx /= len;
+    ny /= len;
+    const ch = chevs[slot];
+    ch.on = 1;
+    ch.age = 0;
+    ch.x = s.x + shQx;
+    ch.y = s.y + shQy;
+    ch.nx = nx;
+    ch.ny = ny;
+    ch.px = -ny;
+    ch.py = nx;
+  }
+
+  function takeBreak() {
+    let best = 0;
+    let bestAge = -1;
+    for (let i = 0; i < BR_N; i++) {
+      if (!breaks[i].on) return breaks[i];
+      if (breaks[i].age > bestAge) {
+        bestAge = breaks[i].age;
+        best = i;
+      }
+    }
+    return breaks[best];
+  }
+
+  function shatterShards(x, y, r) {
+    const frame = framePx();
+    for (let i = 0; i < 12; i++) {
+      const p = takePart();
+      const a = (i / 12) * TAU;
+      const artX = x + Math.cos(a) * r;
+      const artY = y + Math.sin(a) * r;
+      p.life = 0.18;
+      p.max = 0.18;
+      p.x = artX / frame;
+      p.y = artY / frame;
+      p.vx = Math.cos(a) * 4;
+      p.vy = Math.sin(a) * 4;
+      p.w = 2;
+      p.h = 2;
+      p.tone = (i & 1) ? 0 : shieldTone;
+      p.peak = 1;
+      p.art = 1;
+      p.grav = 0;
+      p.screen = 0;
+    }
+  }
+
+  function shieldBreak(id) {
+    const idx = findShield(id);
+    if (idx < 0) return;
+    const s = shields[idx];
+    const x = s.x;
+    const y = s.y;
+    const r = s.r;
+    s.on = 0;
+    clearEdges(idx);
+    clearChevrons(idx);
+    const calm = reducedNow();
+    if (!calm) shatterShards(x, y, r);
+    const b = takeBreak();
+    b.on = 1;
+    b.x = x;
+    b.y = y;
+    b.r = r;
+    b.age = 0;
+    b.flash = 0;
+    if (!calm && deathWindowOpen()) {
+      commitDeathWindow();
+      b.flash = 1;
+    }
+  }
+
+  function spawnFar() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const hx = w * 0.5;
+    const hy = h * 0.5;
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < SP_N; i++) {
+      const s = spawns[i];
+      const dx = s.x * zoom + lastCamX - hx;
+      const dy = s.y * zoom + lastCamY - hy;
+      const d = dx * dx + dy * dy;
+      if (d > bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return spawns[best];
+  }
+
+  function spawnOn(x, y) {
+    if (!ok(x) || !ok(y)) return;
+    let slot = null;
+    for (let i = 0; i < SP_N; i++) {
+      if (!spawns[i].on) {
+        slot = spawns[i];
+        break;
+      }
+    }
+    if (!slot) slot = spawnFar();
+    slot.on = 1;
+    slot.x = x;
+    slot.y = y;
+    slot.age = 0;
+  }
+
+  function paintChevron(ctx, ch, zoom, camX, camY, cell, half) {
+    const u = ch.age / 0.16;
+    let fade = 1 - u;
+    if (fade < 0) fade = 0;
+    if (fade <= 0.02) return;
+    const dist = u * 4;
+    const px = ch.x + ch.nx * dist;
+    const py = ch.y + ch.ny * dist;
+    const sx = px * zoom + camX;
+    const sy = py * zoom + camY;
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#ffffff';
+    plotArt(ctx, sx, sy, Math.round(ch.nx), Math.round(ch.ny), zoom, cell, half);
+    plotArt(ctx, sx, sy, Math.round(-ch.nx + ch.px), Math.round(-ch.ny + ch.py), zoom, cell, half);
+    plotArt(ctx, sx, sy, Math.round(-ch.nx - ch.px), Math.round(-ch.ny - ch.py), zoom, cell, half);
+  }
+
+  function paintShield(ctx, s, idx, zoom, camX, camY, calm) {
+    const sx = s.x * zoom + camX;
+    const sy = s.y * zoom + camY;
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    layHex(shieldSpin(), s.r);
+    ctx.globalAlpha = 1;
+    const base = idx * CH_PER;
+    for (let i = 0; i < 6; i++) {
+      const j = i === 5 ? 0 : i + 1;
+      const color = shEdge[base + i] > 0 ? '#ffffff' : '#9fb4c8';
+      artLine(ctx, sx, sy, hexVX[i], hexVY[i], hexVX[j], hexVY[j], zoom, cell, half, color);
+    }
+    const inner = Math.round(s.r - 2);
+    if (inner >= 2) {
+      ctx.globalAlpha = 0.35;
+      paintPixelRing(ctx, sx, sy, inner, zoom, '#9fb4c8', 0);
+      ctx.globalAlpha = 1;
+    }
+    if (!calm) {
+      let turns = clock;
+      let u = turns - Math.floor(turns);
+      if (u < 0) u += 1;
+      const along = u * 6;
+      let e = along | 0;
+      if (e < 0) e = 0;
+      if (e > 5) e = 5;
+      const t = along - e;
+      const j = e === 5 ? 0 : e + 1;
+      const gx = hexVX[e] + (hexVX[j] - hexVX[e]) * t;
+      const gy = hexVY[e] + (hexVY[j] - hexVY[e]) * t;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      plotArt(ctx, sx, sy, Math.round(gx), Math.round(gy), zoom, cell, half);
+    }
+    for (let k = 0; k < CH_PER; k++) {
+      const ch = chevs[base + k];
+      if (ch.on) paintChevron(ctx, ch, zoom, camX, camY, cell, half);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function paintShields(ctx, zoom, camX, camY, calm) {
+    for (let i = 0; i < SH_N; i++) {
+      if (shields[i].on) paintShield(ctx, shields[i], i, zoom, camX, camY, calm);
+    }
+    for (let i = 0; i < BR_N; i++) {
+      const b = breaks[i];
+      if (!b.on) continue;
+      const sx = b.x * zoom + camX;
+      const sy = b.y * zoom + camY;
+      let u = b.age / 0.18;
+      if (u < 0) u = 0;
+      if (u > 1) u = 1;
+      const rad = Math.round(b.r + 8 * u);
+      ctx.globalAlpha = 1;
+      if (rad >= 1) paintPixelRing(ctx, sx, sy, rad, zoom, '#9fb4c8', 0);
+      if (b.flash && b.age < 0.012) {
+        const cell = telCell(zoom);
+        const half = cell >> 1;
+        layHex(shieldSpin(), b.r);
+        ctx.globalAlpha = 0.6;
+        for (let e = 0; e < 6; e++) {
+          const j = e === 5 ? 0 : e + 1;
+          artLine(ctx, sx, sy, hexVX[e], hexVY[e], hexVX[j], hexVY[j], zoom, cell, half, '#ffffff');
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  function paintSpawnOne(ctx, s, zoom, camX, camY, calm) {
+    const sx = s.x * zoom + camX;
+    const sy = s.y * zoom + camY;
+    ctx.globalAlpha = 1;
+    if (calm) {
+      paintPixelRing(ctx, sx, sy, 6, zoom, '#26252b', 0);
+      return;
+    }
+    let u = s.age / (SPAWN_MS * 0.001);
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const rad = 3 + 6 * u;
+    const ri = Math.round(rad);
+    if (ri >= 1) paintPixelRing(ctx, sx, sy, ri, zoom, '#26252b', 0);
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    ctx.fillStyle = '#141318';
+    for (let k = 0; k < 4; k++) {
+      const a = k * 1.5707963267948966;
+      plotArt(ctx, sx, sy, Math.round(Math.cos(a) * rad), Math.round(Math.sin(a) * rad), zoom, cell, half);
+    }
+  }
+
+  function paintSpawns(ctx, zoom, camX, camY, viewW, viewH, calm) {
+    spGen += 1;
+    if (spGen > 1000000000) {
+      spGen = 1;
+      for (let i = 0; i < SP_N; i++) spawns[i].mark = 0;
+    }
+    let active = 0;
+    for (let i = 0; i < SP_N; i++) if (spawns[i].on) active += 1;
+    const limit = active > SP_DRAW ? SP_DRAW : active;
+    const hx = viewW * 0.5;
+    const hy = viewH * 0.5;
+    for (let n = 0; n < limit; n++) {
+      let best = -1;
+      let bestD = 0;
+      for (let i = 0; i < SP_N; i++) {
+        const s = spawns[i];
+        if (!s.on || s.mark === spGen) continue;
+        const dx = s.x * zoom + camX - hx;
+        const dy = s.y * zoom + camY - hy;
+        const d = dx * dx + dy * dy;
+        if (best < 0 || d < bestD) {
+          best = i;
+          bestD = d;
+        }
+      }
+      if (best < 0) break;
+      spawns[best].mark = spGen;
+      paintSpawnOne(ctx, spawns[best], zoom, camX, camY, calm);
+    }
+  }
+
   function step(dt) {
     if (!(dt > 0)) return;
     frameTick += 1;
@@ -1152,6 +1646,41 @@ const FX = (function () {
       if (!t.on) continue;
       t.age += dt;
       if (t.age >= t.dur) t.on = 0;
+    }
+    for (let i = 0; i < SH_N; i++) {
+      const s = shields[i];
+      if (!s.on) continue;
+      s.age += dt;
+      const base = i * CH_PER;
+      for (let k = 0; k < CH_PER; k++) {
+        if (shEdge[base + k] > 0) {
+          shEdge[base + k] -= dt;
+          if (shEdge[base + k] < 0) shEdge[base + k] = 0;
+        }
+      }
+      if (s.age >= s.dur) {
+        s.on = 0;
+        clearEdges(i);
+        clearChevrons(i);
+      }
+    }
+    for (let i = 0; i < CH_N; i++) {
+      const c = chevs[i];
+      if (!c.on) continue;
+      c.age += dt;
+      if (c.age >= 0.16) c.on = 0;
+    }
+    for (let i = 0; i < SP_N; i++) {
+      const s = spawns[i];
+      if (!s.on) continue;
+      s.age += dt;
+      if (s.age >= SPAWN_MS * 0.001) s.on = 0;
+    }
+    for (let i = 0; i < BR_N; i++) {
+      const b = breaks[i];
+      if (!b.on) continue;
+      b.age += dt;
+      if (b.age >= 0.18) b.on = 0;
     }
   }
 
@@ -1589,6 +2118,8 @@ const FX = (function () {
     if (!skipBeams) paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintTels(ctx, zoom, camX, camY, viewW, viewH, calm);
+    paintSpawns(ctx, zoom, camX, camY, viewW, viewH, calm);
+    paintShields(ctx, zoom, camX, camY, calm);
 
     if (flashLeft > 0) {
       let a = 0.6 * (flashLeft / FLASH_LIFE);
@@ -1737,6 +2268,13 @@ const FX = (function () {
       for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
       for (let i = 0; i < TEL_N; i++) tels[i].on = 0;
+      for (let i = 0; i < SH_N; i++) {
+        shields[i].on = 0;
+        clearEdges(i);
+        clearChevrons(i);
+      }
+      for (let i = 0; i < SP_N; i++) spawns[i].on = 0;
+      for (let i = 0; i < BR_N; i++) breaks[i].on = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
@@ -1826,6 +2364,26 @@ const FX = (function () {
 
     telegraphOff: function (id) {
       telegraphClear(id);
+    },
+
+    shield: function (id, x, y, r, ms) {
+      shieldOn(id, x, y, r, ms);
+    },
+
+    shieldOff: function (id) {
+      shieldClear(id);
+    },
+
+    shieldHit: function (id, x, y) {
+      shieldHit(id, x, y);
+    },
+
+    shieldBreak: function (id) {
+      shieldBreak(id);
+    },
+
+    spawn: function (x, y) {
+      spawnOn(x, y);
     },
 
     shakeOffset: function () {

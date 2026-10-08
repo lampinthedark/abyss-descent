@@ -716,6 +716,235 @@ check('telegraphs do not change the particle count', telMonsters.live === bareMo
 check('telegraphs do not change the flash count', telMonsters.flash === bareMonsters.flash);
 check('telegraph frames draw no text', telMonsters.text === 0 && textCalls === 0);
 
+function countStyle(color, alpha) {
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color) continue;
+    if (alpha == null || Math.abs(c[2] - alpha) < 0.001) n += 1;
+  }
+  return n;
+}
+
+function centroidX(color) {
+  let sx = 0;
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color || Math.abs(c[2] - 1) > 0.001) continue;
+    sx += c[3] + c[5] * 0.5;
+    n += 1;
+  }
+  return n ? sx / n : 0;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.shield('bubble', 0, 0, 20, 2000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const idleSteel = countStyle('#9fb4c8', 1);
+const idleInner = countStyle('#9fb4c8', 0.35);
+const idleWhite = countStyle('#ffffff', 1);
+check('shield draws a steel hex', idleSteel > 40);
+check('shield inner ring is 35% steel', idleInner > 20);
+check('shield glint is one white dot', idleWhite === 1);
+const idleSnap = calls.map(function (c) { return c.join(','); }).join('|');
+advance(0.4);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spun = calls.map(function (c) { return c.join(','); }).join('|');
+check('shield hex rotates', spun !== idleSnap && countStyle('#ffffff', 1) === 1);
+
+FX.shield('bubble', 40, 0, 20, 500);
+advance(0.4);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('same id restarts the shield', countStyle('#9fb4c8', 1) > 40);
+check('restarted shield sits on the new point', Math.abs(centroidX('#9fb4c8') - (40 * 3 + 195)) < 12);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('restarted shield expires on its new duration', countStyle('#9fb4c8', 1) === 0);
+
+FX.shield('gone', 0, 0, 18, 2000);
+FX.shieldOff('gone');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shieldOff removes the bubble', countStyle('#9fb4c8', null) === 0);
+
+FX.shield('brief', 0, 0, 18, 200);
+advance(0.1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shield stays up inside its duration', countStyle('#9fb4c8', 1) > 20);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shield expires after ms', countStyle('#9fb4c8', null) === 0);
+
+function chevronWhites(n) {
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(ctx, cam);
+  FX.shield('hit', 0, 0, 20, 3000);
+  for (let i = 0; i < n; i++) FX.shieldHit('hit', 80, 0);
+  advance(0.12);
+  calls.length = 0;
+  FX.draw(ctx, cam);
+  return countStyle('#ffffff', null);
+}
+const sixHits = chevronWhites(6);
+const sevenHits = chevronWhites(7);
+console.log('chevron whites', sixHits, sevenHits);
+check('six hits leave six chevrons', sixHits === 19);
+check('a seventh hit is dropped', sevenHits === sixHits);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.shield('still', 0, 0, 20, 2000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const stillShield = calls.map(function (c) { return c.join(','); }).join('|');
+check('reduced motion shield has no glint', countStyle('#ffffff', null) === 0);
+check('reduced motion shield keeps the hex', countStyle('#9fb4c8', 1) > 20);
+advance(0.3);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion shield does not rotate', calls.map(function (c) { return c.join(','); }).join('|') === stillShield);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+const liveBefore = (FX.update(0.001), FX._live());
+FX.shield('pop', 0, 0, 18, 2000);
+FX.shieldBreak('pop');
+calls.length = 0;
+textCalls = 0;
+FX.draw(ctx, cam);
+check('shield break flashes white at 60%', countStyle('#ffffff', 0.6) > 20);
+check('shield break draws no text', textCalls === 0);
+FX.update(0.001);
+const shardLive = FX._live();
+console.log('break shards', shardLive);
+check('shield break shards use the particle pool', shardLive === liveBefore + 12);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('break ring is steel', countStyle('#9fb4c8', 1) > 10);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.update(0.001);
+const calmLive = FX._live();
+FX.shield('calm', 0, 0, 18, 2000);
+FX.shieldBreak('calm');
+calls.length = 0;
+FX.draw(ctx, cam);
+FX.update(0.001);
+check('reduced motion break is a ring only', countStyle('#9fb4c8', 1) > 10 && countStyle('#ffffff', 0.6) === 0);
+check('reduced motion break adds no shards', FX._live() === calmLive);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+const seenBreak = [];
+for (let i = 0; i < 4; i++) {
+  FX.shield('b' + i, i * 70, 0, 16, 2000);
+  FX.shieldBreak('b' + i);
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff' || Math.abs(c[2] - 0.6) > 0.001) continue;
+  const px = c[3] + c[5] * 0.5;
+  let nearest = 0;
+  let best = 1e9;
+  for (let s = 0; s < 4; s++) {
+    const cx = s * 70 * 3 + 195;
+    const d = px > cx ? px - cx : cx - px;
+    if (d < best) {
+      best = d;
+      nearest = s;
+    }
+  }
+  let known = false;
+  for (let k = 0; k < seenBreak.length; k++) if (seenBreak[k] === nearest) known = true;
+  if (!known) seenBreak.push(nearest);
+}
+console.log('instant break flashes', seenBreak.length);
+check('break flash budget is 3 per instant', seenBreak.length === 3);
+
+const breakTimes = [];
+let breakClock = 0;
+let breakLiveMax = 0;
+FX.reset();
+FX.setReducedMotion(false);
+for (let i = 0; i < 50; i++) {
+  FX.kill((i % 8) * 0.4, (i % 5) * 0.3, 'skel', vis);
+  FX.shield('wave', 0, 0, 18, 2000);
+  FX.shieldBreak('wave');
+  calls.length = 0;
+  FX.draw(ctx, cam);
+  let flashes = sils().n;
+  if (countStyle('#ffffff', 0.6) > 0) flashes += 1;
+  for (let k = 0; k < flashes; k++) breakTimes.push(breakClock);
+  FX.update(0.04);
+  if (FX._live() > breakLiveMax) breakLiveMax = FX._live();
+  breakClock += 0.04;
+}
+let breakPeak = 0;
+for (let i = 0; i < breakTimes.length; i++) {
+  let c = 1;
+  for (let j = i + 1; j < breakTimes.length && breakTimes[j] - breakTimes[i] < 0.1; j++) c += 1;
+  if (c > breakPeak) breakPeak = c;
+}
+console.log('flash peak with breaks at 25 kills/s', breakPeak, 'particles', breakLiveMax);
+check('breaks keep the 0.1s flash cap', breakPeak <= 3);
+check('breaks stay inside the particle cap', breakLiveMax <= 200);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.spawn(0, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const oneSpawn = countStyle('#26252b', null);
+check('spawn draws a dark ring', oneSpawn > 8);
+advance(0.11);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('spawn ring grows', countStyle('#26252b', null) > oneSpawn);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('spawn expires after 220ms', countStyle('#26252b', null) === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+for (let i = 0; i < 40; i++) FX.spawn((i - 20) * 80, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const capped = countStyle('#26252b', null);
+console.log('spawn draw cap rings', oneSpawn ? (capped / oneSpawn) : 0);
+check('spawns draw the nearest 24', oneSpawn > 0 && capped === oneSpawn * 24);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.spawn(0, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spawnStill = calls.map(function (c) { return c.join(','); }).join('|');
+check('reduced motion spawn is a ring', countStyle('#26252b', null) > 8);
+advance(0.1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion spawn does not expand', calls.map(function (c) { return c.join(','); }).join('|') === spawnStill);
+
 function quietCtx() {
   return {
     canvas: { width: 390, height: 844 },
@@ -749,6 +978,11 @@ if (typeof global.gc === 'function') {
     FX.draw(quiet, cam);
   }
   global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
   const before = process.memoryUsage().heapUsed;
   for (let i = 0; i < 120; i++) {
     FX.update(0.016);
@@ -759,6 +993,44 @@ if (typeof global.gc === 'function') {
   const per = (after - before) / 120;
   console.log('telegraph heap bytes/frame', per.toFixed(2));
   check('zero allocations per telegraph frame', per < 16);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  FX.shield('s', 0, 0, 22, 20000);
+  for (let i = 0; i < 8; i++) FX.spawn((i - 4) * 20, 8);
+  for (let i = 0; i < 160; i++) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 14, (i % 3) * 10);
+      FX.shieldHit('s', 40, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 14, (i % 3) * 10);
+      FX.shieldHit('s', 40, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const shieldBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 14, (i % 3) * 10);
+      FX.shieldHit('s', 40, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const shieldAfter = process.memoryUsage().heapUsed;
+  const shieldPer = (shieldAfter - shieldBefore) / 120;
+  console.log('shield heap bytes/frame', shieldPer.toFixed(2));
+  check('zero allocations per shield frame', shieldPer < 16);
 } else {
   console.log('skip alloc check (run with node --expose-gc)');
 }
