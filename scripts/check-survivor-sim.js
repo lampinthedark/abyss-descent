@@ -38,6 +38,7 @@ function memoryStorage() {
 
 function fakeDocument() {
   const ctx = fakeCtx();
+  const listeners = Object.create(null);
   function el() {
     return {
       classList: {
@@ -65,8 +66,19 @@ function fakeDocument() {
     };
   }
   return {
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      if (!listeners[type]) listeners[type] = [];
+      listeners[type].push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = listeners[type] || [];
+      const at = list.indexOf(fn);
+      if (at >= 0) list.splice(at, 1);
+    },
+    dispatchEvent(ev) {
+      const list = (listeners[ev && ev.type] || []).slice();
+      for (let i = 0; i < list.length; i++) list[i](ev);
+    },
     visibilityState: 'visible',
     documentElement: { classList: { add() {} } },
     body: { classList: { add() {}, remove() {} } },
@@ -290,6 +302,199 @@ function rarePull() {
   }
   if (!common.__svGround().length) fail('common inside 3 tiles was pulled');
   console.log('rare+ pulls from 3 tiles and flies home after 10s');
+}
+
+function groundRow(game, id) {
+  const rows = game.__svGround();
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i];
+  return null;
+}
+
+function bagHits(game, id) {
+  let n = 0;
+  game.__svBag().forEach((it) => { if (it.id === id) n += 1; });
+  return n;
+}
+
+function stepLive(game, dt) {
+  let snap = game.__svStep(dt == null ? 0.05 : dt);
+  if (snap.state === 'levelup') snap = game.__svDismiss();
+  if (snap.state === 'hermit') snap = game.__svDecline();
+  return snap;
+}
+
+function quietArena(game) {
+  game.__svStart();
+  game.__svLock();
+  game.__svQuiet();
+  game.__svInvuln(30);
+}
+
+function rareTimerPauses() {
+  const level = boot(1, '?headless=1&debug=1');
+  quietArena(level);
+  const levelId = level.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 40; i++) stepLive(level);
+  level.__svOpenLevel();
+  const frozen = groundRow(level, levelId);
+  if (!frozen) fail('level-up lost the rare');
+  for (let i = 0; i < 40; i++) level.__svStep(0.05);
+  const held = groundRow(level, levelId);
+  if (!held || Math.abs(held.age - frozen.age) > 0.001) fail('level-up advanced the ground timer ' + (held && held.age) + ' from ' + frozen.age);
+  level.__svDismiss();
+  stepLive(level);
+  const resumed = groundRow(level, levelId);
+  if (!resumed || resumed.age <= frozen.age) fail('level-up did not resume game time');
+
+  const pause = boot(2, '?headless=1&debug=1');
+  quietArena(pause);
+  const pauseId = pause.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 30; i++) stepLive(pause);
+  pause.__svPause();
+  const pausedAge = groundRow(pause, pauseId).age;
+  for (let i = 0; i < 30; i++) pause.__svStep(0.05);
+  const stillPaused = groundRow(pause, pauseId);
+  if (!stillPaused || Math.abs(stillPaused.age - pausedAge) > 0.001) fail('pause menu advanced the ground timer');
+  if (pause.__svSnap().state !== 'paused') fail('pause menu left ' + pause.__svSnap().state);
+  pause.__svResume();
+  stepLive(pause);
+  if (groundRow(pause, pauseId).age <= pausedAge) fail('resume did not advance the ground timer');
+
+  const slow = boot(3, '?headless=1&debug=1');
+  quietArena(slow);
+  slow.__svSetTime(1);
+  const slowId = slow.__svSeedItem('rare', 8, 0);
+  const armed = slow.__svForceEvos();
+  if (!(armed.evoSlow > 0)) fail('evolution slow-mo did not arm ' + armed.evoSlow);
+  const slowAge = groundRow(slow, slowId).age;
+  const wall = 10 * 0.05;
+  for (let i = 0; i < 10; i++) stepLive(slow);
+  const scaled = groundRow(slow, slowId).age - slowAge;
+  if (scaled >= wall * 0.6) fail('evolution slow-mo did not scale the ground timer ' + scaled.toFixed(3));
+  if (scaled <= wall * 0.15) fail('evolution slow-mo froze the ground timer ' + scaled.toFixed(3));
+
+  const back = boot(4, '?headless=1&debug=1');
+  quietArena(back);
+  const backId = back.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 20; i++) stepLive(back);
+  const backAge = groundRow(back, backId).age;
+  back.document.visibilityState = 'hidden';
+  back.document.dispatchEvent({ type: 'visibilitychange' });
+  if (back.__svSnap().state !== 'paused') fail('visibilitychange did not pause');
+  for (let i = 0; i < 20; i++) back.__svStep(0.05);
+  const hidden = groundRow(back, backId);
+  if (!hidden || Math.abs(hidden.age - backAge) > 0.001) fail('background advanced the ground timer');
+  back.document.visibilityState = 'visible';
+  back.document.dispatchEvent({ type: 'visibilitychange' });
+  if (back.__svSnap().state !== 'playing') fail('foreground stayed ' + back.__svSnap().state);
+  stepLive(back);
+  if (groundRow(back, backId).age <= backAge) fail('foreground did not resume the ground timer');
+  console.log('rare ground timer follows game time (level-up, pause, slow-mo, background)');
+}
+
+function rareFlightSpeed() {
+  const game = boot(5, '?headless=1&debug=1');
+  quietArena(game);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  let flyAt = null;
+  let landed = null;
+  for (let i = 0; i < 20; i++) {
+    const snap = stepLive(game);
+    const row = groundRow(game, id);
+    if (row && row.pull && flyAt == null) flyAt = snap.time - row.pullT;
+    if (!row) { landed = snap.time; break; }
+  }
+  if (flyAt == null || landed == null) fail('3-tile rare did not fly home');
+  const flight = landed - flyAt;
+  if (flight > 0.5) fail('3-tile flight ' + flight.toFixed(3) + 's');
+  if (flight < 0.2) fail('3-tile flight skipped the dash ' + flight.toFixed(3) + 's');
+  if (bagHits(game, id) !== 1) fail('3-tile rare banked ' + bagHits(game, id));
+
+  const far = boot(6, '?headless=1&debug=1');
+  quietArena(far);
+  const farId = far.__svSeedItem('rare', 6, 0);
+  let age = 0;
+  for (let i = 0; i < 220; i++) {
+    const snap = stepLive(far);
+    const row = groundRow(far, farId);
+    if (row) age = row.age;
+    if (row && age >= 9.5 && age < 10 && row.pull) fail('far rare flew before 10s at age ' + age);
+    if (row && age >= 9.5 && age < 10) break;
+    if (!row) fail('far rare left the ground at age ' + age);
+  }
+  const waiting = groundRow(far, farId);
+  if (!waiting || waiting.pull) fail('far rare was not waiting at ' + (waiting && waiting.age));
+  let farFly = null;
+  let farLand = null;
+  for (let i = 0; i < 30; i++) {
+    const snap = stepLive(far);
+    const row = groundRow(far, farId);
+    if (row && row.pull && farFly == null) farFly = snap.time - row.pullT;
+    if (!row) { farLand = snap.time; break; }
+  }
+  if (farFly == null || farLand == null) fail('10s rare did not dash');
+  const farFlight = farLand - farFly;
+  if (farFlight > 0.5) fail('10s flight ' + farFlight.toFixed(3) + 's');
+  if (bagHits(far, farId) !== 1) fail('10s rare banked ' + bagHits(far, farId));
+  console.log('rare flight ' + flight.toFixed(2) + 's within 3 tiles, ' + farFlight.toFixed(2) + 's after 10s');
+}
+
+function rareFlightBank() {
+  const dead = boot(7, '?headless=1&debug=1');
+  quietArena(dead);
+  dead.__svInvuln(0);
+  const deadId = dead.__svSeedItem('rare', 2.4, 0);
+  stepLive(dead);
+  const mid = groundRow(dead, deadId);
+  if (!mid || !mid.pull || mid.pullT >= 0.4) fail('death setup was not mid-flight ' + JSON.stringify(mid));
+  if (bagHits(dead, deadId) !== 0) fail('death setup banked early');
+  const fell = dead.__svHurt(9999);
+  if (fell.state !== 'dead') fail('mid-flight hurt left ' + fell.state);
+  if (bagHits(dead, deadId) !== 1) fail('death banked ' + bagHits(dead, deadId));
+  for (let i = 0; i < 8; i++) dead.__svStep(0.05);
+  if (bagHits(dead, deadId) !== 1) fail('death banked twice ' + bagHits(dead, deadId));
+
+  const restart = boot(8, '?headless=1&debug=1');
+  quietArena(restart);
+  const restartId = restart.__svSeedItem('rare', 2.4, 0);
+  stepLive(restart);
+  if (!groundRow(restart, restartId) || !groundRow(restart, restartId).pull) fail('restart setup was not mid-flight');
+  restart.__svRestart();
+  if (bagHits(restart, restartId) !== 0) fail('restart banked the in-flight rare');
+  if (groundRow(restart, restartId)) fail('restart left the flight on the ground');
+
+  const once = boot(9, '?headless=1&debug=1');
+  quietArena(once);
+  const onceId = once.__svSeedItem('rare', 2.4, 0);
+  for (let i = 0; i < 20 && groundRow(once, onceId); i++) stepLive(once);
+  if (groundRow(once, onceId)) fail('landed rare stayed on the ground');
+  if (bagHits(once, onceId) !== 1) fail('landing banked ' + bagHits(once, onceId));
+  once.__svInvuln(0);
+  const after = once.__svHurt(9999);
+  if (after.state !== 'dead') fail('landed rare death ' + after.state);
+  if (bagHits(once, onceId) !== 1) fail('landing plus death banked ' + bagHits(once, onceId));
+  console.log('mid-flight death banks once, restart clears without banking');
+}
+
+function lootPullHeld() {
+  const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
+  if (!/const LOOTPULL_FX = false;/.test(src)) fail('LOOTPULL_FX is not held');
+  const game = boot(1, '?headless=1&debug=1');
+  const calls = [];
+  if (!game.FX) fail('FX missing');
+  game.FX.lootPull = function () { calls.push('lootPull'); };
+  game.FX.lootPullOff = function () { calls.push('lootPullOff'); };
+  quietArena(game);
+  const nearId = game.__svSeedItem('rare', 2.4, 0);
+  for (let i = 0; i < 20 && groundRow(game, nearId); i++) stepLive(game);
+  const farId = game.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 230 && groundRow(game, farId); i++) stepLive(game);
+  game.__svSeedItem('rare', 2.2, 0.2);
+  stepLive(game);
+  game.__svRestart();
+  if (calls.indexOf('lootPull') >= 0) fail('FX.lootPull ran while LOOTPULL_FX is false');
+  if (calls.indexOf('lootPullOff') >= 0) fail('FX.lootPullOff ran while LOOTPULL_FX is false');
+  console.log('FX.lootPull stayed off');
 }
 
 function rareBeside() {
@@ -919,6 +1124,159 @@ function bossWeaponDps() {
     }
   }
   console.log('boss dps within 15%: ' + rows.join(' | '));
+}
+
+function sameMods(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function partnerRanks() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svGive('orbit', 1);
+  game.__svGive('nova', 1);
+  game.__svGive('tempo', 0);
+  game.__svGive('cinder', 0);
+  const base = game.__svSampleWeapons();
+  let prev = base;
+  const spins = [];
+  const lives = [];
+  for (let rank = 1; rank <= 5; rank++) {
+    game.__svGive('tempo', rank);
+    game.__svGive('cinder', rank);
+    const got = game.__svSampleWeapons();
+    spins.push(Number(got.spin.toFixed(4)));
+    lives.push(Number(got.novaLife.toFixed(4)));
+    if (rank >= 2 && sameMods(got.tempo, prev.tempo)) fail('tempo rank ' + rank + ' did not change');
+    if (rank >= 2 && sameMods(got.cinder, prev.cinder)) fail('cinder rank ' + rank + ' did not change');
+    if (!(got.spin > 0)) fail('orbit spin was not read at tempo ' + rank);
+    if (!(got.novaLife > 0)) fail('nova life was not read at cinder ' + rank);
+    if (rank >= 2 && got.spin === prev.spin && got.move === prev.move) fail('tempo rank ' + rank + ' did not reach combat');
+    if (rank >= 2 && got.novaLife === prev.novaLife && got.novaGrow === prev.novaGrow && got.echo === prev.echo) {
+      fail('cinder rank ' + rank + ' did not reach combat');
+    }
+    prev = got;
+  }
+  if (!(base.move < prev.move)) fail('tempo never sped the step');
+  console.log('tempo/cinder ranks 2-5 apply, spin ' + spins.join(',') + ' novaLife ' + lives.join(','));
+}
+
+function idleIgnoresArmor() {
+  const moving = boot(1, '?headless=1&debug=1&walk=circle');
+  moving.__svStart();
+  moving.__svGive('armor', 5);
+  moving.__svInvuln(0);
+  const beforeMove = moving.__svSnap().life;
+  const moved = moving.__svHurt(10);
+  const cut = beforeMove - moved.life;
+  if (Math.abs(cut - 4) > 0.01) fail('moving armor cut ' + cut);
+  const still = boot(2, '?headless=1&debug=1');
+  still.__svStart();
+  still.__svGive('armor', 5);
+  still.__svInvuln(90);
+  let snap = still.__svSnap();
+  for (let i = 0; i < 500 && snap.still < 8; i++) {
+    snap = still.__svStep(0.05);
+    if (snap.state === 'levelup') snap = still.__svChoose(0);
+    if (snap.state === 'hermit') snap = still.__svDecline();
+  }
+  if (snap.still < 8) fail('never stood still, still ' + snap.still);
+  const before = snap.life;
+  const hit = still.__svHurt(10);
+  const raw = before - hit.life;
+  if (Math.abs(raw - 10) > 0.01) fail('idle armor still cut, damage ' + raw + ' after ' + snap.still.toFixed(2) + 's');
+  console.log('idle ' + snap.still.toFixed(2) + 's ignores armor (' + raw + ' vs moving ' + cut + ')');
+}
+
+function eliteTtk() {
+  const probe = boot(1, '?headless=1&debug=1&walk=circle');
+  probe.__svStart();
+  probe.__svView(390, 844, 3);
+  probe.__svInvuln(400);
+  let snap = probe.__svSnap();
+  let owned = null;
+  let evolved = [];
+  let spawnedAt = 0;
+  let fieldTtk = null;
+  const watching = { fid: 0 };
+  for (let i = 0; i < 3600; i++) {
+    const before = snap.elites;
+    snap = probe.__svStep(0.05);
+    if (snap.state === 'levelup') snap = pickCard(probe, snap);
+    if (snap.state === 'hermit') snap = probe.__svDecline();
+    if (!owned && snap.elites > before) {
+      owned = Object.assign({}, snap.owned);
+      evolved = (snap.evolved || []).slice();
+      spawnedAt = snap.time;
+      const left = probe.__svEliteLeft();
+      watching.fid = left.max;
+    }
+    if (owned && fieldTtk == null && probe.__svEliteLeft().n === 0) {
+      fieldTtk = snap.time - spawnedAt;
+      break;
+    }
+    if (snap.time > 160) break;
+  }
+  if (!owned) fail('circle bot spawned no elite');
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svLock();
+  game.__svSetTime(spawnedAt || 120);
+  game.__svApplyBuild(owned, evolved);
+  game.__svInvuln(30);
+  const spawned = game.__svElite(2.1, 0);
+  if (!spawned || !(spawned.max > 20)) fail('elite hp ' + JSON.stringify(spawned));
+  const start = game.__svSnap().time;
+  let alive = game.__svEliteLeft();
+  let ttk = 0;
+  for (let i = 0; i < 240; i++) {
+    let step = game.__svStep(0.05);
+    if (step.state === 'levelup') step = game.__svDismiss();
+    if (step.state === 'hermit') step = game.__svDecline();
+    alive = game.__svEliteLeft();
+    ttk = step.time - start;
+    if (alive.n === 0) break;
+  }
+  const field = fieldTtk == null ? 'alive' : fieldTtk.toFixed(2);
+  console.log('elite ttk ' + ttk.toFixed(2) + 's at ' + spawned.max + ' hp, circle bot ' + field + 's, build ' + JSON.stringify(owned));
+  if (alive.n !== 0 || ttk < 3 || ttk > 5) fail('elite ttk ' + ttk.toFixed(2) + 's (want 3-5) hp ' + spawned.max);
+}
+
+function retiredAfterEvo() {
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svForceEvos();
+  if (game.__svHint('tempo')) fail('tempo hinted after evolution: ' + game.__svHint('tempo'));
+  if (game.__svHint('cinder')) fail('cinder hinted after evolution: ' + game.__svHint('cinder'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself');
+  if (game.__svHint('cinder').indexOf('Cinder Heart') >= 0) fail('cinder named itself');
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  for (let n = 0; n < 24; n++) {
+    game.__svOpenLevel();
+    const ids = game.__svOffers();
+    ['tempo', 'cinder'].forEach((id) => {
+      if (ids.indexOf(id) >= 0) fail(id + ' offered after its evolution: ' + ids.join(','));
+    });
+    const hints = game.__svEvoHints();
+    for (let i = 0; i < ids.length; i++) {
+      const hint = hints[i] || '';
+      const own = names[ids[i]];
+      if (own && hint.indexOf(own) >= 0) fail(ids[i] + ' hinted at itself after evolution: ' + hint);
+      if (hint.indexOf('Battle Tempo') >= 0 && ids[i] === 'tempo') fail('tempo self hint');
+      if (hint.indexOf('Cinder Heart') >= 0 && ids[i] === 'cinder') fail('cinder self hint');
+    }
+    game.__svDismiss();
+  }
+  const owned = game.__svOwned();
+  const evolved = { orbit: 'tempo', nova: 'cinder' };
+  for (let s = 0; s < 30; s++) {
+    const hand = game.SurvivorData.pickOffers(owned, Math.random, { forcePartner: true, evolved: evolved });
+    hand.forEach((item) => {
+      if (item.id === 'tempo' || item.id === 'cinder') fail('pickOffers returned ' + item.id + ' after evolution');
+    });
+  }
+  console.log('cinder and tempo stay out after evolution and never hint at themselves');
 }
 
 function vowFlagAlone() {
@@ -1947,6 +2305,10 @@ earlyCrowd();
 lootCadence();
 rareBeside();
 rarePull();
+rareTimerPauses();
+rareFlightSpeed();
+rareFlightBank();
+lootPullHeld();
 idleDeath();
 groundCap();
 chestAtCap();
@@ -1962,6 +2324,10 @@ vows();
 forcedVow();
 vowFlagAlone();
 bossWeaponDps();
+partnerRanks();
+idleIgnoresArmor();
+eliteTtk();
+retiredAfterEvo();
 hermitTwice();
 vowRevive();
 twoEvos();

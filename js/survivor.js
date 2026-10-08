@@ -48,9 +48,14 @@
     minSpawn: 3,
     idleClose: 2.4,
     idleReach: 3.6,
+    eliteHp: 16,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
+  // FX.lootPull allocates every frame. Hold the call until that is fixed.
+  // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
+  const LOOTPULL_FX = false;
+  const LOOT_FLIGHT = 0.4;
   const FLOAT_LIFE = 0.55;
   const GEM_CAP = 180;
 
@@ -557,7 +562,7 @@
     else if (type.id === 'brute') en.scale = 0.625;
     else en.scale = 1;
     if (en.elite) {
-      en.maxLife = Math.max(1, Math.round(hpFor(type.id, '') * 8));
+      en.maxLife = Math.max(1, Math.round(hpFor(type.id, '') * BALANCE.eliteHp));
       en.life = en.maxLife;
       en.speed *= 1.2;
       en.dmg = 12;
@@ -732,6 +737,7 @@
     g.fly = 0;
     g.pull = 0;
     g.pullT = 0;
+    g.banked = 0;
     g.age = 0;
     g.big = false;
     g.shower = 0;
@@ -810,6 +816,36 @@
 
   let fxUpdateMs = 0;
   let fxDrawMs = 0;
+
+  function lootPullFx(g) {
+    if (!LOOTPULL_FX || !g || !g.item) return;
+    const box = fxBox();
+    if (!box || typeof box.lootPull !== 'function') return;
+    box.lootPull(g.item.id, g.x, g.y, player.x, player.y, 400, g.item.rarity);
+  }
+
+  function lootPullOff(id) {
+    if (!LOOTPULL_FX || id == null || id === '') return;
+    const box = fxBox();
+    if (box && typeof box.lootPullOff === 'function') box.lootPullOff(id);
+  }
+
+  function bankGroundItem(g) {
+    if (!g || !g.item || g.banked) return false;
+    g.banked = 1;
+    try { SurvivorSave.addItem(g.item); } catch (e) {}
+    return true;
+  }
+
+  // Death banks an in-flight Rare+ once. Restart only cancels the flight.
+  function claimUnbankedFlight() {
+    for (let i = gems.length - 1; i >= 0; i--) {
+      const g = gems[i];
+      if (!g || g.kind !== 'item' || !g.pull || !g.item || g.banked) continue;
+      bankGroundItem(g);
+      releaseGemAt(i);
+    }
+  }
 
   function fxCall(name) {
     const box = typeof FX !== 'undefined' ? FX : null;
@@ -895,9 +931,33 @@
     const steps = [0, 1, 2, 3, 4, 6];
     return steps[Math.min(5, owned.armor || 0)];
   }
+  function tempoRank() {
+    return Math.max(0, Math.min(5, owned.tempo || 0));
+  }
+  function cinderRank() {
+    return Math.max(0, Math.min(5, owned.cinder || 0));
+  }
+  // Rank 1 is the step. Ranks 2–5 each change spin and cooldown: blades, the lock, faster hands, storm-ready.
+  function tempoMods() {
+    const r = tempoRank();
+    return {
+      move: 1 + r * 0.035,
+      spin: 1 + Math.max(0, r - 1) * 0.07,
+      cd: 1 - Math.max(0, r - 1) * 0.035,
+    };
+  }
+  // Rank 2 lingers, 3 echoes, 4–5 keep the ash and widen the ring. Each of 2–5 changes at least one number.
+  function cinderMods() {
+    const r = cinderRank();
+    return {
+      life: 1 + Math.max(0, r - 1) * 0.14,
+      echo: r >= 3 ? 0.22 - Math.max(0, r - 3) * 0.03 : 0,
+      radius: 1 + Math.max(0, r - 3) * 0.12,
+    };
+  }
   function moveSpeed() {
     const hasteMove = 1 + Math.min(5, owned.haste || 0) * 0.02;
-    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04);
+    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04) * tempoMods().move;
   }
   function boltDamage() {
     const rank = Math.max(1, Math.min(5, owned.bolt || 1));
@@ -1145,7 +1205,8 @@
   function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
     const incoming = curse > 0 ? amount * vowSpec().hit : amount;
-    const dmg = Math.max(1, incoming - armorCut());
+    const cut = stillT >= BALANCE.idleGrace ? 0 : armorCut();
+    const dmg = Math.max(1, incoming - cut);
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -1805,12 +1866,21 @@
 
   let novaQueue = 0;
 
+  let lastOrbitSpin = 0;
+  let lastNovaLife = 0;
+  let lastNovaGrow = 1;
+  let lastNovaEcho = 0;
+
   function fireNova(rank) {
     const dmg = (12 + rank * 6) * power();
-    const life = rank >= 5 ? 0.7 : rank >= 4 ? 0.58 : 0.48;
+    const cinder = cinderMods();
+    const life = (rank >= 5 ? 0.7 : rank >= 4 ? 0.58 : 0.48) * cinder.life;
     const evolvedNova = !!evolved.nova;
-    spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
-    const radius = life * (evolvedNova ? 9.2 : 7.2) * area();
+    const shot = spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
+    shot.grow = (evolvedNova ? 8.6 : 7.2) * cinder.radius;
+    lastNovaLife = shot.life;
+    lastNovaGrow = shot.grow;
+    const radius = life * shot.grow * area();
     novaInfo.radius = radius;
     novaInfo.rank = rank;
     fxCall('cast', 'nova', player.x, player.y, novaInfo);
@@ -1861,7 +1931,7 @@
       if (fired) {
         player.swing = 0.16;
         const cd = [0.62, 0.56, 0.5, 0.42, 0.36][boltRank - 1];
-        cds.bolt = cd * haste();
+        cds.bolt = cd * haste() * tempoMods().cd;
         player.facing = face;
         sfx('cast');
       }
@@ -1870,9 +1940,12 @@
     if (novaRank && cds.nova <= 0) {
       fireNova(novaRank);
       if (novaRank >= 3) novaQueue = 0.18;
+      const echo = cinderMods().echo;
+      if (echo > 0 && !(novaQueue > 0)) novaQueue = echo;
       if (novaRank >= 5 || evolved.nova) novaQueue = Math.min(novaQueue || 0.16, 0.16);
+      lastNovaEcho = novaQueue;
       const table = [3.15, 2.7, 2.35, 2.05, 1.75];
-      cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1));
+      cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1) * tempoMods().cd);
     }
     const pierceRank = Math.max(0, Math.min(5, owned.pierce || 0));
     if (pierceRank && cds.pierce <= 0 && lineAim) {
@@ -1888,13 +1961,14 @@
         const py = player.y + (dx / d) * side;
         spawnShot('pierce', px, py, (dx / d) * sp, (dy / d) * sp, dmg, 1.15);
       }
-      cds.pierce = Math.max(0.7, (2.5 - pierceRank * 0.18) * haste());
+      cds.pierce = Math.max(0.7, (2.5 - pierceRank * 0.18) * haste() * tempoMods().cd);
       sfx('swing');
     }
     if (owned.orbit) {
       const orbitRank = Math.max(1, Math.min(5, owned.orbit));
       const storm = !!evolved.orbit;
-      const spin = (storm ? 3.4 : 2.1) + orbitRank * 0.22;
+      const spin = ((storm ? 3.4 : 2.1) + orbitRank * 0.22) * tempoMods().spin;
+      lastOrbitSpin = spin;
       orbitAngle += dt * spin;
       const count = storm ? 5 : (orbitRank >= 5 ? 3 : orbitRank >= 3 ? 2 : 1);
       const rad = ((storm ? 2.15 : 1.45) + (orbitRank >= 4 ? 0.45 : 0.12)) * area();
@@ -1964,7 +2038,7 @@
       const s = shots[i];
       s.life -= dt;
       if (s.kind === 'nova') {
-        const grow = dt * (evolved.nova ? 8.6 : 7.2) * area();
+        const grow = dt * (s.grow || (evolved.nova ? 8.6 : 7.2)) * area();
         const steps = Math.max(1, Math.ceil(grow / 0.35));
         const slice = grow / steps;
         const band = s.life > 0.2 && (owned.nova || 0) >= 5 ? 1.15 : 0.9;
@@ -2521,7 +2595,10 @@
 
   function releaseGemAt(i) {
     const g = gems[i];
-    if (g && g.kind === 'item' && g.item) beamOff(g.item.id);
+    if (g && g.kind === 'item' && g.item) {
+      if (g.pull) lootPullOff(g.item.id);
+      beamOff(g.item.id);
+    }
     if (g && g.shower) {
       g.shower = 0;
       showerLeft = Math.max(0, showerLeft - 1);
@@ -2531,6 +2608,7 @@
     g.fly = 0;
     g.pull = 0;
     g.pullT = 0;
+    g.banked = 0;
     g.vx = 0;
     g.vy = 0;
     g.item = null;
@@ -2615,14 +2693,16 @@
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
       const rareGround = kind === 'item' && g.item && rareBeam(g.item.rarity);
-      if (rareGround) {
+      if (rareGround && !g.banked) {
+        // Age is game time: sim() does not run on a level-up card, the pause
+        // menu, or while backgrounded, and evolution slow-mo scales dt first.
         if (!g.pull && ((g.age || 0) >= 10 || dist <= 3)) {
           g.pull = 1;
           g.pullT = 0;
-          fxCall('lootPull', g.item.id, g.x, g.y, player.x, player.y, 300);
+          lootPullFx(g);
         }
         if (g.pull) {
-          const leftT = Math.max(dt, 0.3 - (g.pullT || 0));
+          const leftT = Math.max(dt, LOOT_FLIGHT - (g.pullT || 0));
           const step = dist * Math.min(1, dt / leftT);
           if (dist > 0) {
             g.x += (dx / dist) * step;
@@ -2643,7 +2723,7 @@
         }
       }
       const left = len2(player.x - g.x, player.y - g.y);
-      const pullDone = !!(rareGround && g.pull && g.pullT >= 0.3);
+      const pullDone = !!(rareGround && g.pull && g.pullT >= LOOT_FLIGHT);
       const taken = walked ? (left <= grab || pullDone) : (left <= grab || (g.fly && left < 0.08));
       if (taken) {
         if (kind === 'heart') {
@@ -2659,8 +2739,7 @@
           if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
           if (rarePickupAt < 0 && rareBeam(g.item.rarity)) rarePickupAt = time;
-          try { SurvivorSave.addItem(g.item); } catch (e) {}
-          announceFind(g.item);
+          if (bankGroundItem(g)) announceFind(g.item);
           requestEvolution();
           const info = chainInfo;
           info.rarity = g.item.rarity;
@@ -3032,7 +3111,10 @@
   function clearPools() {
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
-      if (g && g.kind === 'item' && g.item) beamOff(g.item.id);
+      if (g && g.kind === 'item' && g.item) {
+        if (g.pull) lootPullOff(g.item.id);
+        beamOff(g.item.id);
+      }
     }
     enemies.length = 0;
     gems.length = 0;
@@ -3405,6 +3487,7 @@
   function finish(kind) {
     if (ended) return;
     ended = true;
+    claimUnbankedFlight();
     vowResume = !!(vowPayout && curse > 0);
     vowPayout = false;
     state = kind === 'won' ? 'won' : 'dead';
@@ -5237,6 +5320,7 @@
       time: time,
       life: player.life,
       maxLife: player.maxLife,
+      still: stillT,
       x: player.x,
       y: player.y,
       level: player.level,
@@ -5416,6 +5500,7 @@
       g.fly = 0;
       g.pull = 0;
       g.pullT = 0;
+      g.banked = 0;
       g.age = 0;
       g.big = false;
       g.shower = 0;
@@ -5434,7 +5519,17 @@
       for (let i = 0; i < gems.length; i++) {
         const g = gems[i];
         if (g.kind !== 'item' || !g.item) continue;
-        out.push({ id: g.item.id, rarity: g.item.rarity, name: g.item.name || '', age: g.age || 0, x: g.x, y: g.y });
+        out.push({
+          id: g.item.id,
+          rarity: g.item.rarity,
+          name: g.item.name || '',
+          age: g.age || 0,
+          x: g.x,
+          y: g.y,
+          pull: g.pull ? 1 : 0,
+          pullT: g.pullT || 0,
+          banked: g.banked ? 1 : 0,
+        });
       }
       return out;
     };
@@ -5485,6 +5580,53 @@
         out.push({ name: en.name, boss: !!en.boss, scale: en.scale, radius: en.radius, kind: en.bossKind || '' });
       }
       return out;
+    };
+    window.__svSampleWeapons = () => {
+      cds.bolt = 0;
+      cds.nova = 0;
+      cds.pierce = 0;
+      novaQueue = 0;
+      lastNovaEcho = 0;
+      lastNovaLife = 0;
+      lastNovaGrow = 1;
+      shots.length = 0;
+      tickWeapons(0.05);
+      return {
+        tempo: tempoMods(),
+        cinder: cinderMods(),
+        spin: lastOrbitSpin,
+        novaLife: lastNovaLife,
+        novaGrow: lastNovaGrow,
+        echo: lastNovaEcho,
+        move: moveSpeed(),
+      };
+    };
+    window.__svApplyBuild = (build, evolvedIds) => {
+      const src = build || {};
+      Object.keys(src).forEach((id) => { owned[id] = src[id]; });
+      (evolvedIds || []).forEach((id) => {
+        const w = catalogItem(id);
+        if (w && w.evolvesWith) evolved[id] = w.evolvesWith;
+      });
+      return snapRun();
+    };
+    window.__svElite = (x, y) => {
+      const en = spawnEnemy('brute', x == null ? player.x + 1.2 : x, y || 0, { elite: true, measure: true });
+      if (!en) return null;
+      return { life: en.life, max: en.maxLife, fid: en.fid };
+    };
+    window.__svEliteLeft = () => {
+      let n = 0;
+      let life = 0;
+      let max = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (!en.elite || en.life <= 0 || en.dying > 0) continue;
+        n += 1;
+        life += en.life;
+        max = en.maxLife;
+      }
+      return { n: n, life: life, max: max };
     };
     window.__svNova = (rank) => {
       owned.nova = rank;
