@@ -891,19 +891,49 @@
     if (typeof FX === 'undefined' || typeof FX.beam !== 'function') return;
     FX.beam(id, x, y, rarity);
   }
-  function showToast(item) {
-    const el = $('sv-toast');
-    if (!el || !item) return;
+  const toastQueue = [];
+  function toastLine(item) {
     let rarity = 'Common';
     try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
       const raw = item.rarity || 'common';
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
-    toastText = rarity + ': ' + (item.name || 'Item');
-    el.textContent = toastText;
-    el.style.color = RARITY_FILL[item.rarity] || '#f4efe0';
-    el.classList.remove('hidden');
+    return {
+      text: rarity + ': ' + (item.name || 'Item'),
+      color: RARITY_FILL[item.rarity] || '#f4efe0',
+    };
+  }
+  function presentToast(entry) {
+    if (!entry) return;
+    toastText = entry.text;
+    const el = $('sv-toast');
+    if (el) {
+      el.textContent = toastText;
+      el.style.color = entry.color || '#f4efe0';
+      el.classList.remove('hidden');
+    }
     toastT = 1.6;
+  }
+  function showToast(item) {
+    if (!item) return;
+    const entry = toastLine(item);
+    if (toastT > 0) {
+      toastQueue.push(entry);
+      return;
+    }
+    presentToast(entry);
+  }
+  function tickToast(dt) {
+    if (toastT <= 0) return;
+    toastT = Math.max(0, toastT - dt);
+    if (toastT > 0) return;
+    if (toastQueue.length) {
+      presentToast(toastQueue.shift());
+      return;
+    }
+    toastText = '';
+    const toast = $('sv-toast');
+    if (toast) toast.classList.add('hidden');
   }
   function countGround(rarity) {
     let n = 0;
@@ -1523,9 +1553,12 @@
       openHermit();
       return;
     }
+    if (state === 'playing' && rareAt < 0 && nextDropAt > 90) nextDropAt = 90;
     if (time >= nextDropAt && state === 'playing') {
+      const forceRare = rareAt < 0 && time >= 78;
       nextDropAt = time + 15 + Math.random() * 10;
-      dropWorldItem(rareAt < 0 && time >= 78 ? 'rare' : '');
+      if (rareAt < 0 && !forceRare && nextDropAt > 90) nextDropAt = 90;
+      dropWorldItem(forceRare ? 'rare' : '');
     }
     if (time >= MINI_AT && player.moving) {
       forwardAcc += dt;
@@ -2686,13 +2719,7 @@
       commitEvolve(evolvedId);
     }
     tickSweep(dt);
-    if (toastT > 0) {
-      toastT = Math.max(0, toastT - dt);
-      if (toastT <= 0) {
-        const toast = $('sv-toast');
-        if (toast) toast.classList.add('hidden');
-      }
-    }
+    tickToast(dt);
     evoWindow = slowLeft > 0 || sweepOn || showerLeft > 0;
     checkLevel();
   }
@@ -2845,6 +2872,7 @@
     ringAcc = 0;
     nextEliteAt = BALANCE.eliteFirst;
     itemDrops = 0;
+    nextDropAt = 15 + Math.random() * 10;
     rareAt = -1;
     epicAt = -1;
     legendAt = -1;
@@ -2856,6 +2884,10 @@
     evoWindow = false;
     toastT = 0;
     toastText = '';
+    toastQueue.length = 0;
+    chatLog.length = 0;
+    const chatHost = $('sv-chat');
+    if (chatHost) chatHost.textContent = '';
     castersCleared = 0;
     novaQueue = 0;
     regen = 0;
@@ -4922,6 +4954,8 @@
       sweepKills: sweepKills,
       pending: pendingLevels,
       drops: itemDrops,
+      chat: chatLog.map((line) => line.text).join('\n'),
+      toastQueued: toastQueue.length,
       rareAt: rareAt,
       epicAt: epicAt,
       legendAt: legendAt,
@@ -5045,6 +5079,11 @@
       gems.push(g);
       if (rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
       return item.id;
+    };
+    window.__svPairToast = () => {
+      announceItem({ id: 'pair-a', name: 'Iron Blade', rarity: 'rare' }, player.x, player.y);
+      announceItem({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' }, player.x + 1, player.y);
+      return snapRun();
     };
     window.__svGround = () => {
       const out = [];

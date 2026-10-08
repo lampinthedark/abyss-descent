@@ -114,6 +114,48 @@ function boot(seed0, search, storage) {
   return context;
 }
 
+function lootCadence() {
+  for (let seed = 1; seed <= 4; seed++) {
+    const game = boot(seed, '?headless=1&debug=1&walk=circle');
+    game.__svStart();
+    let snap = game.__svSnap();
+    let drops = 0;
+    let last = 0;
+    let worst = 0;
+    let rareAt = -1;
+    for (let i = 0; i < 2200; i++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'levelup') snap = game.__svChoose(0);
+      if (snap.state === 'hermit') snap = game.__svDecline();
+      if (snap.drops > drops) {
+        if (drops > 0) {
+          const gap = snap.time - last;
+          if (gap > worst) worst = gap;
+        }
+        last = snap.time;
+        drops = snap.drops;
+      }
+      if (rareAt < 0 && snap.rareAt >= 0) rareAt = snap.rareAt;
+      if (snap.time > 95 || snap.state === 'dead') break;
+    }
+    if (!(rareAt >= 0 && rareAt <= 90)) fail('seed ' + seed + ' first rare at ' + rareAt);
+    if (worst > 25.2) fail('seed ' + seed + ' loot gap ' + worst.toFixed(1) + 's');
+    if (drops < 3) fail('seed ' + seed + ' only ' + drops + ' drops by ' + snap.time.toFixed(1));
+  }
+  const pair = boot(2);
+  pair.__svStart();
+  const shown = pair.__svPairToast();
+  if (shown.toast.indexOf('Rare:') !== 0) fail('first toast ' + shown.toast);
+  if (shown.toastQueued !== 1) fail('queued toasts ' + shown.toastQueued);
+  if (shown.chat.indexOf('You find: Rare Iron Blade') < 0) fail('chat rare ' + shown.chat);
+  if (shown.chat.indexOf('You find: Common Bone Charm') < 0) fail('chat common ' + shown.chat);
+  let next = shown;
+  for (let i = 0; i < 40; i++) next = pair.__svStep(0.05);
+  if (next.toast.indexOf('Common:') !== 0) fail('second toast ' + next.toast);
+  if (next.toastQueued !== 0) fail('queue left ' + next.toastQueued);
+  console.log('loot every 15–25s, first rare by 1:30, both toasts named');
+}
+
 function idleDeath() {
   const times = [];
   for (let seed = 1; seed <= 8; seed++) {
@@ -1479,6 +1521,7 @@ tapGuards();
 evoNeeds();
 freshAndFlags();
 bossLook();
+lootCadence();
 idleDeath();
 groundCap();
 chestAtCap();
