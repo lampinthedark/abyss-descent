@@ -2672,7 +2672,36 @@ function watchRun(game, limit, opts) {
   let emptyAt = 300;
   let eliteAt = null;
   let eliteTtk = null;
+  const pace = [];
+  let nextPace = 120;
+  let paceKills = snap.kills || 0;
+  let paceAt = snap.time || 0;
   const steps = Math.ceil((limit + 5) / dt) + 2500;
+  function notePace(force) {
+    if (snap.time < 119) return;
+    if (!force && snap.time + 1e-6 < nextPace) return;
+    if (force && pace.length && Math.abs(pace[pace.length - 1].t - snap.time) < 1) return;
+    const span = Math.max(0.05, snap.time - paceAt);
+    const weapons = snap.owned || {};
+    pace.push({
+      t: Number(snap.time.toFixed(1)),
+      on: game.__svOnScreen(),
+      foes: snap.enemies,
+      kps: Number(((snap.kills - paceKills) / span).toFixed(2)),
+      level: snap.level,
+      bolt: weapons.bolt || 0,
+      orbit: weapons.orbit || 0,
+      pierce: weapons.pierce || 0,
+      nova: weapons.nova || 0,
+      might: weapons.might || 0,
+      tempo: weapons.tempo || 0,
+      haste: weapons.haste || 0,
+      vitality: weapons.vitality || 0,
+    });
+    paceKills = snap.kills;
+    paceAt = snap.time;
+    while (nextPace <= snap.time) nextPace += 30;
+  }
   for (let n = 0; n < steps; n++) {
     snap = game.__svStep(dt);
     if (snap.state === 'hermit') {
@@ -2720,7 +2749,9 @@ function watchRun(game, limit, opts) {
       if (near >= 4) emptyAt = snap.time;
       else if (snap.time - emptyAt > gap) gap = snap.time - emptyAt;
     }
+    notePace(false);
     if (snap.state === 'dead' || snap.state === 'won') {
+      notePace(true);
       death = snap.time;
       lastHit = snap.lastHit;
       break;
@@ -2762,7 +2793,39 @@ function watchRun(game, limit, opts) {
     gemXp: snap.gemXp || 0,
     xp: snap.xp || 0,
     level: snap.level,
+    pace: pace,
+    band: lastBand(game.__svHits ? game.__svHits() : []),
+    heroDiedInFight: (sawDemon && demonKill == null && death != null)
+      ? Number((death - demonSpawn).toFixed(1)) : null,
   };
+}
+
+function lastBand(hits) {
+  const bag = {};
+  let total = 0;
+  let tele = 0;
+  (hits || []).forEach((h) => {
+    const line = (h.max || 1) * 0.3;
+    const end = Math.max(0, h.life - h.dmg);
+    if (end >= line) return;
+    const counted = Math.min(h.life, line) - end;
+    if (!(counted > 0)) return;
+    const key = (h.source || 'other') + (h.tele ? '/tele' : '/open');
+    bag[key] = (bag[key] || 0) + counted;
+    total += counted;
+    if (h.tele) tele += counted;
+  });
+  const parts = Object.keys(bag).sort((a, b) => bag[b] - bag[a]);
+  return {
+    text: parts.map((k) => k + ' ' + Math.round(bag[k])).join(', '),
+    telePct: total > 0 ? Math.round(100 * tele / total) : null,
+    openPct: total > 0 ? Math.round(100 * (total - tele) / total) : null,
+  };
+}
+
+function paceText(rows) {
+  return (rows || []).map((p) => p.t + 's on' + p.on + ' kps' + p.kps + ' L' + p.level
+    + ' b' + p.bolt + ' o' + p.orbit + ' p' + p.pierce + ' n' + p.nova).join(' | ');
 }
 
 function pickupTable() {
@@ -2830,8 +2893,19 @@ function balanceTable() {
       circleHit: circle.hit,
       beatWarden: circle.beatWarden,
       wardenTtk: ttk(circle.wardenSpawn, circle.wardenKill),
-      demonTtk: ttk(circle.demonSpawn, circle.demonKill),
+      demonKilled: ttk(circle.demonSpawn, circle.demonKill),
+      heroDiedInFight: circle.heroDiedInFight,
       eliteTtk: circle.eliteTtk == null ? null : Number(circle.eliteTtk.toFixed(2)),
+      circlePick: circle.gemDrops ? Math.round(100 * circle.gemPickups / circle.gemDrops) : 0,
+      kitePick: kite.gemDrops ? Math.round(100 * kite.gemPickups / kite.gemDrops) : 0,
+      circleXpMin: Math.round(circle.gemXp / Math.max(0.01, (typeof circle.end === 'number' ? circle.end : 600) / 60)),
+      kiteXpMin: Math.round(kite.gemXp / Math.max(0.01, (typeof kite.end === 'number' ? kite.end : 600) / 60)),
+      vowBand: vowed.band,
+      kiteBand: kite.band,
+      kite20Band: kite20.band,
+      vowPace: vowed.pace,
+      kitePace: kite.pace,
+      kite20Pace: kite20.pace,
       gap: Number(circle.gap.toFixed(1)),
       vowEnd: vowed.end,
       vowState: vowed.state,
@@ -2855,14 +2929,24 @@ function balanceTable() {
     };
     rows.push(row);
     console.log(JSON.stringify(row));
+    console.log('diag ' + seed
+      + ' pick circle ' + row.circlePick + '% xpMin ' + row.circleXpMin
+      + ' kite ' + row.kitePick + '% xpMin ' + row.kiteXpMin
+      + ' demonKilled ' + row.demonKilled + ' heroDiedInFight ' + row.heroDiedInFight);
+    console.log('  vowBand ' + row.vowBand.text + ' tele' + row.vowBand.telePct + ' open' + row.vowBand.openPct);
+    console.log('  vowPace ' + paceText(row.vowPace));
+    console.log('  kiteBand ' + row.kiteBand.text + ' tele' + row.kiteBand.telePct + ' open' + row.kiteBand.openPct);
+    console.log('  kitePace ' + paceText(row.kitePace));
+    console.log('  kite20Band ' + row.kite20Band.text + ' tele' + row.kite20Band.telePct + ' open' + row.kite20Band.openPct);
+    console.log('  kite20Pace ' + paceText(row.kite20Pace));
   });
-  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonTtk eliteTtk gap vowEnd kite kiteMin kite20 lootStale');
+  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonKilled heroDied eliteTtk gap vowEnd kite kiteMin kite20 lootStale');
   rows.forEach((r) => {
     const stale = r.lootStale;
     const staleText = stale.idle == null ? '-' : [stale.idle, stale.circle, stale.vow, stale.kite, stale.kite20].join('/');
     console.log([
       r.seed, r.idle, r.circle, r.hurt180 ? 'hit' : 'safe', r.min180, r.at270,
-      r.beatWarden ? 'warden' : 'no', r.wardenTtk, r.demonTtk, r.eliteTtk, r.gap,
+      r.beatWarden ? 'warden' : 'no', r.wardenTtk, r.demonKilled, r.heroDiedInFight, r.eliteTtk, r.gap,
       r.vowEnd, r.kite, r.kiteMin, r.kite20, staleText,
     ].join(' '));
   });
