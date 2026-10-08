@@ -243,6 +243,41 @@
     try { return !!world.isBlocked(x, y); } catch (err) { return false; }
   }
 
+  /** D1 exports this from main.js onto the world. Missing means the tile is clear. */
+  function clearOfKeepOut(x, y) {
+    const world = RPG.world;
+    if (!world || typeof world.clearOfKeepOut !== 'function') return true;
+    try { return !!world.clearOfKeepOut(x, y); } catch (err) { return true; }
+  }
+
+  function inArea(area, x, y) {
+    if (!area) return true;
+    return x >= area.x0 && x <= area.x1 && y >= area.y0 && y <= area.y1;
+  }
+
+  function spotOk(x, y, area) {
+    if (!inArea(area, x, y)) return false;
+    if (!clearOfKeepOut(x, y)) return false;
+    if (blocked(x, y)) return false;
+    return true;
+  }
+
+  function placeIn(x, y, area, i) {
+    const spread = [0, 0.45, -0.45, 0.9, -0.9];
+    const ox = spread[i % spread.length];
+    const oy = spread[Math.floor(i / spread.length) % spread.length] * 0.35;
+    const first = { x: x + ox, y: y + oy };
+    if (spotOk(first.x, first.y, area)) return first;
+    if (spotOk(x, y, area)) return { x: x, y: y };
+    const box = area || { x0: x - 2, y0: y - 2, x1: x + 2, y1: y + 2 };
+    for (let yy = box.y0; yy <= box.y1 + 0.001; yy += 0.5) {
+      for (let xx = box.x0; xx <= box.x1 + 0.001; xx += 0.5) {
+        if (spotOk(xx, yy, area)) return { x: xx, y: yy };
+      }
+    }
+    return { x: x, y: y };
+  }
+
   function addToWorld(ent) {
     const world = RPG.world;
     if (!world || typeof world.addEntity !== 'function') return;
@@ -259,7 +294,10 @@
     let path = null;
     const world = RPG.world;
     if (world && typeof world.path === 'function') {
-      try { path = world.path(mob.x, mob.y, tx, ty); } catch (err) { path = null; }
+      try {
+        if (world.path.length >= 4) path = world.path(mob.x, mob.y, tx, ty);
+        else path = world.path({ x: mob.x, y: mob.y }, { x: tx, y: ty });
+      } catch (err) { path = null; }
     }
     if (!Array.isArray(path) || !path.length) path = [{ x: tx, y: ty }];
     const out = [];
@@ -295,16 +333,24 @@
     const mag = Math.min(mob.speed * dt, d);
     const nx = mob.x + (dx / d) * mag;
     const ny = mob.y + (dy / d) * mag;
-    if (!blocked(nx, ny)) {
+    const wandering = !mob.aggro && mob.state !== 'return' && mob.state !== 'chase';
+    function legal(px, py) {
+      if (!clearOfKeepOut(px, py)) return false;
+      if (blocked(px, py)) return false;
+      if (wandering && mob.area && !inArea(mob.area, px, py)) return false;
+      return true;
+    }
+    if (legal(nx, ny)) {
       mob.x = nx;
       mob.y = ny;
-    } else if (!blocked(nx, mob.y)) {
+    } else if (legal(nx, mob.y)) {
       mob.x = nx;
-    } else if (!blocked(mob.x, ny)) {
+    } else if (legal(mob.x, ny)) {
       mob.y = ny;
     } else {
       mob.path = null;
       mob._repath = 0;
+      if (mob.aggro && !clearOfKeepOut(nx, ny)) mob._giveUp = true;
       return false;
     }
     if (dx !== 0) mob.facing = dx > 0 ? 1 : -1;
@@ -326,13 +372,31 @@
     return hero;
   }
 
+  const FIELD_CAP = 2;
+
+  function pairChasers() {
+    let n = 0;
+    for (let i = 0; i < mobs.length; i++) {
+      const m = mobs[i];
+      if (m && !m.dead && m.scope === 'pair' && m.aggro) n++;
+    }
+    return n;
+  }
+
   function alertPack(mob) {
+    let slots = mob.scope === 'pair' ? Math.max(0, FIELD_CAP - pairChasers()) : 99;
     for (let i = 0; i < mobs.length; i++) {
       const other = mobs[i];
       if (!other || other.dead) continue;
       if (other.packId !== mob.packId) continue;
       if (other.state === 'return') continue;
-      other.aggro = true;
+      if (!other.aggro) {
+        if (mob.scope === 'pair') {
+          if (slots <= 0) continue;
+          slots -= 1;
+        }
+        other.aggro = true;
+      }
       if (other.state !== 'windup' && other.state !== 'slam' && other.state !== 'charge' && other.state !== 'dash' && other.state !== 'claw') {
         other.state = 'chase';
       }
@@ -343,7 +407,26 @@
     if (!mob || mob.dead || mob.state === 'return') return;
     const hero = heroPos();
     if (!hero || hero.dead) return;
-    if (dist(mob.x, mob.y, hero.x, hero.y) <= mob.sight) alertPack(mob);
+    if (dist(mob.x, mob.y, hero.x, hero.y) > mob.sight) return;
+    if (!clearOfKeepOut(hero.x, hero.y)) return;
+    if (mob.scope === 'pair' && !mob.aggro && pairChasers() >= FIELD_CAP) return;
+    alertPack(mob);
+  }
+
+  function giveUpChase(mob) {
+    const atk = attacks();
+    if (mob.state === 'windup' && atk && atk.cancelMelee) atk.cancelMelee(mob);
+    if (mob.state === 'slam' && atk && atk.cancelSlam) atk.cancelSlam(mob);
+    if ((mob.state === 'charge' || mob.state === 'dash') && atk && atk.cancelCharge) atk.cancelCharge(mob);
+    if (mob.tellId && atk && atk.clearTell) atk.clearTell(mob.tellId);
+    mob.tellId = null;
+    mob._giveUp = false;
+    mob.aggro = false;
+    mob.attacking = false;
+    mob.state = 'wander';
+    mob.path = null;
+    mob.wanderTo = null;
+    mob._repath = 0;
   }
 
   function startReturn(mob) {
@@ -441,6 +524,7 @@
       mob.dead = true;
       mob.state = 'dead';
       mob.aggro = false;
+      scheduleRespawn(mob);
       finishKill(mob);
       return { dead: true };
     }
@@ -519,19 +603,72 @@
     return { x: Math.cos(ang) * 1.35, y: Math.sin(ang) * 1.35 };
   }
 
-  function spawnPack(monsterId, x, y, n, leash) {
+  function stampField(mob, x, y, opts) {
+    const area = opts.area || null;
+    const field = !!(area || opts.scope === 'pair');
+    mob.anchorX = x;
+    mob.anchorY = y;
+    mob.area = area;
+    mob.scope = field ? 'pair' : (opts.scope || 'pack');
+    mob.respawnSec = typeof opts.respawn === 'number' ? opts.respawn : 0;
+    if (field) {
+      mob.spawnX = x;
+      mob.spawnY = y;
+    }
+  }
+
+  function spawnPack(monsterId, x, y, n, leash, opts) {
+    opts = opts || {};
     const spec = mergedSpec(monsterId);
     if (!spec || typeof x !== 'number' || typeof y !== 'number') return [];
     const count = Math.max(1, n == null ? 1 : Math.floor(n));
     const leashR = typeof leash === 'number' ? leash : spec.leash;
-    const packId = 'pack-' + (packSeq++);
+    const packId = opts.packId || ('pack-' + (packSeq++));
+    const field = !!(opts.area || opts.scope === 'pair');
     const spawned = [];
     for (let i = 0; i < count; i++) {
-      const off = offsetFor(i, count);
-      const mob = createMob(spec, x + off.x, y + off.y, packId, leashR);
+      let px = x;
+      let py = y;
+      if (field) {
+        const spot = placeIn(x, y, opts.area || null, i);
+        px = spot.x;
+        py = spot.y;
+      } else {
+        const off = offsetFor(i, count);
+        px = x + off.x;
+        py = y + off.y;
+        if (!spotOk(px, py, null)) {
+          const spot = placeIn(x, y, null, i);
+          px = spot.x;
+          py = spot.y;
+        }
+      }
+      const mob = createMob(spec, px, py, packId, leashR);
+      stampField(mob, x, y, opts);
       mobs.push(mob);
       addToWorld(mob);
       spawned.push(mob);
+    }
+    return spawned;
+  }
+
+  /** One spawn entry is one pack. Town entries with `area` are pair-scoped. */
+  function spawnZone(zone) {
+    const spawns = zone && (zone.spawns || (zone.data && zone.data.spawns));
+    if (!spawns) return [];
+    const spawned = [];
+    for (let i = 0; i < spawns.length; i++) {
+      const sp = spawns[i];
+      if (!sp) continue;
+      const id = sp.monsterId || sp.id;
+      if (!id || typeof sp.x !== 'number' || typeof sp.y !== 'number') continue;
+      const count = sp.n != null ? sp.n : (sp.count != null ? sp.count : 1);
+      const pack = spawnPack(id, sp.x, sp.y, count, sp.leash, {
+        area: sp.area || null,
+        respawn: sp.respawn,
+        scope: sp.area ? 'pair' : 'pack',
+      });
+      for (let j = 0; j < pack.length; j++) spawned.push(pack[j]);
     }
     return spawned;
   }
@@ -546,6 +683,9 @@
   }
 
   function spawnField(zoneOrPoints) {
+    if (zoneOrPoints && !Array.isArray(zoneOrPoints) && Array.isArray(zoneOrPoints.spawns)) {
+      return spawnZone(zoneOrPoints);
+    }
     const points = resolvePoints(zoneOrPoints);
     const spawned = [];
     for (let i = 0; i < points.length; i++) {
@@ -562,20 +702,46 @@
   function wander(mob, dt) {
     mob.wanderLeft = (mob.wanderLeft || 0) - dt;
     if (!mob.wanderTo || mob.wanderLeft <= 0) {
-      const ang = roll('ai') * Math.PI * 2;
-      const rad = 0.4 + roll('ai') * 0.8;
-      mob.wanderTo = {
-        x: mob.spawnX + Math.cos(ang) * rad,
-        y: mob.spawnY + Math.sin(ang) * rad,
-      };
+      let tx;
+      let ty;
+      if (mob.area) {
+        tx = mob.area.x0 + roll('ai') * (mob.area.x1 - mob.area.x0);
+        ty = mob.area.y0 + roll('ai') * (mob.area.y1 - mob.area.y0);
+      } else {
+        const ang = roll('ai') * Math.PI * 2;
+        const rad = 0.4 + roll('ai') * 0.8;
+        tx = mob.spawnX + Math.cos(ang) * rad;
+        ty = mob.spawnY + Math.sin(ang) * rad;
+      }
+      if (!spotOk(tx, ty, mob.area)) {
+        mob.wanderTo = null;
+        mob.wanderLeft = 0.25;
+        return;
+      }
+      mob.wanderTo = { x: tx, y: ty };
       mob.wanderLeft = 0.8 + roll('ai');
       mob.path = null;
       mob._repath = 0;
     }
+    if (!mob.wanderTo || !spotOk(mob.wanderTo.x, mob.wanderTo.y, mob.area)) {
+      mob.wanderTo = null;
+      return;
+    }
     moveToward(mob, dt, mob.wanderTo.x, mob.wanderTo.y);
+    if (mob.area && !inArea(mob.area, mob.x, mob.y)) {
+      const cx = Math.min(mob.area.x1, Math.max(mob.area.x0, mob.x));
+      const cy = Math.min(mob.area.y1, Math.max(mob.area.y0, mob.y));
+      if (spotOk(cx, cy, mob.area)) {
+        mob.x = cx;
+        mob.y = cy;
+      }
+      mob.wanderTo = null;
+    }
     if (homeDist(mob) > mob.leash) {
-      mob.x = mob.spawnX;
-      mob.y = mob.spawnY;
+      if (spotOk(mob.spawnX, mob.spawnY, mob.area)) {
+        mob.x = mob.spawnX;
+        mob.y = mob.spawnY;
+      }
       mob.wanderTo = null;
     }
   }
@@ -631,6 +797,11 @@
 
     const hero = heroPos();
     if (mob.aggro && hero && !hero.dead) {
+      if (!clearOfKeepOut(hero.x, hero.y)) {
+        giveUpChase(mob);
+        wander(mob, dt);
+        return;
+      }
       const picked = atk && typeof atk.chooseAttack === 'function' ? atk.chooseAttack(mob, hero) : null;
       if (picked === 'melee' || picked === 'ranged') {
         atk.startMelee(mob, dt, picked);
@@ -653,6 +824,14 @@
       } else {
         moveToward(mob, dt, hero.x, hero.y);
       }
+      if (mob._giveUp) {
+        giveUpChase(mob);
+        return;
+      }
+      if (!clearOfKeepOut(mob.x, mob.y)) {
+        giveUpChase(mob);
+        return;
+      }
       if (homeDist(mob) > mob.leash) startReturn(mob);
       return;
     }
@@ -662,7 +841,46 @@
     wander(mob, dt);
   }
 
+  const respawns = [];
+
+  function scheduleRespawn(mob) {
+    if (!mob || !(mob.respawnSec > 0) || mob._respawnQueued) return;
+    mob._respawnQueued = true;
+    respawns.push({
+      left: mob.respawnSec,
+      monsterId: mob.monsterId,
+      x: typeof mob.anchorX === 'number' ? mob.anchorX : mob.spawnX,
+      y: typeof mob.anchorY === 'number' ? mob.anchorY : mob.spawnY,
+      leash: mob.leash,
+      area: mob.area || null,
+      respawn: mob.respawnSec,
+      scope: mob.scope || 'pack',
+      packId: mob.packId,
+    });
+  }
+
+  function tickRespawns(dt) {
+    for (let i = respawns.length - 1; i >= 0; i--) {
+      const job = respawns[i];
+      job.left -= dt;
+      if (job.left > 0) continue;
+      respawns.splice(i, 1);
+      const spec = mergedSpec(job.monsterId);
+      if (!spec) continue;
+      const spot = placeIn(job.x, job.y, job.area, 0);
+      const mob = createMob(spec, spot.x, spot.y, job.packId, job.leash);
+      stampField(mob, job.x, job.y, {
+        area: job.area,
+        scope: job.scope,
+        respawn: job.respawn,
+      });
+      mobs.push(mob);
+      addToWorld(mob);
+    }
+  }
+
   function tickOnce(dt) {
+    tickRespawns(dt);
     const snapshot = mobs.slice();
     for (let i = 0; i < snapshot.length; i++) sense(snapshot[i]);
     for (let i = 0; i < snapshot.length; i++) act(snapshot[i], dt);
@@ -692,12 +910,13 @@
       RPG.registerSystem('ai', fn);
     } catch (err) {
       try {
-        RPG.registerSystem({ id: 'ai', name: 'ai', tick: fn, update: fn });
+        RPG.registerSystem({ id: 'ai-monsters', name: 'ai', tick: fn, update: fn });
       } catch (err2) {}
     }
   }
 
   ai.spawnPack = spawnPack;
+  ai.spawnZone = spawnZone;
   ai.spawnField = spawnField;
   ai.tick = tick;
   ai.forget = forget;
@@ -706,6 +925,7 @@
 
   const Monsters = root.Monsters || (root.Monsters = {});
   Monsters.spawnPack = spawnPack;
+  Monsters.spawnZone = spawnZone;
   Monsters.spawnField = spawnField;
   Monsters.specs = SPECS;
 

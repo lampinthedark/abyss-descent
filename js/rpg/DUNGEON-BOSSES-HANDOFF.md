@@ -1,8 +1,8 @@
 # Dungeon & bosses handoff
 
-Later: rebase this branch onto `cursor/rpg-d1-town-walk` once Game Developer pushes it.
+This branch already contains Game Developer's unpushed D1 commits (tip `c6b9a8b`, recreated locally; hashes differ). Once that branch is on GitHub, retarget the PR onto it. This slice still does not edit `rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, or `fx-adapter.js`.
 
-Core (`rpg.html`, `main.js`, `store.js`, `world.js`, `combat.js`, `fx-adapter.js`) is untouched. These scripts expect the HOOKS `window.RPG` API. They no-op missing pieces so they can load before a stub exists.
+These scripts expect the D1 `window.RPG` API. They no-op missing pieces so they can load before a stub exists.
 
 ## Paste into `rpg.html`
 
@@ -19,14 +19,15 @@ Load **after** core (world, combat, fx adapter, items / `Loot`) and **before** `
 
 ## What to call
 
-Goblin field (replaces the D1 placeholder wander in `main.js`):
+D1's `main.js` still wanders placeholder mobs until `RPG.ai` exists (`coreMobs()`). Paste the six scripts above the `main.js` tag. Then replace that placeholder `enter` spawn loop with:
 
 ```js
-RPG.ai.spawnPack('goblin', x, y, 4, 9);
-RPG.ai.spawnPack('rat', x, y, 3, 7);
+RPG.ai.spawnZone(RPG.world.zone);
 ```
 
-`spawnPack(monsterId, x, y, n, leash)` returns the mob array. Same pack id, shared aggro, leash in tiles. Monster ids: `rat`, `goblin`, `skeleton`, `imp`, `brute`, `ashmaw`.
+`spawnZone` reads `zone.spawns`. Town goblin entries are two pairs at `(5, 31)` and `(8, 32)`, each `n: 2`, `leash: 4`, `respawn: 10`, `area: {x0:4, y0:30, x1:10, y1:33}`. A pair shares aggro and at most two town goblins chase at once. The other pair is not pulled. Wander stays inside `area`. Spawns, wander targets, and chase steps call `RPG.world.clearOfKeepOut(x, y)` and stop at the Ash Stair keepOut (`{x0:11, y0:26, x1:13, y1:27, r:5}`). A dead field mob respawns after `respawn` seconds. Ash Stair packs stay full room aggro.
+
+`spawnPack(monsterId, x, y, n, leash, opts)` is the same call. `opts` may be `{ area, respawn, scope }`. Monster ids: `rat`, `goblin`, `skeleton`, `imp`, `brute`, `ashmaw`.
 
 Default outside-town field (placeholder tiles until the town exit is real):
 
@@ -67,7 +68,7 @@ RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'));
 
 `RPG.ui.drawDropRows` owns layout, icons (`icon_wyrmfang`, `icon_gravewarden_crown`, `icon_wyrm_scale` in `rsc-look/icons/rpg32/`), and rarity colours (Wyrmfang `#ff9a2e`). If `drawDropRows` is missing at runtime, `canDropPanel` no-ops. Do not add a second row renderer here.
 
-`RPG.ai.tick(dtSeconds)` is also registered as system `'ai'`. Pass **seconds**. The stepper splits frames so a leash is not tunneled.
+`RPG.ai.tick(dtSeconds)` registers as system `'ai'` when `registerSystem` takes a name and a function. D1's `registerSystem({ id, update })` rejects that call, so the same tick is registered as `'ai-monsters'` and the frame loop already runs it. Pass **seconds**. The stepper splits frames so a leash is not tunneled.
 
 ## Hooks Game Developer must wire
 
@@ -89,7 +90,7 @@ RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'));
 
 9. **Death UI revive.** One corpse revive per dungeon run. Button calls `RPG.deathRecap.offerRevive()` (uses `Ads.offerRevive` when present). On accept, call `RPG.deathRecap.confirmRevive(true)`. A second offer returns `'capped'` and does not call ads. `RPG.dungeon.load` calls `resetRun()`. Optional: `RPG.hero.revive()`; otherwise hp/life is refilled. Boss shield phase is cut and is not implemented.
 
-10. **Tick registration.** If `registerSystem('ai', fn)` does not match core's signature, call `RPG.ai.tick(dtSeconds)` from the frame loop yourself.
+10. **Tick registration.** D1's object form is already the fallback (`id: 'ai-monsters'`). If a future core accepts neither that nor `registerSystem('ai', fn)`, call `RPG.ai.tick(dtSeconds)` from the frame loop.
 
 11. **Ash Stair lock.** Before `loadZone` on the town stairs `(12, 27)`, call `RPG.dungeon.canEnter()`. When `ok` is false, toast `line` and stay in town. Do not load the stair. When `ok` is true, load as usual. Missing quests and an unfinished `q2` both return the Warden Ilse line.
 

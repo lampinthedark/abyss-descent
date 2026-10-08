@@ -725,6 +725,84 @@ assert(drawn[0].rows.map((d) => d.name).join('|') === "Wyrmfang|Gravewarden's Cr
 assert(drawn[0].rows[0].beamColor === '#ff9a2e' && drawn[0].rows[0].icon === 'icon_wyrmfang', 'Wyrmfang row is untouched');
 assert(!stairBoss[0].canDrop, 'spawn does not build a private drop panel');
 
+// Town field: two goblin pairs, keepOut, respawn. Dungeon packs stay whole-room aggro.
+let keepOut = [];
+function keepClear(x, y) {
+  for (let i = 0; i < keepOut.length; i++) {
+    const k = keepOut[i];
+    const dx = Math.max(k.x0 - x, 0, x - k.x1);
+    const dy = Math.max(k.y0 - y, 0, y - k.y1);
+    if (Math.hypot(dx, dy) < k.r) return false;
+  }
+  return true;
+}
+RPG.world.clearOfKeepOut = keepClear;
+const town = {
+  id: 'town',
+  keepOut: [{ x0: 11, y0: 26, x1: 13, y1: 27, r: 5 }],
+  spawns: [
+    { monsterId: 'goblin', x: 5, y: 31, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
+    { monsterId: 'goblin', x: 8, y: 32, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
+  ],
+};
+resetHero(100, 100);
+const townMobs = RPG.ai.spawnZone(town);
+assert(townMobs.length === 4, 'town field spawns four goblins');
+assert(townMobs.every((m) => m.leash === 4 && m.respawnSec === 10 && m.scope === 'pair'), 'entries keep leash, respawn, and pair scope');
+assert(townMobs.every((m) => m.x >= 4 && m.x <= 10 && m.y >= 30 && m.y <= 33), 'spawns sit inside the field area');
+const pairIds = [...new Set(townMobs.map((m) => m.packId))];
+assert(pairIds.length === 2, 'each spawn entry is its own pair');
+const pairA = townMobs.filter((m) => m.packId === pairIds[0]);
+const pairB = townMobs.filter((m) => m.packId === pairIds[1]);
+pairA[0].takeHit(1, { srcId: 'hero' });
+assert(pairA.every((m) => m.aggro), 'hitting one goblin pulls its partner');
+assert(pairB.every((m) => !m.aggro), 'the other pair stays idle');
+for (const m of townMobs) { m.aggro = false; m.state = 'wander'; }
+
+resetHero(1, 0);
+const tight = RPG.ai.spawnZone({
+  spawns: [
+    { monsterId: 'goblin', x: 0, y: 0, n: 2, leash: 6, area: { x0: -1, y0: -1, x1: 3, y1: 2 } },
+    { monsterId: 'goblin', x: 2, y: 0, n: 2, leash: 6, area: { x0: -1, y0: -1, x1: 3, y1: 2 } },
+  ],
+});
+RPG.ai.tick(0.05);
+const chasing = tight.filter((m) => m.aggro);
+assert(chasing.length === 2, 'at most two town goblins chase at once, got ' + chasing.length);
+assert(chasing.every((m) => m.packId === chasing[0].packId), 'the two chasers are one pair');
+for (const m of tight) m.takeHit(99999, {});
+
+keepOut = town.keepOut;
+resetHero(10, 30);
+const [edge] = RPG.ai.spawnPack('goblin', 8, 32, 1, 8, {
+  area: town.spawns[0].area,
+  scope: 'pair',
+  respawn: 10,
+});
+assert(keepClear(edge.x, edge.y), 'field spawn is outside keepOut');
+edge.aggro = true;
+edge.state = 'chase';
+RPG.ai.tick(0.2);
+assert(keepClear(edge.x, edge.y), 'chase stops at the keepOut edge');
+assert(edge.aggro === false, 'the goblin gives up instead of entering keepOut');
+hero.x = 100;
+hero.y = 100;
+for (let i = 0; i < 20; i++) RPG.ai.tick(0.2);
+assert(edge.x >= 4 && edge.x <= 10 && edge.y >= 30 && edge.y <= 33 && keepClear(edge.x, edge.y), 'wander stays in the area and out of keepOut');
+const idsBefore = new Set(entities.filter((e) => e.kind === 'mob').map((e) => e.id));
+edge.takeHit(99999, {});
+assert(edge.dead === true, 'field goblin dies');
+RPG.ai.tick(9.9);
+const early = entities.filter((e) => e.kind === 'mob' && !e.dead && !idsBefore.has(e.id));
+assert(early.length === 0, 'no respawn before 10s');
+RPG.ai.tick(0.2);
+const spawnedBack = entities.filter((e) => e.kind === 'mob' && !e.dead && !idsBefore.has(e.id));
+assert(spawnedBack.length === 1, 'goblin respawns after 10s, got ' + spawnedBack.length);
+assert(spawnedBack[0].packId === edge.packId && spawnedBack[0].respawnSec === 10, 'respawn keeps the pair and the timer');
+assert(keepClear(spawnedBack[0].x, spawnedBack[0].y), 'respawn lands outside keepOut');
+for (const m of spawnedBack) m.takeHit(99999, {});
+keepOut = [];
+
 if (failed) {
   console.error(failed + ' rpg ai check(s) failed');
   process.exit(1);
