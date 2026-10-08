@@ -165,6 +165,8 @@
   let gemChainAt = -10;
   let doubleLocked = false;
   let bankedAmount = 0;
+  let bestAtStart = 0;
+  let prevLabel = 'Previous best: none';
   let doubled = false;
   let revived = false;
   let ended = false;
@@ -2621,6 +2623,13 @@
     bankedAmount = runGold;
   }
 
+  function persistRun() {
+    if (state !== 'playing' && state !== 'paused' && state !== 'levelup' && state !== 'hermit') return;
+    syncBank();
+    if (time <= 0 && runGold <= 0 && kills <= 0) return;
+    try { SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
+  }
+
   function sim(dt) {
     simTick += 1;
     spawnedThisFrame = 0;
@@ -2804,6 +2813,8 @@
 
   function resetRun() {
     try { if (SurvivorSave.reload) SurvivorSave.reload(); } catch (e) {}
+    try { bestAtStart = SurvivorSave.bestTime(); } catch (e) { bestAtStart = 0; }
+    prevLabel = 'Previous best: none';
     clearPools();
     const fresh = blankPlayer();
     Object.assign(player, fresh);
@@ -3165,16 +3176,16 @@
     try { record = SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
     const title = $('sv-end-title');
     if (title) title.textContent = kind === 'won' ? 'You survived' : 'You fell';
+    const prior = Math.max(0, bestAtStart);
     const best = $('sv-best');
-    if (best) best.classList.toggle('hidden', !record.isBest);
+    if (best) best.classList.toggle('hidden', !(time > prior));
     const prev = $('sv-prev');
-    if (prev) {
-      if (record.previous > 0) {
-        const pm = Math.floor(record.previous / 60);
-        const ps = Math.floor(record.previous % 60);
-        prev.textContent = 'Previous best: ' + pm + ':' + String(ps).padStart(2, '0');
-      } else prev.textContent = 'Previous best: none';
-    }
+    if (prior > 0) {
+      const pm = Math.floor(prior / 60);
+      const ps = Math.floor(prior % 60);
+      prevLabel = 'Previous best: ' + pm + ':' + String(ps).padStart(2, '0');
+    } else prevLabel = 'Previous best: none';
+    if (prev) prev.textContent = prevLabel;
     const m = Math.floor(time / 60);
     const s = Math.floor(time % 60);
     const clock = m + ':' + String(s).padStart(2, '0');
@@ -3824,6 +3835,7 @@
   }
 
   function onHardwareBack() {
+    persistRun();
     if (state === 'paused') { resumePlay(); return; }
     if (state === 'playing') openPause();
   }
@@ -3843,6 +3855,7 @@
     let ok = false;
     try { ok = window.confirm('Quit this run?'); } catch (e) { ok = false; }
     if (!ok) return;
+    persistRun();
     const app = capacitorApp();
     if (app && typeof app.exitApp === 'function') {
       try { app.exitApp(); return; } catch (e) {}
@@ -3861,6 +3874,7 @@
   }
 
   function onBackground() {
+    persistRun();
     if (backgrounded) return;
     backgrounded = true;
     try { GameAudio.holdMute(true); } catch (e) {}
@@ -3889,6 +3903,7 @@
       if (document.visibilityState === 'hidden') onBackground();
       else onForeground();
     });
+    window.addEventListener('pagehide', () => { persistRun(); });
     const app = capacitorApp();
     if (!app || typeof app.addListener !== 'function') return;
     try {
@@ -4953,6 +4968,7 @@
       evolved: Object.keys(evolved),
       sweepKills: sweepKills,
       pending: pendingLevels,
+      prev: prevLabel,
       drops: itemDrops,
       chat: chatLog.map((line) => line.text).join('\n'),
       toastQueued: toastQueue.length,
@@ -5163,6 +5179,11 @@
       if (state === 'hermit') declineHermit();
       return snapRun();
     };
+    window.__svQuit = () => { quitToTitle(); return snapRun(); };
+    window.__svHide = () => { onBackground(); return snapRun(); };
+    window.__svPageHide = () => { persistRun(); return snapRun(); };
+    window.__svBack = () => { onHardwareBack(); return snapRun(); };
+    window.__svBest = () => { try { return SurvivorSave.bestTime(); } catch (e) { return 0; } };
     window.__svPause = () => { openPause(); return snapRun(); };
     window.__svResume = () => { resumePlay(); return snapRun(); };
     window.__svReduce = (on) => { reduceMotion = !!on; syncReducedMotion(!!on); return snapRun(); };

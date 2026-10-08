@@ -167,6 +167,8 @@ if (!src.includes("ntext(shown), '#ffffff'")) fail('dealt damage should be white
 if (src.includes('vis.n') || src.includes('vis.amount')) fail('damage numbers stay in floatText, not FX.hit');
 if (fxSrc.includes('fillText') || fxSrc.includes('strokeText')) fail('survivor-fx.js should not draw numbers');
 if (!src.includes("fxCall('reset')") || !src.includes("fxCall('vow', 0)")) fail('every run should reset fx and clear the vow tint');
+if (!src.includes("addEventListener('pagehide'") || !src.includes('function persistRun')) fail('runs should save on pagehide');
+if (!src.includes('persistRun();') || src.split('persistRun();').length < 5) fail('quit, hide, and back should each save the run');
 if (!src.includes("fxCall('setReducedMotion'")) fail('reduced motion should be passed to fx');
 if (!src.includes('setTransform(1, 0, 0, 1, 0, 0)')) fail('screen flash should draw in an unshaken canvas');
 if (!src.includes('if (!heavy || time >= (en.flashAt || 0))')) fail('boss and elite sprite flashes need a cooldown');

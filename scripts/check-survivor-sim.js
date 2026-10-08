@@ -114,6 +114,44 @@ function boot(seed0, search, storage) {
   return context;
 }
 
+function saveOnQuit() {
+  const bag = memoryStorage();
+  const game = boot(3, '?headless=1&debug=1', bag);
+  game.confirm = () => false;
+  game.__svStart();
+  game.__svAddGold(40);
+  for (let i = 0; i < 40; i++) game.__svStep(0.05);
+  const alive = game.__svSnap();
+  if (alive.state !== 'playing') fail('save setup died ' + alive.state + ' at ' + alive.time);
+  game.__svQuit();
+  if (game.__svBest() !== 0) fail('declined quit saved a best ' + game.__svBest());
+  if (game.__svPurse() !== 0) fail('declined quit banked gold ' + game.__svPurse());
+  game.__svHide();
+  const hiddenBest = game.__svBest();
+  if (!(hiddenBest >= 1.5)) fail('hide missed the clock ' + hiddenBest);
+  const banked = game.__svPurse();
+  if (banked < 40) fail('hide missed gold ' + banked);
+  game.__svPageHide();
+  if (game.__svPurse() !== banked) fail('pagehide banked twice ' + game.__svPurse());
+  game.__svAddGold(15);
+  game.__svBack();
+  if (game.__svPurse() !== banked + 15) fail('back banked ' + game.__svPurse() + ' wanted ' + (banked + 15));
+  game.__svBack();
+  if (game.__svPurse() !== banked + 15) fail('back banked twice ' + game.__svPurse());
+  game.confirm = () => true;
+  const quit = game.__svQuit();
+  if (quit.state !== 'title') fail('quit stayed in ' + quit.state);
+  if (game.__svPurse() !== banked + 15) fail('quit banked twice ' + game.__svPurse());
+  if (game.__svBest() + 0.05 < hiddenBest) fail('quit dropped the best ' + game.__svBest());
+  const next = boot(3, '?headless=1', bag);
+  next.__svStart();
+  const dead = next.__svHurt(9999);
+  if (!dead.prev || dead.prev.indexOf('Previous best: none') >= 0) fail('previous best ' + dead.prev);
+  if (dead.prev.indexOf('Previous best: 0:') !== 0) fail('previous best ' + dead.prev);
+  if (next.__svBest() + 0.05 < hiddenBest) fail('next run lost the best ' + next.__svBest());
+  console.log('save on quit keeps ' + dead.prev);
+}
+
 function lootCadence() {
   for (let seed = 1; seed <= 4; seed++) {
     const game = boot(seed, '?headless=1&debug=1&walk=circle');
@@ -1521,6 +1559,7 @@ tapGuards();
 evoNeeds();
 freshAndFlags();
 bossLook();
+saveOnQuit();
 lootCadence();
 idleDeath();
 groundCap();
