@@ -114,7 +114,7 @@
     function rumourOpts(r) {
       var L = S.items().Loot, drops = r.showDrops && L && L.preview ? L.preview(r.showDrops) : [];
       return { showDrops: r.showDrops || null, title: drops.length ? 'Can drop' : null,
-        drops: drops.map(function (d) { return { name: d.name, icon: d.icon, color: d.beamColor, rarity: d.rarity, label: d.label }; }) };
+        drops: drops }; // raw Loot.preview entries, as RPG.ui.drawDropRows expects
     }
     function showRumour(id, r) { return ask(id, r.lines.slice(0, 4), [{ id: 'ok', label: 'Okay' }], rumourOpts(r)); }
     function lastRumour() {

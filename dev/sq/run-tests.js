@@ -186,7 +186,7 @@ async function playQ1(seed) {
         ok(rum && rum.opts && rum.opts.drops.length, 'rumour carries the drop list');
         const pv = w.Loot.preview('ashmaw');
         eq(rum.opts.drops.map(d => d.name).join('|'), pv.map(d => d.name).join('|'), 'same list and order as Loot.preview');
-        eq(rum.opts.drops[0].name, 'Wyrmfang'); eq(rum.opts.drops[0].color, '#ff9a2e'); eq(rum.opts.drops[0].icon, 'icon_wyrmfang');
+        eq(rum.opts.drops[0].name, 'Wyrmfang'); eq(rum.opts.drops[0].beamColor, '#ff9a2e'); eq(rum.opts.drops[0].icon, 'icon_wyrmfang');
         eq(RPG.quests.marker('npc_questgiver'), '', 'stub Q3 not offered');
         eq(RPG.quests.current().text, 'Explore the Ash Stair');
         console.log('       Q2 game time (no combat) ' + (s.t - t0).toFixed(1) + ' s');
