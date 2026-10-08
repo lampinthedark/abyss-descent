@@ -272,6 +272,32 @@
     },
   });
 
+  // Ash Stair gate (12, 27): RPG.dungeon.canEnter() runs before any zone load.
+  // Shut (toast, stay in town) when it says no or when Dungeon & Bosses is missing.
+  // On ok, the stair loads only with &dungeon=1 until the return trip is signed off.
+  let onStair = false;
+  const DUNGEON_OPEN = /[?&]dungeon=1\b/.test((root.location && root.location.search) || '');
+  RPG.registerSystem({
+    id: 'core-stairs',
+    update: function () {
+      const ex = World.zone.exit;
+      const here = !!(ex && World.zoneId() === 'town' && hero.alive &&
+        Math.floor(hero.x) === ex.x && Math.floor(hero.y) === ex.y);
+      if (!here) { onStair = false; return; }
+      if (onStair) return;
+      onStair = true;
+      const D = RPG.dungeon;
+      let gate = { ok: false, line: 'Warden Ilse wants a word before you go down.' };
+      if (D && typeof D.canEnter === 'function') {
+        try { gate = D.canEnter() || gate; } catch (err) { if (root.console) console.error('[canEnter]', err); }
+      }
+      if (!gate.ok) { RPG.ui.toast(gate.line || 'The stair is shut.'); return; }
+      if (!DUNGEON_OPEN || typeof D.load !== 'function') { RPG.ui.toast('The Ash Stair opens tomorrow.'); return; }
+      hero.stop();
+      D.load(D.sample());
+    },
+  });
+
   // Save the live tile on hidden / pagehide / app pause even mid-walk.
   root.Save.onBeforeFlush = function () {
     const t = hero.tile();
