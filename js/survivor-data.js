@@ -129,16 +129,16 @@ const SurvivorData = (() => {
     const lv = Math.max(1, level | 0);
     // Early ranks are a handful of gems so the first two minutes hold about six
     // level-ups. After that the cost climbs so a geared hero waits ~20–35s.
-    if (lv <= 1) return 12;
-    if (lv === 2) return 14;
-    if (lv === 3) return 16;
-    if (lv === 4) return 18;
-    if (lv === 5) return 22;
-    if (lv === 6) return 28;
-    if (lv === 7) return 82;
+    if (lv <= 1) return 10;
+    if (lv === 2) return 12;
+    if (lv === 3) return 14;
+    if (lv === 4) return 16;
+    if (lv === 5) return 18;
+    if (lv === 6) return 24;
+    if (lv === 7) return 44;
     if (lv === 8) return 100;
-    if (lv === 9) return 84;
-    if (lv === 10) return 152;
+    if (lv === 9) return 68;
+    if (lv === 10) return 100;
     if (lv === 11) return 158;
     if (lv === 12) return 176;
     if (lv === 13) return 184;
@@ -217,17 +217,21 @@ const SurvivorData = (() => {
     ];
     const heavy = [];
     const force = [];
-    pairs.forEach((pair) => {
+    for (let i = 0; i < pairs.length; i++) {
+      const pair = pairs[i];
       const w = have[pair.weapon] || 0;
       const p = have[pair.passive] || 0;
       const weapon = catalogItem(pair.weapon);
       const passive = catalogItem(pair.passive);
       if (w > 0 && passive && p < passive.maxLevel) {
         heavy.push(passive);
-        if (w >= 4) force.push(passive);
+        if (w >= 3) force.push(passive);
       }
-      if (p > 0 && weapon && w < weapon.maxLevel) heavy.push(weapon);
-    });
+      if (p > 0 && weapon && w < weapon.maxLevel) {
+        heavy.push(weapon);
+        force.push(weapon);
+      }
+    }
     return { heavy: heavy, force: force };
   }
 
@@ -270,6 +274,14 @@ const SurvivorData = (() => {
         out[slot] = item;
         slot -= 1;
       });
+    }
+    const orbitItem = catalogItem('orbit');
+    if (orbitItem && (!owned || (owned.orbit || 0) < orbitItem.maxLevel)) {
+      let seen = false;
+      for (let i = 0; i < out.length; i++) {
+        if (out[i].id === 'orbit') seen = true;
+      }
+      if (!seen) out[0] = orbitItem;
     }
     return out;
   }

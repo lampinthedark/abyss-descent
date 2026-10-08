@@ -29,7 +29,7 @@ if (rootSurvivor.includes('mobile/shell')) fail('root survivor.html links the na
 if (!wwwSurvivor.includes('mobile/shell.css') || !wwwSurvivor.includes('mobile/shell.js')) {
   fail('www/survivor.html is missing the Capacitor shell');
 }
-if (!rootSurvivor.includes('survivor.js?v=5')) fail('survivor.html is missing its cache bust');
+if (!rootSurvivor.includes('survivor.js?v=6')) fail('survivor.html is missing its cache bust');
 if (!wwwHtml.includes('mobile/shell.css') || !wwwHtml.includes('mobile/shell.js')) {
   fail('www/index.html is missing the Capacitor shell');
 }

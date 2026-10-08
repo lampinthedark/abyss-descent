@@ -50,6 +50,9 @@ const SurvivorSave = (() => {
 
   function write(key, data) {
     try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
+    // Every save (purchase, refund, vow reward, double gold, reset) drops
+    // the derived cache. The next read rebuilds it from localStorage.
+    derived = null;
   }
 
   function uuid() {
@@ -176,6 +179,11 @@ const SurvivorSave = (() => {
     return derived || refreshDerived();
   }
 
+  function reload() {
+    derived = null;
+    return refreshDerived();
+  }
+
   function rank(id) {
     return Math.max(0, Number(view().upgrades[id]) || 0);
   }
@@ -299,9 +307,14 @@ const SurvivorSave = (() => {
     return loadInventory().items.slice();
   }
 
+  const bonusView = { might: 0, life: 0, greed: 0 };
+
   function itemBonus() {
     const d = view();
-    return { might: d.might, life: d.life, greed: d.greed };
+    bonusView.might = d.might;
+    bonusView.life = d.life;
+    bonusView.greed = d.greed;
+    return bonusView;
   }
 
   function recordRun(stats) {
@@ -330,7 +343,7 @@ const SurvivorSave = (() => {
   return {
     KEYS, SCHEMA, RARITY, RARITY_ORDER, SHOP, BASES,
     loadProfile, saveProfile, loadInventory, saveInventory, loadProgress, saveProgress,
-    rank, gold, bankGold, shopList, nextUpgrade, buy, roman,
+    rank, gold, bankGold, shopList, nextUpgrade, buy, roman, reload,
     createItem, rollRarity, mintDrop, addItem, items, itemBonus, recordRun, rarityName,
   };
 })();

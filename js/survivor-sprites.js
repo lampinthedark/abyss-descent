@@ -377,6 +377,23 @@ const SurvivorSprites = (() => {
     return list[i];
   }
 
+  const clipKeys = {};
+  function frameNamed(id, clip, time) {
+    let row = clipKeys[id];
+    if (!row) {
+      row = {};
+      clipKeys[id] = row;
+    }
+    let key = row[clip];
+    if (!key) {
+      key = id + ':' + clip;
+      row[clip] = key;
+    }
+    return frameAt(key, time);
+  }
+
+  const rectScratch = { sx: 0, sy: 0, sw: 0, sh: 0 };
+
   function blit(ctx, fr, dx, dy, flip, flash, alpha, scale) {
     if (!fr || !scaled) return;
     const k = scale || 1;
@@ -412,17 +429,26 @@ const SurvivorSprites = (() => {
     ctx.globalAlpha = 1;
   }
 
+  let ringGlow = null;
+  let ringGlowZoom = 0;
+
   function drawHeroRing(ctx, x, y) {
     const body = y - 10 * zoom;
     const halo = 22 * zoom;
-    const glow = ctx.createRadialGradient(x, body, 3 * zoom, x, body, halo);
-    glow.addColorStop(0, 'rgba(6, 4, 6, 0.88)');
-    glow.addColorStop(0.38, 'rgba(6, 4, 6, 0.55)');
-    glow.addColorStop(1, 'rgba(6, 4, 6, 0)');
-    ctx.fillStyle = glow;
+    if (!ringGlow || ringGlowZoom !== zoom) {
+      ringGlowZoom = zoom;
+      ringGlow = ctx.createRadialGradient(0, 0, 3 * zoom, 0, 0, halo);
+      ringGlow.addColorStop(0, 'rgba(6, 4, 6, 0.88)');
+      ringGlow.addColorStop(0.38, 'rgba(6, 4, 6, 0.55)');
+      ringGlow.addColorStop(1, 'rgba(6, 4, 6, 0)');
+    }
+    ctx.save();
+    ctx.translate(x, body);
+    ctx.fillStyle = ringGlow;
     ctx.beginPath();
-    ctx.arc(x, body, halo, 0, Math.PI * 2);
+    ctx.arc(0, 0, halo, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
     ctx.beginPath();
     ctx.arc(x, y - zoom, 12 * zoom, 0, Math.PI * 2);
     ctx.lineWidth = zoom * 3;
@@ -433,7 +459,7 @@ const SurvivorSprites = (() => {
   function drawHero(ctx, x, y, o) {
     if (!ready) return drawHeroFallback(ctx, x, y, o);
     const clip = o.moving ? 'run' : 'idle';
-    const fr = frameAt('hero:' + clip, o.time);
+    const fr = frameNamed('hero', clip, o.time);
     if (!fr) return;
     const lunge = Math.max(0, Math.min(1, (o.lunge || 0) / 0.16));
     const face = o.facing < 0 ? -1 : 1;
@@ -463,7 +489,7 @@ const SurvivorSprites = (() => {
     const id = o.sprite || (o.boss ? 'boss' : (o.eid === 'brute' ? 'brute' : o.eid === 'imp' ? 'imp' : o.eid === 'charger' ? 'charger' : o.eid === 'shooter' ? 'shooter' : 'skel'));
     const dying = o.dying > 0;
     const clip = dying ? 'idle' : 'run';
-    const fr = frameAt(id + ':' + clip, o.time || 0);
+    const fr = frameNamed(id, clip, o.time || 0);
     if (!fr) return;
     const fade = dying ? Math.max(0, o.dying / 0.22) : 1;
     const grow = dying ? Math.round((1 - fade) * zoom) : 0;
@@ -560,20 +586,26 @@ const SurvivorSprites = (() => {
   }
 
   function tintFloor(g, canvas) {
+    // Vow 4 and 5 stay on the vow-3 tint (floorVow is clamped). Shift each
+    // pixel toward moonlit blue but keep its brightness offset, so grout,
+    // tiles and decals do not collapse into one flat colour.
     if (floorVow <= 0) return;
     const img = g.getImageData(0, 0, canvas.width, canvas.height);
     const data = img.data;
     const t = floorVow / 3;
-    const cap = 72;
+    const dark = 1 - 0.28 * t;
+    const rMix = (1 - 0.55 * t) * dark;
+    const gMix = (1 - 0.22 * t) * dark;
+    const bMix = (1 + 0.18 * t) * dark;
     for (let i = 0; i < data.length; i += 4) {
       if (data[i + 3] < 8) continue;
-      let r = data[i] * (1 - t) + 32 * t;
-      let gv = data[i + 1] * (1 - t) + 40 * t;
-      let b = data[i + 2] * (1 - t) + 58 * t;
-      r *= 1 - 0.12 * t;
-      data[i] = Math.min(cap - 10, r);
-      data[i + 1] = Math.min(cap - 6, gv);
-      data[i + 2] = Math.min(cap, b);
+      const r = data[i];
+      const gv = data[i + 1];
+      const b = data[i + 2];
+      const lum = (r + gv + b) / 3;
+      data[i] = clamp(lum * rMix + (r - lum));
+      data[i + 1] = clamp(lum * gMix + (gv - lum));
+      data[i + 2] = clamp(lum * bMix + (b - lum));
     }
     g.putImageData(img, 0, 0);
   }
@@ -687,9 +719,13 @@ const SurvivorSprites = (() => {
   function useSheet() {}
 
   function frameRect(id, clip, time) {
-    const fr = frameAt(id + ':' + clip, time);
+    const fr = frameNamed(id, clip, time);
     if (!fr) return null;
-    return { sx: fr.x, sy: fr.y, sw: fr.w, sh: fr.h };
+    rectScratch.sx = fr.x;
+    rectScratch.sy = fr.y;
+    rectScratch.sw = fr.w;
+    rectScratch.sh = fr.h;
+    return rectScratch;
   }
 
   return {
