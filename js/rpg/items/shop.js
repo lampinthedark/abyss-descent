@@ -34,9 +34,12 @@
     smithy: {
       name: 'Ember & Anvil Smithy', keeper: 'npc_smith', buyMult: 1.15, sellMult: 0.55, restockMs: 120000,
       buys: ['gear', 'tool', 'bar', 'ore'],
+      // Cinderiron sword + cuirass are stocked (1 each) so a cold player can walk into the
+      // Ash Stair in Cinderiron right after the field grind (~91g of the ~100-175g they hold);
+      // the rest of the set (Smithing 6-8) and Verdite stay smithing goals.
       stock: [
         { base: 'rustbound_sword', qty: 3 }, { base: 'rustbound_shield', qty: 2 }, { base: 'rustbound_helm', qty: 2 },
-        { base: 'cinderiron_sword', qty: 1 }, { base: 'cinderiron_pickaxe', qty: 2 }, { base: 'cinderiron_hatchet', qty: 2 },
+        { base: 'cinderiron_sword', qty: 1 }, { base: 'cinderiron_cuirass', qty: 1 }, { base: 'cinderiron_pickaxe', qty: 2 }, { base: 'cinderiron_hatchet', qty: 2 },
         { base: 'rustbound_bar', qty: 10 }, { base: 'rustbound_ore', qty: 15 },
       ],
     },

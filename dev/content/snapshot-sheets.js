@@ -11,11 +11,16 @@ const SRC = {
   phaseb: '/workspace/rsc-look/phaseb/sheet.json',
   icons32: '/workspace/rsc-look/icons/rpg32/sheet.json',
   icons32_tinted: '/workspace/rsc-look/icons/rpg32/sheet_tinted.json',
+  mobs: '/workspace/rsc-look/mobs/sheet.json',      // rat + goblin
+  mobs2: '/workspace/rsc-look/mobs2/sheet.json',    // skeleton, imp, brute, ashmaw
 };
 const out = {};
 for (const [k, p] of Object.entries(SRC)) {
   const buf = fs.readFileSync(p);
-  out[k] = { path: p, sha256: crypto.createHash('sha256').update(buf).digest('hex'), keys: Object.keys(JSON.parse(buf).frames).sort() };
+  const frames = JSON.parse(buf).frames;
+  out[k] = { path: p, sha256: crypto.createHash('sha256').update(buf).digest('hex'), keys: Object.keys(frames).sort() };
+  // mob sheets: the tell-pose floor ms[0] of every attack-type anim (content windups must be >= it)
+  if (/^mobs/.test(k)) { out[k].tellMs = {}; for (const f of out[k].keys) if (frames[f].hit_frame != null) out[k].tellMs[f] = frames[f].ms[0]; }
 }
 fs.writeFileSync(path.join(__dirname, 'sheet-keys.json'), JSON.stringify(out, null, 1) + '\n');
 console.log(Object.entries(out).map(([k, v]) => k + ' ' + v.keys.length + ' keys ' + v.sha256.slice(0, 8)).join('\n'));

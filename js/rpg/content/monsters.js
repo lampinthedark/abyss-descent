@@ -11,6 +11,9 @@
  *   (plus 0.33 x hp to Hitpoints). Informational; GD awards per damage.
  * - srcName on every attack = the monster's display name (derived below), so
  *   core can pass it straight into the death recap's lastHits.
+ * - anim on every attack = the sheet key core plays for it (derived below):
+ *   melee / ranged -> `${sprite}_attack`, slam -> `${sprite}_slam`, charge ->
+ *   `${sprite}_charge` (rat/goblin: rsc-look/mobs, the rest: rsc-look/mobs2).
  * - Every windupMs >= 400; boss attacks >= 600; elite (brute) telegraphs >= 600. 'charge' draws telegraphLine
  *   (length = range), 'slam' draws telegraph (ring radius = radius, or range).
  * - cooldownMs is per attack, counted from the hit; balance-sim also rests a
@@ -31,6 +34,7 @@
   C.MIN_WINDUP_MS = 400;
   C.MIN_BOSS_WINDUP_MS = 600;
   C.MIN_ELITE_TELEGRAPH_MS = 600;   // brute slam / charge (death-recap readability)
+  C.ANIM_FOR_KIND = { melee: 'attack', ranged: 'attack', slam: 'slam', charge: 'charge' };
 
   /**
    * Approved combat rules this data is tuned against (core owns the real
@@ -97,7 +101,10 @@
   };
   Object.keys(M).forEach(function (k) {
     M[k].xp = Math.round(M[k].hp * C.COMBAT_RULES.xpPerDamage);
-    M[k].attacks.forEach(function (a) { a.srcName = M[k].name; });   // death recap: lastHits srcName
+    M[k].attacks.forEach(function (a) {
+      a.srcName = M[k].name;                                          // death recap: lastHits srcName
+      a.anim = M[k].sprite + '_' + C.ANIM_FOR_KIND[a.kind];           // e.g. mob_brute_slam
+    });
   });
 
   C.MONSTERS = M;

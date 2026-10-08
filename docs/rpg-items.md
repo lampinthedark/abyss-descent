@@ -90,7 +90,7 @@ Ashmaw chase rolls: Wyrmfang 1/150, Gravewarden's Crown 1/40, a Wyrmscale armour
 
 ## Pity (owned by Loot, persisted in the item save)
 
-- **First Rare (one-time per account):** counts every kill until the first Rare-or-better drop. Kills 1-9 add nothing extra. From kill 10 the chance of a forced beamed Rare climbs linearly to 12%, and kill 40 always gives one. In near town it is Rustbound gear, which GD's rat and goblin packs feed. 40 kills is about 10 min at 4 kills/min and 20 min at 2 kills/min. Stored as `firstRare: {done, kills, at, kill}`. Once `done`, it never resets.
+- **First Rare (one-time per account):** fires on the goblin field. `kills` counts **near-town kills only** (rat and goblin packs) until the first Rare-or-better drop. Near-town kills 1-3 add nothing extra; from kill 4 the chance of a forced beamed Rare climbs linearly to 25% at kill 11, and near-town kill 12 always gives one (Rustbound gear). 12 is at or below the fewest near-town kills any play style makes before the Ash Stair (Q2's 4 goblins + the grind to Attack/Defence 3: 14 for an all-on-Attack player), so 100% of simulated players get it on the field, by about 10 min after starting Q1 with new-player slack (content test, `dev/content/gear-path.js`). 12 kills is 3 min at 4 kills/min and 6 min at 2 kills/min. Backup: `all` counts every kill, and any kill number 40 forces one (dungeon tiers) for a player who skips the field. Stored as `firstRare: {done, kills, all, at, kill}`; older saves without `all` use `kills` for it. Once `done`, it never resets.
 - **Drought:** after 75 kills with no Rare+, the next kill adds one.
 - **Server ownership:** today a player who clears local storage gets the first-Rare again. That is one Rustbound Rare, an accepted risk before the server exists. With the server, `firstRare` and `pity` move to the account row. The server rolls drops itself (same tables and seeds), and the client value is ignored, so clearing the save can't farm it.
 
@@ -100,16 +100,16 @@ Ashmaw chase rolls: Wyrmfang 1/150, Gravewarden's Crown 1/40, a Wyrmscale armour
 
 ```
 Week-1 loot sim: 4000 players/scenario, town 4 kills/min for 15 min, dungeon 5 kills/min, 20-min runs ending at the boss, seed 1
-First-Rare pity: near-town kills 10+ ramp to 12%, guaranteed at kill 40; drought pity every 75 kills
+First-Rare pity: near-town kills 4+ ramp to 25%, guaranteed at near-town kill 12 (any-kill backup 40); drought pity every 75 kills
 
 scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h
-route_pity                       5.3 min  9.0 min 10.0 min   100.0% |   27.0 min 55.2 min   94.3% | 68.9%
+route_pity                       2.3 min  3.0 min  3.0 min   100.0% |   26.8 min 55.2 min   94.0% | 68.9%
 route_no_pity                    8.0 min 19.8 min 35.2 min    90.9% |   26.6 min 55.2 min   94.1% | 68.1%
-town_only_pity                   5.0 min  9.0 min 10.0 min   100.0% |   46.0 min    2.4 h   57.8% | 24.2%
+town_only_pity                   2.3 min  3.0 min  3.0 min   100.0% |   46.3 min    2.4 h   57.8% | 24.3%
 town_only_no_pity                7.8 min 25.5 min    2.0 h    83.3% |   46.5 min    2.4 h   57.7% | 24.1%
 
-First 20-min dungeon run (with pity): Rare+ before the boss 98.4%, Very Rare+ anywhere in the run 70.0%, boss Rare+ 100% (guaranteed entry).
-Share of players whose first Rare came from the first-Rare pity: 55.1% (town only).
+First 20-min dungeon run (with pity): Rare+ before the boss 98.3%, Very Rare+ anywhere in the run 69.5%, boss Rare+ 100% (guaranteed entry).
+Share of players whose first Rare came from the first-Rare pity: 81.1% (town only).
 Wyrmfang (1/150 per Ashmaw kill): median 102 boss kills = 34.0 h of 20-min runs; p90 333 kills = 111.0 h.
 ```
 
@@ -117,10 +117,11 @@ The slow case, at 2 kills/min near town (1500 players):
 
 ```
 Week-1 loot sim: 1500 players/scenario, town 2 kills/min for 15 min, dungeon 5 kills/min, 20-min runs ending at the boss, seed 1
+
 scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h
-route_pity                      10.5 min 16.0 min 17.0 min   100.0% |   28.8 min 55.2 min   94.2% | 69.4%
+route_pity                       4.5 min  6.0 min  6.0 min   100.0% |   28.2 min 55.2 min   94.0% | 70.3%
 route_no_pity                   15.2 min 22.4 min 35.2 min    80.9% |   28.8 min 55.2 min   93.1% | 68.3%
-town_only_pity                  10.0 min 17.5 min 20.0 min   100.0% |      1.3 h    3.2 h   33.6% | 12.7%
+town_only_pity                   4.5 min  6.0 min  6.0 min   100.0% |      1.3 h    3.2 h   33.3% | 12.7%
 town_only_no_pity               16.0 min 52.0 min    2.9 h    59.6% |      1.3 h    3.1 h   33.0% | 12.5%
 
 ```
@@ -128,6 +129,7 @@ town_only_no_pity               16.0 min 52.0 min    2.9 h    59.6% |      1.3 h
 ## Shops (gold sink)
 
 - `general_store` buys anything tradeable at x0.4. `smithy` (x1.15 buy / x0.55 sell) and `tackle` (x1.1 / x0.5) buy only their own categories.
+- The smithy stocks one Cinderiron sword (35g) and one Cinderiron cuirass (56g), so a cold player can walk into the Ash Stair in weapon + body right after the Attack/Defence 3 grind (91g: quest gold 85 + field coin; on the fewest-kill path about 1 in 20,000 is up to 2g short and sells the first Rare to cover it). The rest of the Cinderiron set (Smithing 6-8) and all of Verdite stay smithing goals. See `docs/rpg-content.md`, "Post-Q2 path into the dungeon".
 - Unit buy is at least the value (up to +30% when stock is scarce). Unit sell is at most 0.6 × value (down to half that when stock is glutted). Both are checked on load and tested.
 - Selling and rebuying can never create gold. A test also shows that buying inputs and selling crafted output always loses gold.
 - Stock drifts 1 step toward its target every `restockMs`. A backwards clock gives 0 steps and never double-restocks.

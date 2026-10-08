@@ -142,19 +142,33 @@ test("Loot.preview('ashmaw') lists Wyrmfang with its icon key; labels are flavou
   eq(p[0].base, 'wyrmfang', 'boss legendary listed first');
   ok(p.some((e) => e.label === 'guaranteed' && e.rarity === 'rare'), 'guaranteed boss Rare tier');
   Object.keys(Loot.MONSTERS).forEach((m) => Loot.preview(m).forEach((e) => {
-    ok(['legendary', 'very rare', 'guaranteed'].includes(e.label), m + ' label ' + e.label);
+    ok(['legendary', 'very rare', 'rare find', 'guaranteed'].includes(e.label), m + ' label ' + e.label);
     ok(keys.has(e.icon), m + ' icon ' + e.icon);
-    ok(e.rarity === 'legendary' || e.rarity === 'very_rare' || e.label === 'guaranteed', m + ' not notable');
+    ok(e.rarity === 'legendary' || e.rarity === 'very_rare' || e.label === 'guaranteed' || (e.label === 'rare find' && (Loot.MONSTERS[m].chase || []).some((c) => c.base === e.base)), m + ' not notable');
+    ok(/^#[0-9a-f]{6}$/.test(e.color), m + ' color ' + e.color);
     ok(!/\d|%|1\//.test(e.label), 'odds leaked');
     eq(Banned.check(e.name)[0], 'OK');
   }));
   ok(!Loot.preview('rat').some((e) => e.base === 'wyrmfang'));
   deq(Loot.preview('nope'), []);
 });
+test("Loot.preview('ashmaw') display order + panel colours are locked (GD drawer renders as-is)", () => {
+  const p = Loot.preview('ashmaw');
+  deq(p.slice(0, 4).map((e) => [e.name, e.rarity, e.color]), [
+    ['Wyrmfang', 'legendary', '#ff9a2e'],
+    ["Gravewarden's Crown", 'legendary', '#ff9a2e'],   // Legendary in data; UI spec asked #c070ff (flagged, rarity unchanged)
+    ['Wyrmscale armour', 'very_rare', '#c070ff'],
+    ['Wyrm Scale', 'material', '#e8c84a'],             // UI panel material gold (PREVIEW_COLORS)
+  ]);
+  p.forEach((e) => ok(typeof e.color === 'string' && e.color.length === 7, e.name + ' has color'));
+  eq(Loot.PREVIEW_COLORS.material, '#e8c84a');
+  eq(p[3].beamColor, Db.colorFor('material'), 'beam colour left as-is');
+  eq(Db.getBase('gravewarden_crown').legendary, 'gravewarden_crown');
+});
 test('rollDrop is deterministic for a seed', () => {
   deq(Loot.rollDrop('imp', Core.makeRng(77)), Loot.rollDrop('imp', Core.makeRng(77)));
 });
-test('first-Rare pity: guaranteed by kill 40 on rats/goblins for every seed; escalates; one-time', () => {
+test('first-Rare pity: guaranteed by near-town kill GUARANTEE on rats/goblins for every seed; escalates; one-time', () => {
   let maxK = 0;
   for (let s = 0; s < 3000; s++) {
     const rng = Core.makeRng(Core.mixSeed('fr', s));
@@ -167,9 +181,24 @@ test('first-Rare pity: guaranteed by kill 40 on rats/goblins for every seed; esc
     maxK = Math.max(maxK, k);
   }
   ok(maxK <= Loot.FIRST_RARE.GUARANTEE, 'first rare at kill ' + maxK);
-  eq(Loot.firstRareChance(1), 0); ok(Loot.firstRareChance(20) > Loot.firstRareChance(11)); eq(Loot.firstRareChance(40), 1);
+  eq(Loot.FIRST_RARE.GUARANTEE, 12); eq(Loot.FIRST_RARE.RAMP_START, 4);
+  eq(Loot.firstRareChance(3), 0); ok(Loot.firstRareChance(10) > Loot.firstRareChance(5)); eq(Loot.firstRareChance(12), 1);
   const done = Loot.nextFirstRare({ done: true, kills: 9 }, 'rat', null);
   ok(done.done, 'never resets');
+});
+test('first-Rare: only near-town kills count toward the field guarantee; dungeon kills hit the any-kill backup at 40', () => {
+  let fr = { done: false, kills: 0, all: 0 };
+  fr = Loot.nextFirstRare(fr, 'skeleton', null); deq([fr.kills, fr.all], [0, 1]);
+  fr = Loot.nextFirstRare(fr, 'goblin', null); deq([fr.kills, fr.all], [1, 2]);
+  deq(Loot.nextFirstRare({ done: false, kills: 7 }, 'rat', null), { done: false, kills: 8, all: 8 }, 'pre-split save: all = kills');
+  let maxK = 0;
+  for (let s = 0; s < 1500; s++) {
+    const rng = Core.makeRng(Core.mixSeed('fr-dungeon', s));
+    let f = { done: false, kills: 0, all: 0 }, k = 0;
+    while (!f.done) { k++; f = Loot.rollDrop(k % 2 ? 'skeleton' : 'imp', rng, { firstRare: f }).firstRare; }
+    maxK = Math.max(maxK, k);
+  }
+  ok(maxK <= Loot.FIRST_RARE.BACKUP_GUARANTEE, 'dungeon-only backup at ' + maxK);
 });
 test('first-Rare pity persists in the world save and is not re-granted after load', () => {
   const st = R.Modules.itemSave.memoryStorage();
@@ -180,7 +209,7 @@ test('first-Rare pity persists in the world save and is not re-granted after loa
     if (r.firstRareUsed) forcedAt = i + 1;
   }
   ok(w.Loot.firstRare().done);
-  ok(w.Loot.firstRare().kills <= 40);
+  ok(w.Loot.firstRare().kills <= Loot.FIRST_RARE.GUARANTEE);
   w.ItemSave.save();
   const w2 = mkWorld({ storage: st });
   ok(w2.ItemSave.load().ok);

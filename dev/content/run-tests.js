@@ -50,6 +50,16 @@ function sheetKeys(name) {
   return new Set(SNAP[name].keys);
 }
 const TOWN = sheetKeys('town'), PHASEB = sheetKeys('phaseb');
+function mobTells() {   // { key: tell ms } for both mob sheets (live, else snapshot)
+  const out = {};
+  for (const name of ['mobs', 'mobs2']) {
+    const p = SNAP[name].path;
+    if (fs.existsSync(p)) { const fr = JSON.parse(fs.readFileSync(p, 'utf8')).frames; for (const k of Object.keys(fr)) out[k] = fr[k].hit_frame != null ? fr[k].ms[0] : null; }
+    else for (const k of SNAP[name].keys) out[k] = SNAP[name].tellMs[k] != null ? SNAP[name].tellMs[k] : null;
+  }
+  return out;
+}
+const MOBS = mobTells();
 const ICONS = new Set([...sheetKeys('icons32'), ...sheetKeys('icons32_tinted')]);
 const Db = R.ItemsDb, CR = R.Modules.crafting;
 
@@ -98,6 +108,30 @@ test('ids rat goblin skeleton imp brute ashmaw; ashmaw has a ring slam and a cha
 });
 test('every content monster has an RPGItems drop table (Loot ids match)', () => {
   for (const id of C.MONSTER_IDS) { ok(R.Loot.MONSTERS[id], id); eq(C.MONSTERS[id].name, R.Loot.MONSTERS[id].name, id + ' display name'); }
+});
+test('mob art: every monster sprite has idle/walk/attack in the mob sheets; every attack anim (${sprite}_{attack|slam|charge}) exists', () => {
+  for (const id of C.MONSTER_IDS) {
+    const m = C.MONSTERS[id];
+    eq(m.sprite, 'mob_' + id, id + ' sprite');
+    for (const st of ['idle', 'walk', 'attack']) ok(m.sprite + '_' + st in MOBS, m.sprite + '_' + st);
+    for (const a of m.attacks) {
+      eq(a.anim, m.sprite + '_' + C.ANIM_FOR_KIND[a.kind], id + ' ' + a.kind + ' anim');
+      ok(a.anim in MOBS, 'missing art key ' + a.anim);
+    }
+  }
+  // the PA's split: brute jab vs slam vs charge, Ashmaw claw vs slam vs charge
+  deq(C.MONSTERS.brute.attacks.map(a => a.anim).sort(), ['mob_brute_attack', 'mob_brute_charge', 'mob_brute_slam']);
+  deq(C.MONSTERS.ashmaw.attacks.map(a => a.anim).sort(), ['mob_ashmaw_attack', 'mob_ashmaw_charge', 'mob_ashmaw_slam']);
+});
+test('every attack windup covers the drawn tell pose (windupMs >= ms[0] of the anim)', () => {
+  for (const id of C.MONSTER_IDS) for (const a of C.MONSTERS[id].attacks) {
+    const t = MOBS[a.anim];
+    ok(t != null, a.anim + ' has a hit_frame');
+    ok(a.windupMs >= t, a.anim + ' windup ' + a.windupMs + ' < tell ' + t);
+  }
+});
+test('content sprite == RPGItems Loot sprite for every monster', () => {
+  for (const id of C.MONSTER_IDS) eq(R.Loot.MONSTERS[id].sprite, C.MONSTERS[id].sprite, id);
 });
 test('xp = 1 x hp (approved per-damage style rate)', () => { for (const id of C.MONSTER_IDS) eq(C.MONSTERS[id].xp, C.MONSTERS[id].hp * 1); });
 test('atk field: required on every monster, danger rises rat < goblin < skeleton < imp <= brute <= ashmaw', () => {
@@ -399,19 +433,53 @@ test('Q1 estimate < 10 min (gate 2)', () => {
   ok(Q[0].totalS < 600, Q[0].totalS);
   ok(Q[0].totalS * 2.5 < 600, 'even at 2.5x new-player slack');
 });
-test('first-Rare pity: Q2 + the Cinderiron grind put a typical player past the ramp; >= 80% get the first Rare on the field', () => {
+test('first-Rare guarantee fires ON THE FIELD for 100% of players within 20 min, every style (typical / even / all-on-Attack)', () => {
   const FR = R.Loot.FIRST_RARE;
   ok(R.Loot.MONSTERS.goblin.nearTown && R.Loot.MONSTERS.rat.nearTown);
   for (const s of C.FIELD_SPAWNS) ok(R.Loot.MONSTERS[s.monsterId].nearTown, s.monsterId);
-  const kills = Math.round(5 + 2.5 + B.grindDamage(B.STYLES.typical) / C.MONSTERS.goblin.hp);   // Q2 (~5 goblins + a rat pack) + grind
-  ok(kills >= FR.RAMP_START + 10, 'field kills ' + kills);
-  let got = 0; const N = 600;
-  for (let i = 0; i < N; i++) {
-    const rng = M.rng32(9000 + i); let fr = { done: false, kills: 0 };
-    for (let k = 0; k < kills && !fr.done; k++) fr = R.Loot.rollDrop(k % 4 === 3 ? 'rat' : 'goblin', rng, { firstRare: fr }).firstRare;
-    if (fr.done) got++;
+  ok(FR.RAMP_START < FR.GUARANTEE && FR.GUARANTEE < FR.BACKUP_GUARANTEE, 'ramp < guarantee < dungeon backup');
+  const GP = require('./gear-path.js');
+  const res = ['typical', 'even', 'attack'].map(st => GP.fieldFirstRare(st, QUICK ? 400 : 2000));
+  const fewest = Math.min(...res.map(r => r.kills));
+  ok(FR.GUARANTEE <= fewest, 'guarantee N=' + FR.GUARANTEE + ' must be <= fewest field kills ' + fewest);
+  for (const r of res) {
+    eq(r.hitRate, 1, r.style + ' field hit rate');
+    ok(r.maxKill <= FR.GUARANTEE, r.style + ' latest kill ' + r.maxKill);
+    ok(r.maxS <= 20 * 60, r.style + ' latest ' + (r.maxS / 60).toFixed(1) + ' min');
   }
-  ok(got / N >= 0.8, 'P(first Rare on the field) ' + (got / N).toFixed(2));
+});
+test('post-Q2 path into the dungeon in Cinderiron (weapon + body) < ~10 min for a cold player, every style', () => {
+  const GP = require('./gear-path.js');
+  for (const st of ['typical', 'even', 'attack']) {
+    const o = GP.postQ2('core', st);
+    ok(o.gear.feasible, st + ' feasible');
+    ok(o.gear.totalS <= 60, st + ' gear leg ' + o.gear.totalS.toFixed(0) + ' s (buy from the smithy)');
+    ok(o.rawS / 60 <= 4.5, st + ' raw ' + (o.rawS / 60).toFixed(2));
+    ok(o.slackS / 60 <= 10.5, st + ' slack ' + (o.slackS / 60).toFixed(2));
+  }
+  ok(GP.postQ2('core', 'even').slackS / 60 < 10 && GP.postQ2('core', 'attack').slackS / 60 < 10);
+  // smithing stays meaningful: the full Cinderiron set and Verdite are not in the shop
+  deq(['sword', 'shield', 'helm', 'cuirass', 'greaves', 'gauntlets', 'sabatons'].filter(k => GP.shopPrice('cinderiron_' + k) != null), ['sword', 'cuirass'], 'smithy Cinderiron stock');
+  ok(GP.shopPrice('verdite_sword') == null && GP.shopPrice('verdite_cuirass') == null, 'Verdite is smithed only');
+  const full = GP.postQ2('full', 'typical');
+  ok(full.gear.plan && full.gear.plan.smiths > 0, 'rest of the set is smithed');
+  // everyone can pay 91g at the smithy: quest gold 85 + goblin coin over the fewest-kill path (14 goblins, no rats);
+  // the rare short purse (~1 in 20000 is a few gold short on coin alone) sells the field's first Rare at the general store (buys all)
+  const SH = R.Modules.shop, store = SH.SHOPS.general_store;
+  const need = GP.shopPrice('cinderiron_sword') + GP.shopPrice('cinderiron_cuirass');
+  let poorestCoin = Infinity, poorest = Infinity;
+  for (let sd = 0; sd < (QUICK ? 300 : 3000); sd++) {
+    const rng = M.rng32(777 + sd * 13); let fr = { done: false, kills: 0, all: 0 }, gold = GP.coldStart().gold, sale = 0;
+    for (let i = 0; i < 14; i++) {
+      const o = R.Loot.rollDrop('goblin', rng, { firstRare: fr }); fr = o.firstRare; gold += o.gold;
+      if (o.firstRareUsed) { const it = o.items.find(x => x.rarity === 'rare'); ok(SH.shopBuys(store, Db.getBase(it.base)), 'store buys ' + it.base); sale = SH.unitSell(store, it, 0); }
+    }
+    poorestCoin = Math.min(poorestCoin, gold); poorest = Math.min(poorest, gold + sale);
+  }
+  ok(poorestCoin >= need - 10, 'coin alone ' + poorestCoin + 'g');
+  ok(poorest >= need, 'poorest fewest-kill player ' + poorest + 'g (coin + first Rare sold) < ' + need + 'g');
+  // before the fix (sword-only shop) the cold path was way over
+  ok(GP.postQ2('core', 'typical', { shopPieces: GP.BEFORE_SHOP }).slackS / 60 > 15, 'before-fix sanity');
 });
 test('Cinderiron wear requirement is Attack 3 / Defence 3 (PM-approved); grind after Q2 is short; Wyrmfang stays Attack 40', () => {
   deq(B.GEAR_REQ, { attack: 3, defence: 3 });

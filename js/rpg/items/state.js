@@ -62,7 +62,7 @@
       ground: [],
       shops: {},
       kills: 0, pity: 0,
-      firstRare: { done: false, kills: 0 },   // one-time new-player pity (Loot.FIRST_RARE)
+      firstRare: { done: false, kills: 0, all: 0 },   // one-time new-player pity (Loot.FIRST_RARE): kills = near-town, all = every kill
       minted: {}, burned: {}, flowIn: {}, flowOut: {},
       applied: {},          // deviceId -> last applied seq (idempotency)
     };

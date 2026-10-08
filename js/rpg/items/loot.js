@@ -118,7 +118,7 @@
       upgrade: 0.08, rareTable: 1 / 32,
     },
     ashmaw: {
-      name: 'Ashmaw the Wyrmling', level: 20, zone: 'dungeon', boss: true, sprite: 'mob_boss',
+      name: 'Ashmaw the Wyrmling', level: 20, zone: 'dungeon', boss: true, sprite: 'mob_ashmaw',
       gold: { chance: 1, min: 80, max: 150 },
       always: [
         { base: 'travellers_stew', qty: [2, 3] },
@@ -143,29 +143,35 @@
   };
 
   /**
-   * First-Rare pity (one-time per account). Counts EVERY kill until the
-   * player's first Rare-or-better drop. The near-town rat and goblin packs are
-   * where it fires in practice, and counting all kills keeps the promise when
-   * a player heads into the dungeon early. From kill RAMP_START the chance of
-   * a forced Rare escalates linearly up to RAMP_MAX. Kill GUARANTEE always
-   * gives one. 40 kills is about 10 min at 4 kills/min, and still within
-   * 20 min at 2 kills/min. The state lives in the item save now and on the
-   * server account later (see docs/rpg-items.md, "Pity").
+   * First-Rare pity (one-time per account). `kills` counts NEAR-TOWN kills only
+   * (rat / goblin packs on the goblin field) until the player's first
+   * Rare-or-better drop; `all` counts every kill. On a near-town kill, from
+   * near-town kill RAMP_START the chance of a forced Rare escalates linearly up
+   * to RAMP_MAX, and near-town kill GUARANTEE always gives one. GUARANTEE (12)
+   * sits at or below the fewest near-town kills any play style makes before the
+   * Ash Stair (Q2's 4 goblins + the grind to Cinderiron's Attack/Defence 3:
+   * about 14 for an all-on-Attack player, 17-33 by the content model), so it
+   * always fires on the goblin field. BACKUP_GUARANTEE is a safety net for a
+   * player who skips the field: any kill number 40 forces one (dungeon tiers).
+   * The state lives in the item save now and on the server account later
+   * (see docs/rpg-items.md, "Pity").
    */
-  var FIRST_RARE = { RAMP_START: 10, RAMP_MAX: 0.12, GUARANTEE: 40, TIERS: ['rustbound'] };
+  var FIRST_RARE = { RAMP_START: 4, RAMP_MAX: 0.25, GUARANTEE: 12, BACKUP_GUARANTEE: 40, TIERS: ['rustbound'] };
 
+  /** Forced-Rare chance on the k-th near-town kill. */
   function firstRareChance(k) {
     if (k >= FIRST_RARE.GUARANTEE) return 1;
     if (k < FIRST_RARE.RAMP_START) return 0;
     return FIRST_RARE.RAMP_MAX * (k - FIRST_RARE.RAMP_START + 1) / (FIRST_RARE.GUARANTEE - FIRST_RARE.RAMP_START);
   }
+  function allKills(fr) { return fr.all != null ? fr.all : fr.kills; }   // pre-split saves counted every kill in `kills`
 
   /** Pure state transition, shared by the roller, the world reducer and the sim. */
   function nextFirstRare(fr, monsterId, best) {
-    fr = fr || { done: false, kills: 0 };
-    if (fr.done) return { done: true, kills: fr.kills, at: fr.at || null };
-    var kills = fr.kills + (MONSTERS[monsterId] ? 1 : 0);
-    return { done: rarityRank(best) >= 1, kills: kills };
+    fr = fr || { done: false, kills: 0, all: 0 };
+    if (fr.done) { var d = { done: true, kills: fr.kills, all: allKills(fr), at: fr.at || null }; if (fr.kill != null) d.kill = fr.kill; return d; }
+    var m = MONSTERS[monsterId];
+    return { done: rarityRank(best) >= 1, kills: fr.kills + (m && m.nearTown ? 1 : 0), all: allKills(fr) + (m ? 1 : 0) };
   }
 
   var gearPoolCache = {};
@@ -223,7 +229,7 @@
   /**
    * Roll one kill. rng: RPG.Core.makeRng(...) | () => float | seed. Defaults to Math.random.
    * opts.pity: kills since the last Rare+ (from the world); triggers a forced Rare at PITY_KILLS.
-   * opts.firstRare: { done, kills } one-time new-player pity (near-town packs only).
+   * opts.firstRare: { done, kills (near-town), all } one-time new-player pity (fires on the goblin field; any-kill backup at 40).
    */
   function rollDrop(monsterId, rng, opts) {
     opts = opts || {};
@@ -255,8 +261,8 @@
     out.best = bestRarity(out.items);
     var fr = opts.firstRare;
     if (fr && !fr.done && rarityRank(out.best) < 1) {
-      var p = firstRareChance(fr.kills + 1);
-      if (p >= 1 || rng.chance(p)) {
+      var p = Math.max(m.nearTown ? firstRareChance(fr.kills + 1) : 0, allKills(fr) + 1 >= FIRST_RARE.BACKUP_GUARANTEE ? 1 : 0);
+      if (p >= 1 || (p > 0 && rng.chance(p))) {
         rollEntry({ gear: { tiers: m.nearTown ? FIRST_RARE.TIERS : pityTiers(m) }, rarity: 'rare', promote: 0 }, rng, m, 'first_rare', out);
         out.firstRareUsed = true;
         out.best = bestRarity(out.items);
@@ -285,50 +291,61 @@
   }
 
   /**
-   * Notable drops for UI copy ("Can drop: Wyrmfang"): Very Rare and Legendary
-   * entries plus any guaranteed Rare-or-better. Labels are honest flavour
-   * ('legendary' | 'very rare' | 'guaranteed'), never exact odds.
-   * Monster-specific entries come first; shared-rare-table legendaries are
-   * marked source:'shared' so the UI can leave them out.
-   * Each entry: { key, kind:'item'|'gear', base, name, rarity, beamColor, icon, label, source }.
-   * `icon` is the per-item key from docs/rpg-item-icons.json (icon_<itemId>).
+   * Notable drops for UI copy ("Can drop: Wyrmfang"): legendaries, the boss's
+   * chase entries (incl. its chase material), guaranteed Rare-or-better, and
+   * Very Rare entries. Labels are honest flavour ('legendary' | 'very rare' |
+   * 'rare find' | 'guaranteed'), never exact odds.
+   * Display order (GD's drawer renders it as-is): chase legendaries, other
+   * chase entries (gear, then materials), guaranteed, the monster's Very Rare
+   * table, then shared-rare-table legendaries marked source:'shared'.
+   * Each entry: { key, kind:'item'|'gear', base, name, rarity, color, beamColor, icon, label, source }.
+   * `color` is the panel text colour (GD uses it first): the rarity colour, or
+   * PREVIEW_COLORS[rarity] where the UI panel differs (materials: UI gold).
+   * `beamColor` is the ground-beam colour. `icon` is icon_<itemId> (docs/rpg-item-icons.json).
    */
+  var PREVIEW_COLORS = { material: '#e8c84a' };
   function preview(monsterId) {
     var m = MONSTERS[monsterId];
     if (!m) return [];
     var out = [], seen = {};
     function beam(r) { var b = Db.beamFor(r); return b ? b.color : Db.colorFor(r); }
+    function color(r) { return PREVIEW_COLORS[r] || Db.colorFor(r); }
     function add(e) { if (!seen[e.key]) { seen[e.key] = true; out.push(e); } }
     function tierName(tiers) {
       return tiers.map(function (t) { return Db.TIER_BY_ID[t].name; }).join(' or ');
     }
-    function fromEntry(e, source, guaranteed) {
+    function fromEntry(e, source, mode) {
       if (e.legendary) {
         var L = Db.getBase(e.legendary);
-        add({ key: L.id, kind: 'item', base: L.id, name: L.name, rarity: 'legendary', beamColor: beam('legendary'),
+        add({ key: L.id, kind: 'item', base: L.id, name: L.name, rarity: 'legendary', color: color('legendary'), beamColor: beam('legendary'),
           icon: 'icon_' + L.id, label: 'legendary', source: source });
         return;
       }
+      var guaranteed = mode === 'guaranteed', chase = mode === 'chase';
       var rarity = e.rarity || (e.base ? Db.defaultRarity(Db.getBase(e.base)) : 'normal');
-      if (!guaranteed && rarity !== 'very_rare') return;
+      if (!guaranteed && !chase && rarity !== 'very_rare') return;
+      var label = guaranteed ? 'guaranteed' : rarity === 'very_rare' ? 'very rare' : 'rare find';
       if (e.gear) {
         var tiers = e.gear.tiers;
         var rep = tiers[tiers.length - 1] + '_cuirass';
         if (!Db.hasBase(rep)) rep = gearPool(tiers)[0];
+        var armourOnly = gearPool(tiers).every(function (id) { return Db.getBase(id).group !== 'weapon'; });
         add({ key: 'gear:' + tiers.join('+') + ':' + rarity + (guaranteed ? ':g' : ''), kind: 'gear', base: rep,
-          name: tierName(tiers) + ' gear', rarity: rarity, beamColor: beam(rarity), icon: 'icon_' + rep,
-          label: guaranteed ? 'guaranteed' : 'very rare', source: source });
+          name: tierName(tiers) + (armourOnly ? ' armour' : ' gear'), rarity: rarity, color: color(rarity), beamColor: beam(rarity),
+          icon: 'icon_' + rep, label: label, source: source });
       } else if (e.base) {
         var b = Db.getBase(e.base);
-        add({ key: b.id + ':' + rarity, kind: 'item', base: b.id, name: b.name, rarity: rarity, beamColor: beam(rarity),
-          icon: 'icon_' + b.id, label: guaranteed ? 'guaranteed' : 'very rare', source: source });
+        add({ key: b.id + ':' + rarity, kind: 'item', base: b.id, name: b.name, rarity: rarity, color: color(rarity), beamColor: beam(rarity),
+          icon: 'icon_' + b.id, label: label, source: source });
       }
     }
-    (m.chase || []).filter(function (e) { return e.legendary; }).forEach(function (e) { fromEntry(e, 'monster', false); });
-    m.always.forEach(function (e) { if (e.rarity && rarityRank(e.rarity) >= 1) fromEntry(e, 'monster', true); });
-    (m.chase || []).filter(function (e) { return !e.legendary; }).forEach(function (e) { fromEntry(e, 'monster', false); });
-    (m.table.very_rare || []).forEach(function (e) { fromEntry(e, 'monster', false); });
-    if (m.rareTable) SHARED_RARE.forEach(function (e) { if (e.legendary || e.rarity === 'very_rare') fromEntry(e, 'shared', false); });
+    var chase = m.chase || [];
+    chase.filter(function (e) { return e.legendary; }).forEach(function (e) { fromEntry(e, 'monster', 'chase'); });
+    chase.filter(function (e) { return !e.legendary && e.gear; }).forEach(function (e) { fromEntry(e, 'monster', 'chase'); });
+    chase.filter(function (e) { return !e.legendary && !e.gear; }).forEach(function (e) { fromEntry(e, 'monster', 'chase'); });
+    m.always.forEach(function (e) { if (e.rarity && rarityRank(e.rarity) >= 1) fromEntry(e, 'monster', 'guaranteed'); });
+    (m.table.very_rare || []).forEach(function (e) { fromEntry(e, 'monster', 'table'); });
+    if (m.rareTable) SHARED_RARE.forEach(function (e) { if (e.legendary || e.rarity === 'very_rare') fromEntry(e, 'shared', 'table'); });
     return out;
   }
 
@@ -365,7 +382,7 @@
 
   RPG.Loot = {
     MONSTERS: MONSTERS, SHARED_RARE: SHARED_RARE, PITY_KILLS: PITY_KILLS, FIRST_RARE: FIRST_RARE,
-    firstRareChance: firstRareChance, nextFirstRare: nextFirstRare,
+    firstRareChance: firstRareChance, nextFirstRare: nextFirstRare, PREVIEW_COLORS: PREVIEW_COLORS,
     rollDrop: rollDrop, preview: preview, bestRarity: bestRarity, rarityRank: rarityRank, sanity: sanity, gearPool: gearPool,
   };
 });

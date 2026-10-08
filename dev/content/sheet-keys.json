@@ -313,5 +313,61 @@
    "icon_wyrm_sabatons",
    "icon_wyrm_shield"
   ]
+ },
+ "mobs": {
+  "path": "/workspace/rsc-look/mobs/sheet.json",
+  "sha256": "73417f7e8ce9b6502dc7862e961e9d7af8df82b9b4ffb7998702eba96865a3e7",
+  "keys": [
+   "mob_goblin_attack",
+   "mob_goblin_idle",
+   "mob_goblin_walk",
+   "mob_rat_attack",
+   "mob_rat_idle",
+   "mob_rat_walk"
+  ],
+  "tellMs": {
+   "mob_goblin_attack": 160,
+   "mob_rat_attack": 160
+  }
+ },
+ "mobs2": {
+  "path": "/workspace/rsc-look/mobs2/sheet.json",
+  "sha256": "e69a859ed370a22e9f1bd6d7775089fa655f54f49e97fa0ba02c3112194d15a0",
+  "keys": [
+   "mob_ashmaw_attack",
+   "mob_ashmaw_charge",
+   "mob_ashmaw_death",
+   "mob_ashmaw_hurt",
+   "mob_ashmaw_idle",
+   "mob_ashmaw_slam",
+   "mob_ashmaw_walk",
+   "mob_brute_attack",
+   "mob_brute_charge",
+   "mob_brute_death",
+   "mob_brute_hurt",
+   "mob_brute_idle",
+   "mob_brute_slam",
+   "mob_brute_walk",
+   "mob_imp_attack",
+   "mob_imp_death",
+   "mob_imp_hurt",
+   "mob_imp_idle",
+   "mob_imp_walk",
+   "mob_skeleton_attack",
+   "mob_skeleton_death",
+   "mob_skeleton_hurt",
+   "mob_skeleton_idle",
+   "mob_skeleton_walk"
+  ],
+  "tellMs": {
+   "mob_ashmaw_attack": 600,
+   "mob_ashmaw_charge": 600,
+   "mob_ashmaw_slam": 650,
+   "mob_brute_attack": 450,
+   "mob_brute_charge": 400,
+   "mob_brute_slam": 450,
+   "mob_imp_attack": 400,
+   "mob_skeleton_attack": 400
+  }
  }
 }

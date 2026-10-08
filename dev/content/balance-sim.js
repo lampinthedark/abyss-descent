@@ -224,8 +224,8 @@ function fieldGrindMinutes(dmg, loadId) {
  * Ashmaw at Cinderiron with the typical player's real levels: at dungeon entry
  * (just met the gear req) and at the boss (entry + the clear's trash and brute).
  */
-function ashmawAtRealLevels(clearDamage, n) {
-  const st = STYLES.typical, l = byId('cinderiron');
+function ashmawAtRealLevels(clearDamage, n, loadId) {
+  const st = STYLES.typical, l = byId(loadId || 'cinderiron');
   const entryDmg = q2Damage() + grindDamage(st);
   const bossDmg = entryDmg + clearDamage - C.MONSTERS.ashmaw.hp;
   const lv = dmg => { const x = styleXp(st, dmg); return { attack: M.levelFor(x.a), strength: M.levelFor(x.s), defence: M.levelFor(x.d),
@@ -255,11 +255,13 @@ function main() {
   const repeat = dungeonEstimate('verdite', 150, 'good', { repeat: true });
   const entryDmg = q2Damage() + grindDamage(STYLES.typical);
   const prog = ['good', 'telegraphs'].map(pol => dungeonEstimate('cinderiron', 150, pol, { progress: { style: STYLES.typical, startDmg: entryDmg } }));
+  const kit = ['good', 'telegraphs'].map(pol => dungeonEstimate('cinderiron_entry', 150, pol, { progress: { style: STYLES.typical, startDmg: entryDmg } }));
+  const kitSens = ashmawAtRealLevels(dEst[0].xpDamage, 300, 'cinderiron_entry');
   const xp = xpModel(dEst[0].xpDamage, { firstClearCinderiron: dEst[0].totalS, repeatVerdite: repeat.totalS });
   const danger = dangerTable();
   const sens = ashmawAtRealLevels(dEst[0].xpDamage);
   const wyrmfangMedianKills = Math.log(2) / -Math.log(1 - 1 / 150);
-  if (json) { console.log(JSON.stringify({ rows, dungeon: dEst, repeat, progress: prog, xp, danger, ashmawAtRealLevels: sens }, null, 1)); return; }
+  if (json) { console.log(JSON.stringify({ rows, dungeon: dEst, repeat, progress: prog, entryKit: kit, entryKitAshmaw: kitSens, xp, danger, ashmawAtRealLevels: sens }, null, 1)); return; }
   const out = [];
   const pc = v => (v * 100).toFixed(0) + '%';
   out.push('## Mob danger (approved mirrored formula: clamp(0.75 + 0.015*(atk - Defence - gear.def), 0.40, 0.97))\n');
@@ -276,7 +278,7 @@ function main() {
   out.push('## Ash Stair clear (estimate, ' + 150 + ' sequential runs each)\n');
   out.push('| gear | player | fights s | overhead s | rest s | walk s | total | stews eaten (mean / p90 / worst run) | HP regenerated | expected deaths |');
   out.push('|---|---|---|---|---|---|---|---|---|---|');
-  dEst.concat([repeat], prog).forEach(e => out.push('| ' + [e.loadout + (e.repeat ? ' (repeat clear)' : '') + (e.progress ? ' (real levels: enter at the req, grow through the clear)' : ''), e.policy === 'good' ? 'good dodger' : 'rolls telegraphs only', e.fightS.toFixed(0), e.overS.toFixed(0), e.restS.toFixed(0), e.walkS.toFixed(0), (e.totalS / 60).toFixed(1) + ' min', e.foodStews.toFixed(1) + ' / ' + e.foodP90 + ' / ' + e.foodMax, e.regenHp.toFixed(0), e.expDeaths.toFixed(2)].join(' | ') + ' |'));
+  dEst.concat([repeat], prog, kit).forEach(e => out.push('| ' + [e.loadout + (e.repeat ? ' (repeat clear)' : '') + (e.progress ? ' (real levels: enter at the req, grow through the clear)' : ''), e.policy === 'good' ? 'good dodger' : 'rolls telegraphs only', e.fightS.toFixed(0), e.overS.toFixed(0), e.restS.toFixed(0), e.walkS.toFixed(0), (e.totalS / 60).toFixed(1) + ' min', e.foodStews.toFixed(1) + ' / ' + e.foodP90 + ' / ' + e.foodMax, e.regenHp.toFixed(0), e.expDeaths.toFixed(2)].join(' | ') + ' |'));
   out.push('\nPer spawn type (Cinderiron real levels, good dodger): ' + prog[0].parts.map(q => q.id + ' ' + q.fightS.toFixed(0) + ' s / ' + q.eaten.toFixed(2) + ' stews / ' + q.deaths.toFixed(2) + ' deaths').join('; ') + '.');
   out.push('Per spawn type (Cinderiron, good dodger): ' + dEst[0].parts.map(q => q.id + ' ' + q.fightS.toFixed(0) + ' s / ' + q.eaten.toFixed(2) + ' stews').join('; ') + '.');
   out.push('Overheads: ' + JSON.stringify(OVERHEAD) + '; rest before pull: ' + JSON.stringify(REST) + '; food bag ' + CLEAR_FOOD.count + ' stews, eaten only below 35% HP mid-fight. Repeat clears skip the 1.5x explore walk.');
@@ -295,6 +297,7 @@ function main() {
   }
   out.push('\nField grind minutes are raw (Rustbound set, rolling telegraphs, 10 s to find each pack); x' + 2.5 + ' new-player slack: typical ~' + (fieldGrindMinutes(xp.styles.typical.grindDamage, 'rustbound') * 2.5).toFixed(1) + ' min.');
   out.push('\nAshmaw at Cinderiron with the typical player\'s real levels (good dodger, 6 stews): ' + sens.map(x => x.at + ' A' + x.levels.attack + '/S' + x.levels.strength + '/D' + x.levels.defence + '/H' + x.levels.hitpoints + ' ' + x.ttk.toFixed(0) + ' s, ' + (x.dieFood * 100).toFixed(0) + '% deaths, ' + x.eaten.toFixed(1) + ' stews (never-dodger dies ' + (x.neverDies * 100).toFixed(0) + '%)').join('; ') + '.');
+  out.push('\nSame, in the cold-player entry kit (Cinderiron sword + cuirass bought, Rustbound shield; aim ' + byId('cinderiron_entry').gear.aim + ', armour ' + byId('cinderiron_entry').gear.armour + ' vs the full set\'s ' + byId('cinderiron').gear.aim + ' / ' + byId('cinderiron').gear.armour + '): ' + kitSens.map(x => x.at + ' A' + x.levels.attack + '/S' + x.levels.strength + '/D' + x.levels.defence + '/H' + x.levels.hitpoints + ' ' + x.ttk.toFixed(0) + ' s, ' + (x.dieFood * 100).toFixed(0) + '% deaths, ' + x.eaten.toFixed(1) + ' stews (never-dodger dies ' + (x.neverDies * 100).toFixed(0) + '%)').join('; ') + '.');
   out.push('\nAttack 40 = ' + xp.attack40Xp + ' XP. One Ash Stair clear pays ' + Math.round(xp.perClearStatXp) + ' style XP (+' + Math.round(xp.perClearStatXp * M.XP_RATE.hitpoints) + ' Hitpoints). Clear pace: repeat at Verdite ' + (repeat.totalS / 60).toFixed(1) + ' min, first clear at Cinderiron ' + (dEst[0].totalS / 60).toFixed(1) + ' min.');
   out.push('Wyrmfang at 1/150: median ' + wyrmfangMedianKills.toFixed(0) + ' Ashmaw kills (~' + (wyrmfangMedianKills * repeat.totalS / 3600).toFixed(0) + ' h of repeat clears).');
   console.log(out.join('\n'));

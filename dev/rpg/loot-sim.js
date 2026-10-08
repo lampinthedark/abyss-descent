@@ -54,7 +54,7 @@ function* schedule(o, rng) {
 /** One player. pity=false disables BOTH the first-Rare and drought pity. */
 function player(o, seed, pity, townOnly) {
   const rng = Core.makeRng(seed);
-  const st = { pity: 0, firstRare: { done: false, kills: 0 } };
+  const st = { pity: 0, firstRare: { done: false, kills: 0, all: 0 } };
   const out = { rare: null, veryRare: null, legendary: null, firstRareForced: false };
   let firstRun = { rare: false, veryRare: false };
   const sched = townOnly ? (function* () { let t = 0; for (;;) { t += 1 / o.townKpm; yield { t, monster: rng.next() < 0.5 ? 'rat' : 'goblin' }; } })() : schedule(o, rng);
@@ -123,7 +123,7 @@ function print(r) {
   const o = r.options;
   console.log(`Week-1 loot sim: ${o.players} players/scenario, town ${o.townKpm} kills/min for ${o.townMin} min, ` +
     `dungeon ${o.dungeonKpm} kills/min, ${o.runMin}-min runs ending at the boss, seed ${o.seed}`);
-  console.log(`First-Rare pity: near-town kills ${Loot.FIRST_RARE.RAMP_START}+ ramp to ${Loot.FIRST_RARE.RAMP_MAX * 100}%, guaranteed at kill ${Loot.FIRST_RARE.GUARANTEE}; drought pity every ${Loot.PITY_KILLS} kills\n`);
+  console.log(`First-Rare pity: near-town kills ${Loot.FIRST_RARE.RAMP_START}+ ramp to ${Loot.FIRST_RARE.RAMP_MAX * 100}%, guaranteed at near-town kill ${Loot.FIRST_RARE.GUARANTEE} (any-kill backup ${Loot.FIRST_RARE.BACKUP_GUARANTEE}); drought pity every ${Loot.PITY_KILLS} kills\n`);
   console.log('scenario            first Rare: median   p90      max     <=20min | Very Rare: median  p90     <=60min | Legendary <=4h');
   for (const [k, s] of Object.entries(r.scenarios)) {
     console.log(`${k.padEnd(20)}            ${fmt(s.rare.median).padStart(8)} ${fmt(s.rare.p90).padStart(8)} ${fmt(s.rare.max).padStart(8)}  ${(s.rare.within20 * 100).toFixed(1).padStart(6)}% |` +

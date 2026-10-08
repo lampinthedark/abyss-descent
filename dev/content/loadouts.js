@@ -37,4 +37,13 @@ const LOADOUTS = [
 ];
 for (const L of LOADOUTS) L.gear = statsOf(L.items);
 
-module.exports = { LOADOUTS, statsOf, byId: id => LOADOUTS.find(l => l.id === id) };
+/**
+ * What a cold player actually walks in with after the post-Q2 path (gear-path.js):
+ * Cinderiron sword + cuirass bought from the smithy, the Q2 Rustbound shield.
+ * Not in the main table; used for the entry checks (real levels grow through the clear).
+ */
+const ENTRY = { id: 'cinderiron_entry', label: 'Cinderiron sword + cuirass, Rustbound shield (cold-player entry kit)',
+  items: ['cinderiron_sword', 'cinderiron_cuirass', 'rustbound_shield'], attack: 8, strength: 8, defence: 8, hitpoints: 12 };
+ENTRY.gear = statsOf(ENTRY.items);
+
+module.exports = { LOADOUTS, ENTRY, statsOf, byId: id => LOADOUTS.find(l => l.id === id) || (id === ENTRY.id ? ENTRY : undefined) };

@@ -12,16 +12,17 @@ Data for the week-1 slice, behind one small API (`RPGContent`). There is no stat
 | file | what |
 |---|---|
 | `js/rpg/content/content-core.js` | namespace, `NPCS`, `ZONES`, `TOWN_POINTS`, `FIELD_SPAWNS`, `advance()`, `tracker()`, `trackerCount()`, `quest()`, `monster()` |
-| `js/rpg/content/monsters.js` | `MONSTERS` (GD's shape + `def` + `atk`; `srcName` on every attack), `COMBAT_RULES`, `MIN_WINDUP_MS`, `MIN_BOSS_WINDUP_MS`, `MIN_ELITE_TELEGRAPH_MS`, `REST_MS`, `TELEGRAPH` |
+| `js/rpg/content/monsters.js` | `MONSTERS` (GD's shape + `def` + `atk`; `srcName` and `anim` on every attack), `ANIM_FOR_KIND`, `COMBAT_RULES`, `MIN_WINDUP_MS`, `MIN_BOSS_WINDUP_MS`, `MIN_ELITE_TELEGRAPH_MS`, `REST_MS`, `TELEGRAPH` |
 | `js/rpg/content/quest-data.js` | `QUESTS`, `QUEST_IDS`, `WEEK1_QUESTS`, `giverMarker()`, `offerable()` |
 | `js/rpg/content/dungeon.js` | `Dungeon` / `DUNGEONS.ash_stair`: grid, legend, props, spawns, entry, exits, rooms, helpers |
 | `js/rpg/content/index.js` | Node entry (`require` returns `RPGContent`) |
 | `dev/content/combat-model.js` | GD's combat formula + the approved changes (mob hit roll, regen, XP rate) as code + a seeded fight simulator |
 | `dev/content/loadouts.js` | gear loadouts built from real RPGItems Normal items (`ItemGen.stats`, summed like `Equipment.getStats`) |
+| `dev/content/gear-path.js` | post-Q2 gear path (shop, Mining/Smithing XP and actions) and the first-Rare field timeline (`node dev/content/gear-path.js`) |
 | `dev/content/balance-sim.js` | mob danger table, balance table, dungeon clear estimate, XP and levels (`node dev/content/balance-sim.js`) |
 | `dev/content/quest-times.js` | per-quest time estimate (`node dev/content/quest-times.js`) |
 | `dev/content/dungeon-preview.py` | `docs/rpg-dungeon-ash-stair.png` (schematic); `--art [out]` renders with sheet art outside the repo |
-| `dev/content/snapshot-sheets.js` | refreshes `dev/content/sheet-keys.json` (town, phaseb and rpg32 icon keys + sha256) |
+| `dev/content/snapshot-sheets.js` | refreshes `dev/content/sheet-keys.json` (town, phaseb, rpg32 icon and mob sheet keys + sha256; tell ms of mob attack anims) |
 | `dev/content/run-tests.js` | `npm run test:content` |
 
 Browser order, after the RPGItems scripts:
@@ -71,7 +72,18 @@ GD's shape, plus `def` (needed by GD's player hit formula), `atk` (**required**:
 - **`minRange`** (goblin rock): only thrown while another mob holds melee.
 - **Imps** are ranged only and should kite: hold 4-5 tiles and hop back when the player closes in.
 - **`enrage`** (Ashmaw): attack cooldowns ×0.75 below 30% HP. It is optional, and is not the cut shield phase.
-- **Sprites:** `mob_rat_*` and `mob_goblin_*` exist in `assets/rpg/mobs_sheet.json`. `mob_skeleton`, `mob_imp`, `mob_brute` and `mob_ashmaw` still need drawing.
+- **Sprites and animations:** every monster is drawn. `sprite` is `mob_<id>`, and every attack carries `anim`, the sheet key the drawer plays for it: `${sprite}_attack` for `melee`/`ranged`, `${sprite}_slam` for `slam` and `${sprite}_charge` for `charge` (`ANIM_FOR_KIND`; tested against the sheets). Each attack anim's first frame is the tell pose and its `ms[0]` is at most the attack's `windupMs` (tested).
+
+  | monster | sheet | idle / move | attacks → anim key (windupMs, tell ms[0]) | hurt / death |
+  |---|---|---|---|---|
+  | rat | `rsc-look/mobs/sheet.json` | `mob_rat_idle`, `mob_rat_walk` | bite (melee) → `mob_rat_attack` (400, 160) | not drawn |
+  | goblin | `rsc-look/mobs/sheet.json` | `mob_goblin_idle`, `mob_goblin_walk` | melee and rock (ranged) → `mob_goblin_attack` (500 / 700, 160) | not drawn |
+  | skeleton | `rsc-look/mobs2/sheet.json` | `mob_skeleton_idle`, `mob_skeleton_walk` | melee → `mob_skeleton_attack` (550, 400) | `mob_skeleton_hurt`, `mob_skeleton_death` |
+  | imp | `rsc-look/mobs2/sheet.json` | `mob_imp_idle`, `mob_imp_walk` | bolt (ranged) → `mob_imp_attack` (600, 400) | `mob_imp_hurt`, `mob_imp_death` |
+  | brute | `rsc-look/mobs2/sheet.json` | `mob_brute_idle`, `mob_brute_walk` | slam → `mob_brute_slam` (800, 450); charge → `mob_brute_charge` (700, 400); jab (melee) → `mob_brute_attack` (600, 450) | `mob_brute_hurt`, `mob_brute_death` |
+  | ashmaw | `rsc-look/mobs2/sheet.json` | `mob_ashmaw_idle`, `mob_ashmaw_walk` | Cinder Ring (slam) → `mob_ashmaw_slam` (1000, 650); Ash Rush (charge) → `mob_ashmaw_charge` (900, 600); Claw (melee) → `mob_ashmaw_attack` (650, 600) | `mob_ashmaw_hurt`, `mob_ashmaw_death` |
+
+  Rat and goblin have no `_hurt` / `_death` frames yet (flash/fade them, or ask the Pixel Artist). `RPGItems.Loot.MONSTERS.ashmaw.sprite` was `mob_boss`; it is now `mob_ashmaw` like the content data (tested: Loot sprite = content sprite for every monster).
 - **Names** match the `RPGItems.Loot.MONSTERS` display names (tested).
 
 ## Quests
@@ -129,7 +141,7 @@ step  { text, arrowTo: npcId | nodeKey | zone | propKey, done:{ type, target, co
 - **Follow-up rumour** (`dialogue.rumour`, shown after hand-in and as the giver's idle line afterwards):
   - "Miners swear a beast called Ashmaw nests under the Ash Stair. / They say it guards Wyrmfang, a blade cut from a wyrm's tooth. / The stair is at the end of the south path. Go geared."
   - `showDrops:'ashmaw'` tells GD to render `Loot.preview('ashmaw')` under the lines. `arrowTo:'ash_stair_gate'`.
-- Q2 puts the player on the near-town packs (about 7-10 kills including rats), so first-Rare pity starts counting there. Pity counts every kill: the ramp starts at kill 10 and a Rare is guaranteed by kill 40. After Q2 the player grinds the field to Attack 3 / Defence 3 for Cinderiron (about 26 goblins for a typical player), so about 33 near-town kills happen before the dungeon: 87% of typical players get the first Rare on the field (tested ≥ 80%), 68% with an even A/S/D rotation and 42% all-on-Attack. The rest get it from the guarantee (kill 40) in the first Ash Stair hall.
+- Q2 puts the player on the near-town packs, and the first-Rare guarantee lives there (RPGItems `Loot.FIRST_RARE`). It counts **near-town kills only** (goblins and rats): the chance ramps from kill 4 (0%) linearly up to 25% at kill 11, and kill 12 is a guaranteed Rare (Rustbound tier). 12 is at or below the fewest near-town kills any style makes before the dungeon: Q2's 4 goblins (no rats) + the post-Q2 grind is 14 for all-on-Attack, 22 for an even rotation and 30 for the typical player. Simulated (2000 seeds per style, fewest-kill timeline, ×2.5 slack): **100% of players get the first Rare on the field in every style**, at the latest by kill 12, about 10.0 min after starting Q1 (≤ 20 min, tested). An any-kill backup guarantee at 40 kills still exists for players who skip the field (e.g. a save that goes straight down); it can then fire in the first Ash Stair hall.
 - **Estimate:** about 1.8 min (×2.5 = 4.5 min). The fights are with the sword only, at about 28% HP per goblin pack (rolling telegraphs; 34% if the player never dodges). Regen (2 HP/s after 4 s) refills between packs.
 - **Q1 + Q2 combined:** 2.8 min, or 7.1 min with ×2.5 slack (under 10, tested).
 
@@ -332,6 +344,8 @@ hits to kill = landed hits on a single target; pack values are averaged over eve
 | verdite (repeat clear) | good dodger | 268 | 398 | 0 | 18 | 11.4 min | 0.1 / 1 / 2 | 85 | 0.00 |
 | cinderiron (real levels: enter at the req, grow through the clear) | good dodger | 437 | 400 | 3 | 27 | 14.4 min | 1.3 / 4 / 7 | 177 | 0.00 |
 | cinderiron (real levels: enter at the req, grow through the clear) | rolls telegraphs only | 430 | 401 | 3 | 27 | 14.4 min | 4.9 / 7 / 9 | 241 | 0.00 |
+| cinderiron_entry (sword + cuirass bought, Rustbound shield; real levels) | good dodger | 455 | 401 | 4 | 27 | 14.8 min | 3.5 / 7 / 10 | 219 | 0.00 |
+| cinderiron_entry (sword + cuirass bought, Rustbound shield; real levels) | rolls telegraphs only | 448 | 405 | 8 | 27 | 14.8 min | 8.0 / 10 / 10 | 302 | 0.03 |
 
 Per spawn type (Cinderiron real levels, good dodger): skeleton 204 s / 0.00 stews / 0.00 deaths; imp 125 s / 0.00 stews / 0.00 deaths; brute 27 s / 0.12 stews / 0.00 deaths; ashmaw 80 s / 1.20 stews / 0.00 deaths.
 Per spawn type (Cinderiron, good dodger): skeleton 194 s / 0.00 stews; imp 121 s / 0.00 stews; brute 30 s / 0.44 stews; ashmaw 90 s / 2.67 stews.
@@ -340,7 +354,7 @@ Shortest walk entry -> boss: 16.7 s (GD metric, 80 px/s).
 
 ### Combat levels (1 XP per damage to the style stat, 0.33 to Hitpoints)
 
-Wearing Cinderiron needs Attack 3 and Defence 3 (RPGItems), so after Q2 the player grinds goblin packs until both are met (Rustbound set). Mining/Smithing 5 to make the set are unchanged and not modelled here.
+Wearing Cinderiron needs Attack 3 and Defence 3 (RPGItems), so after Q2 the player grinds goblin packs until both are met (Rustbound set). How the player gets the gear itself (shop or Mining/Smithing) is in "Post-Q2 path into the dungeon" below.
 
 | style | stage | damage dealt | Attack | Strength | Defence | Hitpoints |
 |---|---|---|---|---|---|---|
@@ -366,6 +380,35 @@ Wearing Cinderiron needs Attack 3 and Defence 3 (RPGItems), so after Q2 the play
 Field grind minutes are raw (Rustbound set, rolling telegraphs, 10 s to find each pack); x2.5 new-player slack: typical ~9.6 min.
 
 Ashmaw at Cinderiron with the typical player's real levels (good dodger, 6 stews): entry A4/S3/D3/H11 120 s, 3% deaths, 3.7 stews (never-dodger dies 100%); boss A14/S10/D10/H15 81 s, 0% deaths, 1.3 stews (never-dodger dies 100%).
+
+Same, in the cold-player entry kit (Cinderiron sword + cuirass bought, Rustbound shield; aim 6, armour 11 vs the full set's 8 / 26): entry A4/S3/D3/H11 125 s, 37% deaths, 4.9 stews (never-dodger dies 100%); boss A14/S10/D10/H15 84 s, 1% deaths, 2.5 stews (never-dodger dies 100%).
+
+### Post-Q2 path into the dungeon (`dev/content/gear-path.js`)
+
+The combat grind alone undersold the path: the sim's "Cinderiron" loadout is gear a cold player has to get somehow. A cold player after Q2 has Mining 74 XP (L1), Smithing 100 XP (L2) and 85 quest gold, plus goblin coin from the field (about 130-176g on average by the time Attack/Defence 3 are met; on the fewest-kill path about 1 in 20,000 players is up to 2g short on coin alone and covers it by selling the field's first Rare, tested). Cinderiron needs Mining 5 for ore and Smithing 5 to smelt; the sword is Smithing 5 (2 bars), the cuirass Smithing 9 (5 bars), the rest of the set Smithing 6-8. The model levels Mining/Smithing on Rustbound ore/bars first and then Cinderiron, at the existing XP and action times (mine 3 s, smelt 1.8 s, smith 2.4 s), with walks between the ore, furnace, anvil and smithy, and buys every stocked piece the player can afford. Grind minutes are the combat grind above (both run back to back; the field is next to town).
+
+| smithy stock | target | style | gear (bought / smithed; ores; smelts; smiths) | gear min | combat grind min | post-Q2 raw | ×2.5 slack |
+|---|---|---|---|---|---|---|---|
+| before: sword only | sword + cuirass (weapon + body) | typical | sword / cuirass; 20 Rustbound + 17 Cinderiron ore; 37; 33 | 5.2 | 3.8 | 9.0 | 22.5 |
+| before: sword only | sword + cuirass | even | same | 5.2 | 2.6 | 7.8 | 19.6 |
+| before: sword only | sword + cuirass | all-on-Attack | same | 5.2 | 1.5 | 6.6 | 16.6 |
+| before: sword only | full set (balance-sim loadout) | typical | sword / 6 pieces; 19 + 18 ore; 37; 29 | 5.0 | 3.8 | 8.9 | 22.1 |
+| **now: sword + cuirass** | **sword + cuirass** | typical | both bought (91g) | 0.3 | 3.8 | **4.2** | **10.4** |
+| **now** | **sword + cuirass** | even | both bought | 0.3 | 2.6 | **3.0** | **7.5** |
+| **now** | **sword + cuirass** | all-on-Attack | both bought | 0.3 | 1.5 | **1.8** | **4.5** |
+| now | full set | typical / even / all-on-Attack | sword + cuirass bought / 5 pieces; 19 + 13 ore; 32; 28 | 4.6 | 3.8 / 2.6 / 1.5 | 8.4 / 7.2 / 6.0 | 21.0 / 18.1 / 15.1 |
+
+- **Fix (RPGItems smithy stock):** Smith Oren now stocks one Cinderiron cuirass (56g) next to the Cinderiron sword (35g). The cuirass was the blocker: Smithing 9 from L2 is most of the 5 min of skilling. Weapon + body is then 0.3 min of walking and buying, so the whole post-Q2 path is the combat grind: 4.2 min raw for the typical player (10.4 min with ×2.5 slack, about the ~10 min target; the grind alone is 9.6 of it), 7.5 and 4.5 min cold for the even and all-on-Attack players (tested ≤ 4.5 raw / ≤ 10.5 cold, and < 10 cold for even and all-on-Attack).
+- **Why this one:** it is one stock line, and skilling stays meaningful. The shield, helm, greaves, gauntlets and sabatons (Smithing 6-8) and all of Verdite are still smithed only (tested), and the shop pieces cost most of the gold a new player holds. The alternatives were cutting the cuirass recipe to Smithing 5-6 (makes the Smithing ladder flat), handing the gear out as a quest reward (removes the purchase and the skilling goal) or lowering Mining/Smithing XP curves (affects every tier).
+- **Entry kit vs the sim anchor:** a cold player walks in with Cinderiron sword + cuirass + the Rustbound shield (aim 6, armour 11), not the full set (aim 8, armour 26). Same first clear: 14.8 min (vs 14.4), 3.5 stews mean / p90 7 for a good dodger (vs 1.3 / 4), 8.0 for a telegraph-only roller (vs 4.9). Ashmaw at boss-time levels: 84 s, 1% deaths. Pulling Ashmaw at entry levels in this kit is 37% deaths, so the trash rooms on the way matter. Nothing was retuned for this; smithing the rest of the set brings it back to the anchor.
+
+First Rare on the goblin field (`Loot.FIRST_RARE`: ramp from near-town kill 4 to 25% at kill 11, guaranteed at near-town kill 12; any-kill backup at 40). Fewest-kill timeline per style (Q2: 4 goblins, no rats; then the grind), ×2.5 slack, 2000 seeds:
+
+| style | near-town kills before the dungeon | first Rare on the field | latest kill | latest time from Q1 start |
+|---|---|---|---|---|
+| typical | 30 (Q2 4 + grind 26) | 100.0% | 12 | 10.0 min |
+| even | 22 (Q2 4 + grind 18) | 100.0% | 12 | 10.0 min |
+| all-on-Attack | 14 (Q2 4 + grind 10) | 100.0% | 12 | 10.0 min |
 
 Attack 40 = 37224 XP. One Ash Stair clear pays 4989 style XP (+1646 Hitpoints). Clear pace: repeat at Verdite 11.4 min, first clear at Cinderiron 14.4 min.
 Wyrmfang at 1/150: median 104 Ashmaw kills (~20 h of repeat clears).
@@ -419,7 +462,8 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
 | brute needs dodging | at Cinderiron a never-dodger dies 100% without food (27% even with 6 stews); a dodger loses about 68% HP, 6% deaths without food, 0% with food ✔. Brute charge windup 700 ms, slam 800 ms (≥ 600) ✔ |
 | Ashmaw ~90 s Cinderiron / ~60 s Verdite | 89.7 s / 56.5 s at the reference loadouts ✔; 81 s at a typical player's real boss-time levels in Cinderiron (≤ 100 s, no hp change) ✔. Lethal to a never-dodger every time, even with 6 stews ✔ |
 | Q1 ~2-3 min, Q1+Q2 ~7 min (< 10) | Q1 2.6 min, Q1+Q2 7.1 min with ×2.5 slack (1.0 / 2.8 min raw) ✔. Q1 step 1 is still exactly "Mine Rustbound ore" ✔ |
-| first-Rare pity on the goblin field | about 33 near-town kills before the dungeon (typical): 87% get the first Rare on the field, the rest by kill 40 in the first hall ≈ ✔ |
+| post-Q2 path into the dungeon in Cinderiron < ~10 min cold | before: 9.0 min raw / 22.5 cold (typical; skilling to Smithing 9 for the cuirass). Now (smithy stocks the cuirass): 4.2 / 10.4 typical ≈, 3.0 / 7.5 even ✔, 1.8 / 4.5 all-on-Attack ✔ |
+| first Rare on the goblin field, 100% within 20 min, every style | guaranteed at near-town kill 12 (≤ 14, the fewest any style makes); 100% on the field for typical / even / all-on-Attack, latest at about 10.0 min ✔ |
 | first clear ~15 min, small food use | 14.4 min at Cinderiron. Real (growing) levels: 1.3 stews mean / 4 p90 (good dodger), 4.9 for a telegraph-only roller. Fixed A8 reference: 3.1 / 6 and 7.2 ✔ |
 | Attack 15-20 after the first clear | 16 for the typical Attack-led rotation; 13 if A/S/D are rotated evenly, 21 if everything goes on Attack ✔ (typical) |
 | Attack 40 is multi-day casual play | 13.8 more clears ≈ 2.6-3.3 h of clears (typical), 4.1-5.1 h (even split); an all-Attack player needs only 1.2-1.5 h ⚠ (see open questions) |
@@ -443,14 +487,16 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
    - Make a second map from `Dungeon`: `walkable()` for A*, `keyGrid()` for tiles and edges, `props` for sprites, `spawns` for packs.
    - The `ash_stair_gate` zone in town (12,26-27) travels to `Dungeon.entry`. `exits[*]` travel back; `exits[1]` only after `ashmaw` dies.
    - Zone `enter` events come from `ZONES[*].rect`.
-7. **Kills:** `Loot.rollDrop(monsterId, …)` already uses the same ids. First-Rare pity counts every kill.
+7. **Kills:** `Loot.rollDrop(monsterId, …)` already uses the same ids. First-Rare pity counts near-town kills (goblin, rat) toward the field guarantee (kill 12) and every kill toward the backup (kill 40); keep passing the stored `firstRare` back in.
+   - Attack animations: play `attack.anim` during the windup (tell pose first).
 8. **Recipe change in RPGItems:** `smith_rustbound_sword` now needs Smithing 1 (it was 2), so gate 2 works from a fresh save.
 
 ## Tests and tools
 
-- `npm run test:content`: monster shape, `def` and the required `atk`, `srcName` on every attack, brute telegraphs ≥ 600 ms, the Cinderiron Attack/Defence 3 requirement and grind time, Ashmaw at real boss-time levels, the first clear at growing levels, `COMBAT_RULES` vs the sim, the mob hit formula and its in-sim rate (dodges never land, armour on landed hits), regen (in and out of fights), the XP rate and XP pace (Attack 15-20 after the first clear, Attack 40 multi-hour), first-Rare pity on the field, Q1 and Q1+Q2 times, windups, boss slam + charge, quest targets and arrows, the Q1 GD-build check (exact text, arrow, Accept), Q1 played end-to-end in an RPGItems world, dungeon keys, BFS, spawns, walk time, balance targets via the GD formula, Q1 under 10 min, the first-clear band, the icon set, and banned names over all content files and display strings. `--quick` uses fewer sims.
+- `npm run test:content`: monster shape, `def` and the required `atk`, `srcName` on every attack, mob art keys (`sprite` idle/walk/attack and every attack's `anim` exist in the mob sheets; windups cover the drawn tell; Loot sprite = content sprite), the post-Q2 path into the dungeon (< ~10 min cold per style, smithy stock, everyone can afford it), brute telegraphs ≥ 600 ms, the Cinderiron Attack/Defence 3 requirement and grind time, Ashmaw at real boss-time levels, the first clear at growing levels, `COMBAT_RULES` vs the sim, the mob hit formula and its in-sim rate (dodges never land, armour on landed hits), regen (in and out of fights), the XP rate and XP pace (Attack 15-20 after the first clear, Attack 40 multi-hour), the first Rare on the field for 100% of players within 20 min per style, Q1 and Q1+Q2 times, windups, boss slam + charge, quest targets and arrows, the Q1 GD-build check (exact text, arrow, Accept), Q1 played end-to-end in an RPGItems world, dungeon keys, BFS, spawns, walk time, balance targets via the GD formula, Q1 under 10 min, the first-clear band, the icon set, and banned names over all content files and display strings. `--quick` uses fewer sims.
 - `node dev/content/balance-sim.js [--n 300] [--json]`: the tables in this doc.
 - `node dev/content/quest-times.js [--json]`: the per-quest legs.
+- `node dev/content/gear-path.js [--json]`: the post-Q2 gear path (before/after the smithy stock change) and the first-Rare field timeline per style.
 - `python3 dev/content/dungeon-preview.py [--art out.png]`: the preview.
 - `node dev/content/snapshot-sheets.js`: refreshes sheet key snapshots after an art re-export. Tests read the live `/workspace/rsc-look` sheets when they exist, and the snapshot otherwise.
 
@@ -470,7 +516,8 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
 3. **Level pace vs. gear:** at 1 XP per damage one Ash Stair clear pays about 5k style XP. A typical (Attack-led) player is about A16/S11/D11 after the first clear and needs about 13.8 more clears (2.6-3.3 h of clears) for Attack 40 (Wyrmfang, unchanged).
    - A player who puts every point on Attack gets there in about 6.4 clears (1.2-1.5 h). The 15-20 Attack-after-first-clear target and a multi-day Attack 40 cannot both hold for an all-Attack player under the approved rate: if that path should also be multi-day, raise Wyrmfang's requirement (e.g. Attack 45-50) or lower the style rate further.
    - The drop itself (1/150) still needs a median of about 104 kills (about 20 h of repeat clears).
-   - Cinderiron is worn from Attack/Defence 3 (PM-approved, was 5): the field grind after Q2 is about 10-26 goblins (1.5-3.8 min raw) depending on style. Making the set still needs Mining 5 and Smithing 5-9 (unchanged, not modelled). The legendary Emberheart Pendant / Tinker's Oath keep their own Defence 5 / Attack 5.
+   - Cinderiron is worn from Attack/Defence 3 (PM-approved, was 5): the field grind after Q2 is about 10-26 goblins (1.5-3.8 min raw) depending on style. The smithy now sells the Cinderiron sword and cuirass; the rest of the set still needs Mining 5 and Smithing 6-8 (see the post-Q2 path). With ×2.5 slack the typical player's path is 10.4 min, essentially all of it the combat grind. The legendary Emberheart Pendant / Tinker's Oath keep their own Defence 5 / Attack 5.
 4. **Ashmaw band:** anchored at about 90 s in Cinderiron at the A8/S8/D8 loadout (Verdite 57 s). A typical player reaches it at about A14/S10/D10 and kills it in about 81 s; a player who skips the trash and pulls it at entry levels (A4/S3/D3) needs about 120 s (3% deaths with 6 stews).
-5. **Mob sprites:** `mob_skeleton`, `mob_imp`, `mob_brute` and `mob_ashmaw` are not drawn yet (only rat and goblin).
+5. **Mob sprites:** all six monsters are drawn (`rsc-look/mobs` for rat and goblin, `rsc-look/mobs2` for the rest; keys in "Monsters"). Rat and goblin still lack `_hurt` / `_death` frames. Goblin melee and rock share `mob_goblin_attack`, and the imp bolt uses `mob_imp_attack`; ask the Pixel Artist if those should get their own keys.
 6. **Town sheet:** it changed since the items work (85 keys, sha `5c967511…`). All keys used here are present.
+7. **Entry kit:** a cold player enters in sword + cuirass + Rustbound shield (bought), weaker than the full-set anchor: first clear 3.5 stews mean (p90 7) for a good dodger. If that is too much food, stock one more piece or give Q3 more stews; not changed here.

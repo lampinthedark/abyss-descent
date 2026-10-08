@@ -46,7 +46,7 @@ RPGItems.installGlobals(Items);                    // window.Loot, Inventory, Eq
 | Call | When | Returns |
 |---|---|---|
 | `Loot.rollDrop(monsterId, rng?, x, y)` | On kill (rat/goblin packs, skeleton, imp, elite `brute`, boss `ashmaw`) | `{ ok, drops:[{ gid, kind:'item'|'gold', name, rarity, color, beam, qty, amount, x, y }], best, firstRareUsed, pityUsed }` |
-| `Loot.preview(monsterId)` | Boss nameplate and the questgiver's rumour line: "Can drop: Wyrmfang" | `[{ name, base, rarity, beamColor, icon, label:'legendary'|'very rare'|'guaranteed', source:'monster'|'shared' }]`. Monster-specific entries come first. No exact odds. |
+| `Loot.preview(monsterId)` | Boss nameplate and the questgiver's rumour line: "Can drop: Wyrmfang" | `[{ name, base, rarity, color, beamColor, icon, label:'legendary'|'very rare'|'rare find'|'guaranteed', source:'monster'|'shared' }]`. Render in array order and use `color` for the text (every entry has it: rarity colour, materials in the panel gold `#e8c84a`); `beamColor` is the ground beam. Order: chase legendaries, chase gear, chase materials, guaranteed, Very Rare table, then shared. For `ashmaw` the first four are locked by a test: Wyrmfang `#ff9a2e`, Gravewarden's Crown `#ff9a2e` (it is Legendary in the data), Wyrmscale armour `#c070ff`, Wyrm Scale `#e8c84a`. No exact odds. |
 | `Ground.pickup(gid, { goldMult })` | Walk-over auto-pickup | `{ ok, kind, slot, uid, amount }` or `{ ok:false, reason:'inventory_full' }`. The item stays on the ground. |
 | `Ground.tick()` | Every few seconds | Removes drops older than 3 min |
 | `Equipment.getStats()` | Combat maths (hit chance, damage) | `{ aim, power, armour, maxHp, attackSpeed, crit, lifesteal, cooldown, gather, specials:[{id, skill, text}], weapon, tools, legacy }` |
