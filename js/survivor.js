@@ -44,6 +44,8 @@
     foodLife: 30,
     wardenReach: 3.05,
     minSpawn: 3,
+    idleClose: 2.4,
+    idleReach: 3.6,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
@@ -592,7 +594,7 @@
     if (!stillRing() || !en || en.boss || en.elite) return;
     if (en.behaviour === 'shooter' || en.behaviour === 'boss') return;
     const dist = len2(player.x - en.x, player.y - en.y);
-    if (dist >= (en.radius || 0.32) + 0.48) return;
+    if (dist >= (en.radius || 0.32) + BALANCE.idleReach) return;
     if (stillBite > 0) return;
     stillBite = BALANCE.idleBiteEvery;
     en.touchCd = 0.7;
@@ -607,7 +609,7 @@
       if (!en || en.boss || en.elite || en.life <= 0 || en.dying > 0) continue;
       if (en.behaviour === 'shooter' || en.behaviour === 'boss') continue;
       const dist = len2(player.x - en.x, player.y - en.y);
-      if (dist >= (en.radius || 0.32) + 0.48) continue;
+      if (dist >= (en.radius || 0.32) + BALANCE.idleReach) continue;
       stillBite = BALANCE.idleBiteEvery;
       lastHit = 'idle';
       hurt(BALANCE.chip, false);
@@ -992,9 +994,14 @@
   function rareBeam(rarity) {
     return rarity === 'rare' || rarity === 'epic' || rarity === 'legendary';
   }
+  function gemReachMul() {
+    if (time <= 90) return 2;
+    if (time >= 105) return 1;
+    return 2 - (time - 90) / 15;
+  }
   function magnetR() {
     const ranks = (owned.magnet || 0) + shopRank('magnet');
-    return pxToWorld(150 + ranks * 40);
+    return pxToWorld(150 + ranks * 40) * gemReachMul();
   }
   function pickupR() {
     return pxToWorld(36);
@@ -1255,8 +1262,8 @@
     const n = 4;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
-      const dist = 7.2;
-      spawnEnemy(i === 0 ? 'imp' : 'skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
+      const spot = viewEdge(ang, true, 0.6);
+      spawnEnemy(i === 0 ? 'imp' : 'skel', spot.x, spot.y);
     }
   }
 
@@ -1329,22 +1336,9 @@
   function spawnRing(pad) {
     spawnSerial += 1;
     const ang = ringAngle + spawnSerial * 2.399963;
-    const half = Math.max(viewHalfW(), viewHalfH());
-    if (stillRing()) {
-      spotScratch.x = player.x + Math.cos(ang) * 0.58;
-      spotScratch.y = player.y + Math.sin(ang) * 0.58;
-      return spotScratch;
-    }
     const moving = player.moving && (headX * headX + headY * headY) > 0.01;
-    if (time >= MINI_AT && moving && spawnSerial % 3 === 0) {
-      return viewEdge(aheadAngle(true), true, Math.max(3, BALANCE.minSpawn));
-    }
-    if (time >= BALANCE.edgeAt) return edgePoint(ang, 0.85 + (pad || 0));
-    let ring = half + 0.9 + (pad || 0);
-    if (time < 3) ring = Math.max(2.3, half * 0.7);
-    spotScratch.x = player.x + Math.cos(ang) * ring;
-    spotScratch.y = player.y + Math.sin(ang) * ring;
-    return spotScratch;
+    const aim = time >= MINI_AT && moving && spawnSerial % 3 === 0 ? aheadAngle(true) : ang;
+    return viewEdge(aim, true, 0.6);
   }
 
   function spawnForwardPack() {
@@ -1611,15 +1605,7 @@
   }
 
   function spawnBossEdge() {
-    const halfW = Math.max(2.4, canvas.width / (TILE * 2) - 1.35);
-    const halfH = Math.max(2.4, canvas.height / (TILE * 2) - 1.35);
-    const ang = Math.random() * Math.PI * 2;
-    const sx = Math.cos(ang);
-    const sy = Math.sin(ang);
-    const fit = 1 / Math.max(Math.abs(sx) / halfW, Math.abs(sy) / halfH);
-    spotScratch.x = player.x + sx * fit * 0.9;
-    spotScratch.y = player.y + sy * fit * 0.9;
-    return spotScratch;
+    return viewEdge(Math.random() * Math.PI * 2, true, 0.6);
   }
 
   function leashBoss(en, dt) {
@@ -2283,6 +2269,7 @@
         const dy = player.y - en.y;
         const dist = len2(dx, dy) || 1;
         let sp = en.speed;
+        if (!player.moving && !en.elite && !en.boss) sp *= BALANCE.idleClose;
         if (en.elite) {
           en.ai.t = (en.ai.t || 0) + dt;
           if (en.ai.t > 2.2) en.ai.t = 0;
@@ -2300,6 +2287,7 @@
           en.y += (dy / dist) * sp * dt;
         }
         en.facing = dx >= 0 ? 1 : -1;
+        if (stillRing() && !en.elite) biteIfStill(en);
         touchPlayer(en, len2(player.x - en.x, player.y - en.y), en.dmg, dt);
       }
     }
@@ -3154,7 +3142,8 @@
     casterPlant = 0;
     for (let i = 0; i < n; i++) {
       const ang = (i / Math.max(1, n)) * Math.PI * 2;
-      spawnEnemy('shooter', player.x + Math.cos(ang) * 3.2, player.y + Math.sin(ang) * 3.2);
+      const spot = viewEdge(ang, true, 0.6);
+      spawnEnemy('shooter', spot.x, spot.y);
     }
     return n;
   }

@@ -152,6 +152,35 @@ function saveOnQuit() {
   console.log('save on quit keeps ' + dead.prev);
 }
 
+function earlyCrowd() {
+  for (let seed = 1; seed <= 8; seed++) {
+    const game = boot(seed);
+    game.__svStart();
+    const view = game.__svView(1100, 800, 1);
+    const halfW = view.w / (view.tile * 2);
+    const halfH = view.h / (view.tile * 2);
+    const opened = game.__svThreats();
+    if (!opened.length) fail('seed ' + seed + ' opening pack was empty');
+    opened.forEach((f) => {
+      const dist = Math.hypot(f.x, f.y);
+      if (dist < 0.6) fail('seed ' + seed + ' spawned ' + dist.toFixed(2) + ' tiles from the hero');
+      const outside = Math.abs(f.x) > halfW - 0.05 || Math.abs(f.y) > halfH - 0.05;
+      if (!outside) fail('seed ' + seed + ' opening spawn inside the screen');
+    });
+    let on20 = 0;
+    let snap = game.__svSnap();
+    for (let i = 0; i < 500; i++) {
+      snap = game.__svIdleStep(0.05);
+      if (snap.time >= 20) {
+        on20 = game.__svOnScreen();
+        break;
+      }
+    }
+    if (on20 < 15) fail('seed ' + seed + ' had ' + on20 + ' on screen at 0:20');
+  }
+  console.log('spawns walk in from the screen edge, 15 on screen by 0:20');
+}
+
 function lootCadence() {
   for (let seed = 1; seed <= 4; seed++) {
     const game = boot(seed, '?headless=1&debug=1&walk=circle');
@@ -1560,6 +1589,7 @@ evoNeeds();
 freshAndFlags();
 bossLook();
 saveOnQuit();
+earlyCrowd();
 lootCadence();
 idleDeath();
 groundCap();
