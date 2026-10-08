@@ -1,7 +1,6 @@
-/** Survivor mode. One thumb steers; the sorcerer's staff fires on its own. */
+/** Survivor mode. Top-down arena. One thumb steers; the staff fires on its own. */
 (() => {
-  const TILE_W = 64;
-  const TILE_H = 32;
+  const TILE = 48;
   const ARENA = 18;
   const CELL = 3;
   const RUN_SECONDS = 600;
@@ -30,7 +29,10 @@
   const shots = [];
   const shotPool = [];
   const particles = [];
+  const particlePool = [];
   const floats = [];
+  const floatPool = [];
+  const drawOrder = [];
   const grid = new Map();
 
   let state = 'title';
@@ -52,8 +54,15 @@
   let novaSeq = 0;
   let pierceSeq = 0;
   let hitSnd = 0;
+  let lootSnd = 0;
   let camX = 0;
   let camY = 0;
+  let shakeMag = 0;
+  let shakePhase = 0;
+  let reduceMotion = false;
+  try {
+    reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch (e) {}
   let animT = 0;
   let owned = { bolt: 1 };
   let cds = { bolt: T.firstBolt, nova: 1.6, pierce: 1.2 };
@@ -76,6 +85,7 @@
       life: hero.base.life,
       maxLife: hero.base.life,
       facing: 1,
+      moving: false,
       hitFlash: 0,
       invuln: 0.4,
       xp: 0,
@@ -108,12 +118,12 @@
   }
 
   function worldToScreen(x, y) {
-    const iso = Utils.iso(x, y, TILE_W, TILE_H);
-    return { x: iso.x + camX, y: iso.y + camY };
+    return { x: x * TILE + camX, y: y * TILE + camY };
   }
 
-  function screenVectorToWorld(sx, sy) {
-    return Utils.screenToWorld(sx, sy, 0, 0, TILE_W, TILE_H);
+  function addShake(amount) {
+    if (reduceMotion || bench || !(amount > 0)) return;
+    shakeMag = Math.min(5.5, shakeMag + amount);
   }
 
   function clampArena(obj, limit) {
@@ -140,7 +150,7 @@
     en.alive = true;
     en.eid = type.id;
     en.name = (opts && opts.name) || type.name;
-    en.color = type.color;
+    en.color = type.id === 'imp' ? '#7b4fd4' : type.id === 'brute' ? '#8e97a3' : type.id === 'wraith' ? '#8a7498' : '#d7dbe3';
     en.x = x;
     en.y = y;
     en.radius = type.radius || 0.32;
@@ -150,6 +160,9 @@
     en.life = en.maxLife;
     en.boss = bossFlag;
     en.hitFlash = 0;
+    en.dying = 0;
+    en.kx = 0;
+    en.ky = 0;
     en.touchCd = 0.3;
     en.facing = x < player.x ? 1 : -1;
     en.scale = bossFlag ? 1.75 : (type.id === 'brute' ? 1.28 : type.id === 'imp' ? 0.95 : 1.05);
@@ -176,6 +189,9 @@
     g.x = en.x;
     g.y = en.y;
     g.value = en.xp;
+    g.vx = 0;
+    g.vy = 0;
+    g.fly = 0;
     gems.push(g);
   }
 
@@ -193,22 +209,39 @@
     shots.push(s);
   }
 
-  function floatText(x, y, text, color) {
-    if (floats.length >= FLOAT_CAP) floats.shift();
-    floats.push({ x, y, text, color, life: 0.65 });
+  function floatText(x, y, text, color, big) {
+    let f;
+    if (floats.length >= FLOAT_CAP) f = floats.shift();
+    else f = floatPool.pop() || {};
+    f.x = x;
+    f.y = y;
+    f.text = text;
+    f.color = color;
+    f.life = 0.72;
+    f.max = 0.72;
+    f.big = !!big;
+    floats.push(f);
+  }
+
+  function spark(x, y, color, n, speed) {
+    if (bench) return;
+    for (let i = 0; i < n && particles.length < PARTICLE_CAP; i++) {
+      const p = particlePool.pop() || {};
+      const a = Math.random() * Math.PI * 2;
+      const sp = speed * (0.55 + Math.random() * 0.45);
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp;
+      p.life = 0.28;
+      p.color = color;
+      particles.push(p);
+    }
   }
 
   function burst(x, y, color) {
-    if (particles.length >= PARTICLE_CAP || enemies.length > 90) return;
-    for (let i = 0; i < 4 && particles.length < PARTICLE_CAP; i++) {
-      particles.push({
-        x, y,
-        vx: Utils.rand(-1.4, 1.4),
-        vy: Utils.rand(-1.6, -0.2),
-        life: 0.35,
-        color,
-      });
-    }
+    if (enemies.length > 140) return;
+    spark(x, y, color, 3, 2.2);
   }
 
   function power() {
@@ -228,13 +261,14 @@
     return 5 + (owned.magnet || 0) * 0.7;
   }
 
-  function hurt(amount) {
+  function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
     const dmg = Math.max(1, amount - (owned.armor || 0) * 2);
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
-    floatText(player.x, player.y - 0.4, String(dmg), '#ff8060');
+    addShake(heavy ? 4.2 : 2.6);
+    floatText(player.x, player.y - 0.4, String(dmg), '#ff8060', true);
     sfx('hurt');
     if (player.life <= 0) {
       player.life = 0;
@@ -242,23 +276,39 @@
     }
   }
 
-  function damageEnemy(en, amount) {
-    if (!en || en.life <= 0) return;
+  function damageEnemy(en, amount, opts) {
+    if (!en || en.life <= 0 || en.dying > 0) return;
+    const tick = !!(opts && opts.tick);
     en.life -= amount;
-    en.hitFlash = 0.12;
-    hits += 1;
-    if (time - hitSnd > 0.08) {
+    if (!tick) {
+      en.hitFlash = 0.08;
+      hits += 1;
+    }
+    if (!tick && time - hitSnd > 0.08) {
       hitSnd = time;
       sfx('hit');
     }
+    if (!tick) {
+      const big = amount >= 18 || !!en.boss;
+      floatText(en.x, en.y - 0.15, String(Math.max(1, Math.round(amount))), '#ffffff', big);
+      spark(en.x, en.y, '#ffffff', 3, 2.2);
+      if (!en.boss && en.eid !== 'brute') {
+        const d = Math.hypot(en.x - player.x, en.y - player.y) || 1;
+        en.kx = ((en.x - player.x) / d) * 5;
+        en.ky = ((en.y - player.y) / d) * 5;
+      }
+      if (en.boss && amount >= 4) addShake(2.4);
+    }
     if (en.life <= 0) {
+      en.life = 0;
+      en.dying = 0.22;
+      en.hitFlash = 0.08;
       kills += 1;
       runGold += en.gold;
       dropGem(en);
-      burst(en.x, en.y, en.color);
-      if (enemies.length < 40) floatText(en.x, en.y - 0.3, '+' + en.xp, '#9eb6ff');
-      const idx = enemies.indexOf(en);
-      if (idx >= 0) releaseEnemy(idx);
+      burst(en.x, en.y, '#ffffff');
+      if (en.boss) addShake(4.5);
+      else if (en.eid === 'brute') addShake(2.6);
     }
   }
 
@@ -266,6 +316,7 @@
     grid.clear();
     for (let i = 0; i < enemies.length; i++) {
       const en = enemies[i];
+      if (en.dying > 0) continue;
       const key = ((en.x / CELL) | 0) + ',' + ((en.y / CELL) | 0);
       let bucket = grid.get(key);
       if (!bucket) {
@@ -386,7 +437,7 @@
         const bx = player.x + Math.cos(a) * rad;
         const by = player.y + Math.sin(a) * rad;
         nearby(bx, by, 1.2, (en) => {
-          if (Math.hypot(en.x - bx, en.y - by) < 0.7) damageEnemy(en, dmg);
+          if (Math.hypot(en.x - bx, en.y - by) < 0.7) damageEnemy(en, dmg, { tick: true });
         });
       }
     }
@@ -434,18 +485,30 @@
   function tickEnemies(dt) {
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
+      if (en.hitFlash > 0) en.hitFlash -= dt;
+      if (en.dying > 0) {
+        en.dying -= dt;
+        if (en.dying <= 0) releaseEnemy(i);
+        continue;
+      }
       if (en.life <= 0) { releaseEnemy(i); continue; }
+      if (en.kx || en.ky) {
+        en.x += en.kx * dt;
+        en.y += en.ky * dt;
+        const damp = Math.max(0, 1 - dt * 8);
+        en.kx *= damp;
+        en.ky *= damp;
+      }
       const dx = player.x - en.x;
       const dy = player.y - en.y;
       const dist = Math.hypot(dx, dy) || 1;
       en.x += (dx / dist) * en.speed * dt;
       en.y += (dy / dist) * en.speed * dt;
       en.facing = dx >= 0 ? 1 : -1;
-      if (en.hitFlash > 0) en.hitFlash -= dt;
       if (en.touchCd > 0) en.touchCd -= dt;
       if (dist < en.radius + 0.48 && en.touchCd <= 0) {
         en.touchCd = 0.7;
-        hurt(en.dmg);
+        hurt(en.dmg, en.boss);
       }
     }
   }
@@ -457,16 +520,34 @@
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = Math.hypot(dx, dy) || 1;
-      if (dist < pull) {
-        const sp = 7 + (pull - dist) * 2;
-        g.x += (dx / dist) * sp * dt;
-        g.y += (dy / dist) * sp * dt;
+      if (dist < pull) g.fly = 1;
+      if (g.fly) {
+        const accel = 42;
+        g.vx += (dx / dist) * accel * dt;
+        g.vy += (dy / dist) * accel * dt;
+        const sp = Math.hypot(g.vx, g.vy);
+        if (sp > 18) {
+          const k = 18 / sp;
+          g.vx *= k;
+          g.vy *= k;
+        }
+        g.x += g.vx * dt;
+        g.y += g.vy * dt;
       }
-      if (dist < 0.45) {
+      const ndx = player.x - g.x;
+      const ndy = player.y - g.y;
+      if (ndx * ndx + ndy * ndy < 0.18) {
         player.xp += g.value;
+        spark(player.x, player.y, '#ffffff', 3, 2.6);
         gems.splice(i, 1);
+        g.fly = 0;
+        g.vx = 0;
+        g.vy = 0;
         gemPool.push(g);
-        if (kills < 30) sfx('loot');
+        if (time - lootSnd > 0.07) {
+          lootSnd = time;
+          sfx('loot');
+        }
       }
     }
   }
@@ -498,6 +579,10 @@
     animT += dt;
     if (player.hitFlash > 0) player.hitFlash -= dt;
     if (player.invuln > 0) player.invuln -= dt;
+    if (shakeMag > 0) {
+      shakeMag = Math.max(0, shakeMag - dt * 12);
+      shakePhase += dt * 46;
+    }
     if (curse > 0) curse = Math.max(0, curse - dt);
     movePlayer(dt);
     director(dt);
@@ -513,12 +598,19 @@
       p.life -= dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.life <= 0) particles.splice(i, 1);
+      if (p.life <= 0) {
+        particlePool.push(p);
+        particles.splice(i, 1);
+      }
     }
     for (let i = floats.length - 1; i >= 0; i--) {
-      floats[i].life -= dt;
-      floats[i].y -= dt * 0.8;
-      if (floats[i].life <= 0) floats.splice(i, 1);
+      const f = floats[i];
+      f.life -= dt;
+      f.y -= dt * (f.big ? 1.05 : 0.7);
+      if (f.life <= 0) {
+        floatPool.push(f);
+        floats.splice(i, 1);
+      }
     }
     if (hermit.on && !hermit.used && Math.hypot(player.x - hermit.x, player.y - hermit.y) < 1.25) {
       openHermit();
@@ -544,13 +636,16 @@
         sy = (jy / mag) * scale;
       }
     }
-    if (sx === 0 && sy === 0) return;
-    const w = screenVectorToWorld(sx, sy);
-    const len = Math.hypot(w.x, w.y) || 1;
+    if (sx === 0 && sy === 0) {
+      player.moving = false;
+      return;
+    }
+    player.moving = true;
+    const len = Math.hypot(sx, sy) || 1;
     const sp = hero.base.move * (1 + (owned.haste || 0) * 0.03);
-    player.x += (w.x / len) * sp * dt;
-    player.y += (w.y / len) * sp * dt;
-    player.facing = w.x >= 0 ? 1 : -1;
+    player.x += (sx / len) * sp * dt;
+    player.y += (sy / len) * sp * dt;
+    if (sx !== 0) player.facing = sx > 0 ? 1 : -1;
     clampArena(player, ARENA - 1.2);
   }
 
@@ -604,7 +699,7 @@
     if (bench) {
       for (let i = 0; i < 300; i++) {
         const ang = Math.random() * Math.PI * 2;
-        const dist = Math.sqrt(Math.random()) * 4.2;
+        const dist = 0.45 + Math.random() * 6.2;
         const id = i % 7 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
         spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
       }
@@ -618,6 +713,28 @@
       }
       spawnEnemy('brute', 5, 2, { boss: true, name: 'Risen Brute' });
       boss5 = true;
+    } else if (preview === 'juice') {
+      cds.bolt = 0.05;
+      for (let i = 0; i < 28; i++) {
+        const ang = (i / 28) * Math.PI * 2;
+        const dist = 2.15 + (i % 5) * 0.72;
+        const id = i % 11 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
+        const en = spawnEnemy(id, Math.cos(ang) * dist, Math.sin(ang) * dist);
+        en.maxLife = id === 'brute' ? 40 : 18;
+        en.life = en.maxLife;
+      }
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2 + 0.2;
+        const dist = 3.8 + (i % 4) * 0.22;
+        const g = gemPool.pop() || {};
+        g.x = Math.cos(ang) * dist;
+        g.y = Math.sin(ang) * dist;
+        g.value = 1;
+        g.vx = 0;
+        g.vy = 0;
+        g.fly = 0;
+        gems.push(g);
+      }
     } else {
       openingPack();
     }
@@ -867,145 +984,80 @@
     }
   }
 
-  function drawDiamond(sx, sy, fill, edge) {
+  function drawArena() {
+    const origin = worldToScreen(0, 0);
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(sx, sy - TILE_H / 2);
-    ctx.lineTo(sx + TILE_W / 2, sy);
-    ctx.lineTo(sx, sy + TILE_H / 2);
-    ctx.lineTo(sx - TILE_W / 2, sy);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.strokeStyle = edge;
+    ctx.arc(origin.x, origin.y, ARENA * TILE, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#5c4638';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const x0 = Math.floor(-camX / TILE) * TILE + camX;
+    const y0 = Math.floor(-camY / TILE) * TILE + camY;
+    ctx.beginPath();
+    for (let x = x0; x < canvas.width + TILE; x += TILE) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+    }
+    for (let y = y0; y < canvas.height + TILE; y += TILE) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+    }
+    ctx.strokeStyle = 'rgba(32, 22, 16, 0.55)';
     ctx.lineWidth = 1;
     ctx.stroke();
-  }
-
-  function drawArena() {
-    const px = player.x | 0;
-    const py = player.y | 0;
-    const reach = 12;
-    for (let y = py - reach; y <= py + reach; y++) {
-      for (let x = px - reach; x <= px + reach; x++) {
-        if (x * x + y * y > ARENA * ARENA) continue;
-        const s = worldToScreen(x + 0.5, y + 0.5);
-        if (s.x < -TILE_W || s.y < -TILE_H || s.x > canvas.width + TILE_W || s.y > canvas.height + TILE_H) continue;
-        const checker = ((x + y) & 1) === 0;
-        drawDiamond(s.x, s.y, checker ? '#6a5344' : '#5a4638', '#3a2c24');
-      }
-    }
-  }
-
-  function drawHero() {
-    const s = worldToScreen(player.x, player.y);
-    const c = hero.colors;
-    const bob = Math.sin(animT * 2.2) * 1.2;
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(s.x, s.y + 4, 14, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.save();
-    ctx.translate(s.x, s.y - 16 + bob);
-    ctx.scale(player.facing * 1.15, 1.15);
-    ctx.fillStyle = player.hitFlash > 0 ? '#fff' : c.cape;
-    ctx.beginPath();
-    ctx.moveTo(0, -18);
-    ctx.lineTo(14, 16);
-    ctx.lineTo(-14, 16);
-    ctx.fill();
-    ctx.fillStyle = player.hitFlash > 0 ? '#fff' : c.armor;
-    ctx.beginPath();
-    ctx.moveTo(0, -14);
-    ctx.lineTo(9, 14);
-    ctx.lineTo(-9, 14);
-    ctx.fill();
-    ctx.fillStyle = c.skin;
-    ctx.beginPath();
-    ctx.arc(0, -16, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#140c28';
-    ctx.beginPath();
-    ctx.moveTo(-6, -16);
-    ctx.lineTo(0, -30);
-    ctx.lineTo(6, -16);
-    ctx.fill();
-    ctx.strokeStyle = c.accent;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(8, 4);
-    ctx.lineTo(8, -18);
-    ctx.stroke();
-    ctx.fillStyle = c.weapon;
-    ctx.beginPath();
-    ctx.arc(8, -20, 3.5, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
+  }
+
+  function heroOpts() {
+    return {
+      flash: player.hitFlash > 0,
+      moving: player.moving,
+      facing: player.facing,
+      time: animT,
+    };
+  }
+
+  function drawHeroBody() {
+    const s = worldToScreen(player.x, player.y);
+    SurvivorSprites.drawHero(ctx, s.x, s.y, heroOpts());
     if (player.life < player.maxLife) {
       ctx.fillStyle = '#200808';
-      ctx.fillRect(s.x - 16, s.y - 46, 32, 4);
+      ctx.fillRect(s.x - 16, s.y - 28, 32, 4);
       ctx.fillStyle = '#c03030';
-      ctx.fillRect(s.x - 16, s.y - 46, 32 * (player.life / player.maxLife), 4);
+      ctx.fillRect(s.x - 16, s.y - 28, 32 * (player.life / player.maxLife), 4);
     }
   }
 
-  function drawFoe(en) {
+  function drawFoe(en, crowd) {
     const s = worldToScreen(en.x, en.y);
-    if (s.x < -40 || s.y < -50 || s.x > canvas.width + 40 || s.y > canvas.height + 40) return;
-    const flash = en.hitFlash > 0;
-    const bob = (animT * 40 + en.x * 3) % 2 < 1 ? -1 : 1;
-    ctx.fillStyle = flash ? '#fff6e8' : en.color;
-    const h = (en.boss ? 22 : en.eid === 'brute' ? 16 : en.eid === 'imp' ? 12 : 14) * en.scale;
-    const w = h * 0.7;
-    ctx.fillRect(s.x - w / 2, s.y - h + bob, w, h);
-    ctx.beginPath();
-    ctx.arc(s.x, s.y - h + bob, w * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-    if (en.eid === 'imp') {
-      ctx.fillStyle = flash ? '#fff' : '#3a100c';
-      ctx.fillRect(s.x - w, s.y - h - 4, 4, 6);
-      ctx.fillRect(s.x + w - 4, s.y - h - 4, 4, 6);
-    }
+    if (s.x < -48 || s.y < -48 || s.x > canvas.width + 48 || s.y > canvas.height + 48) return;
+    SurvivorSprites.drawFoe(ctx, s.x, s.y, {
+      eid: en.eid,
+      boss: en.boss,
+      scale: en.scale,
+      color: en.color,
+      flash: en.hitFlash > 0,
+      dying: en.dying || 0,
+      crowd: crowd,
+      time: animT,
+    });
   }
 
   function drawGem(g) {
     const s = worldToScreen(g.x, g.y);
-    ctx.fillStyle = '#9eb6ff';
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y - 7);
-    ctx.lineTo(s.x + 5, s.y);
-    ctx.lineTo(s.x, s.y + 6);
-    ctx.lineTo(s.x - 5, s.y);
-    ctx.fill();
+    if (s.x < -20 || s.y < -20 || s.x > canvas.width + 20 || s.y > canvas.height + 20) return;
+    SurvivorSprites.drawGem(ctx, s.x, s.y);
   }
 
   function drawHermit() {
     if (!hermit.on) return;
     const s = worldToScreen(hermit.x, hermit.y);
-    const bob = Math.sin(animT * 2) * 1;
-    ctx.save();
-    ctx.translate(s.x, s.y - 12 + bob);
-    ctx.fillStyle = '#6a5344';
-    ctx.beginPath();
-    ctx.moveTo(-10, 14);
-    ctx.lineTo(10, 14);
-    ctx.lineTo(6, -2);
-    ctx.lineTo(-6, -2);
-    ctx.fill();
-    ctx.fillStyle = '#f0d2a8';
-    ctx.beginPath();
-    ctx.arc(0, -8, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#3a2c22';
-    ctx.beginPath();
-    ctx.moveTo(-8, -6);
-    ctx.lineTo(0, -20);
-    ctx.lineTo(8, -6);
-    ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = '#e0c080';
+    SurvivorSprites.drawHermit(ctx, s.x, s.y, animT);
+    ctx.fillStyle = '#d8dce4';
     ctx.font = '11px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText('Hermit', s.x, s.y + 16);
+    ctx.fillText('Hermit', s.x, s.y + 18);
   }
 
   function drawWeapons() {
@@ -1015,30 +1067,24 @@
       for (let i = 0; i < count; i++) {
         const a = orbitAngle + (i / count) * Math.PI * 2;
         const s = worldToScreen(player.x + Math.cos(a) * rad, player.y + Math.sin(a) * rad);
-        ctx.save();
-        ctx.translate(s.x, s.y);
-        ctx.rotate(a);
-        ctx.fillStyle = '#e6ebf2';
-        ctx.fillRect(-2, -10, 4, 20);
-        ctx.restore();
+        SurvivorSprites.drawBolt(ctx, s.x, s.y, a);
       }
     }
     for (let i = 0; i < shots.length; i++) {
       const shot = shots[i];
+      const s = worldToScreen(shot.x, shot.y);
       if (shot.kind === 'nova') {
-        const s = worldToScreen(shot.x, shot.y);
-        const px = shot.r * (TILE_W / 2);
-        ctx.strokeStyle = 'rgba(158,182,255,0.85)';
-        ctx.lineWidth = 3;
+        const px = shot.r * TILE;
         ctx.beginPath();
-        ctx.ellipse(s.x, s.y, px, px * 0.5, 0, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, px, 0, Math.PI * 2);
+        ctx.strokeStyle = '#14180c';
+        ctx.lineWidth = 5;
+        ctx.stroke();
+        ctx.strokeStyle = '#e8ff6a';
+        ctx.lineWidth = 3;
         ctx.stroke();
       } else {
-        const s = worldToScreen(shot.x, shot.y);
-        ctx.fillStyle = shot.kind === 'pierce' ? '#f0d080' : '#c8d4ff';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y - 10, shot.kind === 'pierce' ? 5 : 4, 0, Math.PI * 2);
-        ctx.fill();
+        SurvivorSprites.drawBolt(ctx, s.x, s.y, Math.atan2(shot.vy, shot.vx));
       }
     }
   }
@@ -1063,60 +1109,79 @@
     ctx.fill();
   }
 
-  function draw() {
-    const iso = Utils.iso(player.x, player.y, TILE_W, TILE_H);
-    camX = canvas.width / 2 - iso.x;
-    camY = canvas.height / 2 - iso.y - 10;
-    ctx.fillStyle = '#100c0c';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawArena();
-    if (enemies.length > 80) {
-      for (let i = 0; i < gems.length; i++) drawGem(gems[i]);
-      for (let i = 0; i < enemies.length; i++) drawFoe(enemies[i]);
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        const s = worldToScreen(p.x, p.y);
-        ctx.globalAlpha = Math.max(0, p.life * 2);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(s.x, s.y, 3, 3);
+  function byY(a, b) { return a.y - b.y; }
+
+  function drawActors() {
+    drawOrder.length = 0;
+    for (let i = 0; i < enemies.length; i++) drawOrder.push(enemies[i]);
+    drawOrder.sort(byY);
+    const crowd = enemies.length > 100;
+    let hermitDrawn = !hermit.on;
+    for (let i = 0; i < drawOrder.length; i++) {
+      const en = drawOrder[i];
+      if (!hermitDrawn && hermit.y <= en.y) {
+        drawHermit();
+        hermitDrawn = true;
       }
-      ctx.globalAlpha = 1;
-      drawHero();
-      drawHermit();
-    } else {
-      const sprites = [];
-      for (let i = 0; i < gems.length; i++) sprites.push({ z: gems[i].x + gems[i].y, kind: 'gem', g: gems[i] });
-      for (let i = 0; i < enemies.length; i++) sprites.push({ z: enemies[i].x + enemies[i].y, kind: 'en', en: enemies[i] });
-      for (let i = 0; i < particles.length; i++) sprites.push({ z: particles[i].x + particles[i].y, kind: 'p', p: particles[i] });
-      sprites.push({ z: player.x + player.y + 0.01, kind: 'hero' });
-      if (hermit.on) sprites.push({ z: hermit.x + hermit.y, kind: 'hermit' });
-      sprites.sort((a, b) => a.z - b.z);
-      for (let i = 0; i < sprites.length; i++) {
-        const s = sprites[i];
-        if (s.kind === 'gem') drawGem(s.g);
-        else if (s.kind === 'en') drawFoe(s.en);
-        else if (s.kind === 'hero') drawHero();
-        else if (s.kind === 'hermit') drawHermit();
-        else {
-          const p = worldToScreen(s.p.x, s.p.y);
-          ctx.globalAlpha = Math.max(0, s.p.life * 2);
-          ctx.fillStyle = s.p.color;
-          ctx.fillRect(p.x, p.y, 3, 3);
-          ctx.globalAlpha = 1;
-        }
-      }
+      drawFoe(en, crowd);
     }
-    drawWeapons();
+    if (!hermitDrawn) drawHermit();
+    const s = worldToScreen(player.x, player.y);
+    SurvivorSprites.drawHeroRing(ctx, s.x, s.y);
+    drawHeroBody();
+  }
+
+  function drawFloats() {
     ctx.textAlign = 'center';
-    ctx.font = 'bold 13px Segoe UI';
+    ctx.lineJoin = 'round';
     for (let i = 0; i < floats.length; i++) {
       const f = floats[i];
       const s = worldToScreen(f.x, f.y);
-      ctx.globalAlpha = Math.max(0, f.life * 1.6);
+      const max = f.max || 0.72;
+      const age = 1 - f.life / max;
+      const pop = 1 + Math.max(0, (f.big ? 0.5 : 0.22) - age) * (f.big ? 1.35 : 1.15);
+      const size = Math.round((f.big ? 28 : 15) * pop);
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2.4));
+      ctx.font = (f.big ? '800 ' : 'bold ') + size + 'px Segoe UI';
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#140e0c';
+      ctx.strokeText(f.text, s.x, s.y);
       ctx.fillStyle = f.color;
-      ctx.fillText(f.text, s.x, s.y - 20);
+      ctx.fillText(f.text, s.x, s.y);
     }
     ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    camX = canvas.width / 2 - player.x * TILE;
+    camY = canvas.height / 2 - player.y * TILE;
+    ctx.fillStyle = '#100c0c';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    if (shakeMag > 0) {
+      ctx.translate(Math.sin(shakePhase) * shakeMag, Math.cos(shakePhase * 0.83) * shakeMag);
+    }
+    drawArena();
+    for (let i = 0; i < gems.length; i++) {
+      if (!gems[i].fly) drawGem(gems[i]);
+    }
+    drawActors();
+    for (let i = 0; i < gems.length; i++) {
+      if (gems[i].fly) drawGem(gems[i]);
+    }
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const s = worldToScreen(p.x, p.y);
+      ctx.globalAlpha = Math.max(0, p.life * 3);
+      ctx.fillStyle = '#140e0c';
+      ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+    drawWeapons();
+    drawFloats();
+    ctx.restore();
     drawJoy();
   }
 
@@ -1229,8 +1294,36 @@
     if (debug) {
       window.__sv = () => ({
         state, time, kills, level: player.level, levelUps, hits,
-        enemies: enemies.length, x: player.x, y: player.y, life: player.life,
+        enemies: enemies.length, gems: gems.length, floats: floats.length,
+        x: player.x, y: player.y, life: player.life,
       });
+      if (/preview=juice/.test(search)) {
+        window.__svFlash = () => {
+          let n = 0;
+          for (let i = 0; i < enemies.length && n < 6; i++) {
+            const en = enemies[i];
+            if (en.dying > 0 || en.life <= 0) continue;
+            en.hitFlash = 0.08;
+            n += 1;
+          }
+          return n;
+        };
+        window.__svGems = () => {
+          for (let i = 0; i < 10; i++) {
+            const ang = (i / 10) * Math.PI * 2 + 0.2;
+            const dist = 3.2 + (i % 4) * 0.4;
+            const g = gemPool.pop() || {};
+            g.x = player.x + Math.cos(ang) * dist;
+            g.y = player.y + Math.sin(ang) * dist;
+            g.value = 1;
+            g.vx = 0;
+            g.vy = 0;
+            g.fly = 0;
+            gems.push(g);
+          }
+          return gems.length;
+        };
+      }
     }
   }
 

@@ -67,9 +67,10 @@ async function pageWith(browser, url, viewport) {
     const movedAt = Date.now();
     await new Promise(r => setTimeout(r, 1500));
     const early = await title.evaluate(() => window.__sv());
-    if (!(early.x !== 0 || early.y !== 0)) fail('player did not move: ' + JSON.stringify(early));
+    if (!(early.x > 1 && Math.abs(early.y) < 0.6)) fail('top-down axes: ' + JSON.stringify(early));
     if (movedAt - t0 > 10000) fail('took too long to move: ' + (movedAt - t0));
     await title.screenshot({ path: path.join(shots, 'survivor-early.png') });
+    await title.screenshot({ path: path.join(shots, 'survivor-topdown-desktop.png') });
     await title.waitForFunction(() => window.__sv().hits > 0, { timeout: 8000 });
     const hit = await title.evaluate(() => window.__sv());
     if (hit.time > 5 && hit.hits < 1) fail('first hit was late');
@@ -113,6 +114,7 @@ async function pageWith(browser, url, viewport) {
     await portrait.mouse.move(180, 560);
     await new Promise(r => setTimeout(r, 200));
     await portrait.screenshot({ path: path.join(shots, 'survivor-joystick-portrait.png') });
+    await portrait.screenshot({ path: path.join(shots, 'survivor-topdown-portrait.png') });
     await portrait.mouse.up();
     if (portrait.__errors.length) fail('portrait errors: ' + portrait.__errors.join(' | '));
     await portrait.close();
@@ -143,6 +145,21 @@ async function pageWith(browser, url, viewport) {
     if (!shown || label !== 'TEST AD: Reroll') fail('reroll prompt: ' + label);
     await ads.close();
 
+    const juice = await pageWith(browser, base + 'survivor.html?debug=1&preview=juice', desk);
+    await juice.waitForFunction(() => {
+      const s = window.__sv();
+      return s && s.state === 'playing' && s.hits >= 1 && s.floats > 0;
+    }, { timeout: 8000 });
+    await juice.evaluate(() => { window.__svGems(); window.__svFlash(); });
+    await new Promise(r => setTimeout(r, 180));
+    await juice.screenshot({ path: path.join(shots, 'survivor-juice-desktop.png') });
+    await juice.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await juice.evaluate(() => { window.__svGems(); window.__svFlash(); });
+    await new Promise(r => setTimeout(r, 160));
+    await juice.screenshot({ path: path.join(shots, 'survivor-juice-portrait.png') });
+    if (juice.__errors.length) fail('juice errors: ' + juice.__errors.join(' | '));
+    await juice.close();
+
     const bench = await pageWith(browser, base + 'survivor.html?debug=1&bench=1', desk);
     await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 20000 });
     const fps = await bench.evaluate(() => window.__fps);
@@ -153,6 +170,13 @@ async function pageWith(browser, url, viewport) {
     await bench.screenshot({ path: path.join(shots, 'survivor-bench.png') });
     if (bench.__errors.length) fail('bench errors: ' + bench.__errors.join(' | '));
     await bench.close();
+
+    const swarmed = await pageWith(browser, base + 'survivor.html?debug=1&bench=1', phone);
+    await swarmed.waitForFunction(() => window.__sv && window.__sv().enemies >= 300, { timeout: 8000 });
+    await new Promise(r => setTimeout(r, 400));
+    await swarmed.screenshot({ path: path.join(shots, 'survivor-phone-crowd.png') });
+    if (swarmed.__errors.length) fail('phone crowd errors: ' + swarmed.__errors.join(' | '));
+    await swarmed.close();
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));
