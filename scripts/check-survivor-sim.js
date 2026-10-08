@@ -2483,28 +2483,78 @@ function telegraphShapes() {
   console.log('telegraphLine re-aims, slam ring 2.15, both clear on the beat');
 
   const plain = boot(4, '?headless=1&debug=1');
+  const lineCalls = [];
+  const ringCalls = [];
+  const plainOffs = [];
+  const fx = plain.FX || {};
+  const hasLine = typeof fx.telegraphLine === 'function';
+  const hasRing = typeof fx.telegraph === 'function';
+  if (hasLine) {
+    const prevLine = fx.telegraphLine;
+    fx.telegraphLine = function (id, x, y, toX, toY, ms, opts) {
+      lineCalls.push({ id: id, x: x, y: y, toX: toX, toY: toY, ms: ms, width: opts && opts.width });
+      return prevLine.apply(fx, arguments);
+    };
+  }
+  if (hasRing) {
+    const prevRing = fx.telegraph;
+    fx.telegraph = function (id, x, y, ms, opts) {
+      ringCalls.push({ id: id, x: x, y: y, ms: ms, radius: opts && opts.radius });
+      return prevRing.apply(fx, arguments);
+    };
+  }
+  if (typeof fx.telegraphOff === 'function') {
+    const prevOff = fx.telegraphOff;
+    fx.telegraphOff = function (id) {
+      plainOffs.push(id);
+      return prevOff.apply(fx, arguments);
+    };
+  }
   plain.__svStart();
   plain.__svInvuln(20);
   plain.__svGive('bolt', 0);
   plain.__svSpawn('charger', 3.2, 0);
-  let fallback = [];
-  for (let n = 0; n < 20 && !fallback.length; n++) {
-    plain.__svStep(0.05);
-    fallback = plain.__svTells().filter((tell) => tell.kind === 'line');
+  if (hasLine) {
+    for (let n = 0; n < 20 && !lineCalls.length; n++) plain.__svStep(0.05);
+    if (!lineCalls.length) fail('charger did not telegraphLine');
+    const dashId = lineCalls[0].id;
+    if (lineCalls.some((call) => call.id !== dashId)) fail('dash telegraphLine ids diverged ' + dashId);
+    for (let n = 0; n < 40 && plainOffs.indexOf(dashId) < 0; n++) plain.__svStep(0.05);
+    if (plainOffs.indexOf(dashId) < 0) fail('telegraphOff missed dash ' + dashId);
+  } else {
+    let fallback = [];
+    for (let n = 0; n < 20 && !fallback.length; n++) {
+      plain.__svStep(0.05);
+      fallback = plain.__svTells().filter((tell) => tell.kind === 'line');
+    }
+    if (!fallback.length) fail('dash fallback line missing');
+    plain.__svDraw();
   }
-  if (!fallback.length) fail('dash fallback line missing');
-  plain.__svDraw();
   plain.__svSpawn('brute', 3.4, 0.2, 'warden');
-  let ring = null;
-  for (let n = 0; n < 80 && !ring; n++) {
-    plain.__svStep(0.05);
-    ring = plain.__svTells().filter((tell) => tell.kind === 'ring' && tell.r > 2)[0];
+  if (hasRing) {
+    for (let n = 0; n < 80 && !ringCalls.some((call) => call.ms === 550 && call.radius > 2); n++) plain.__svStep(0.05);
+    const slams = ringCalls.filter((call) => call.ms === 550 && call.radius > 2);
+    if (!slams.length) fail('slam telegraph missing');
+    const slamId = slams[0].id;
+    if (slams.some((call) => call.id !== slamId)) fail('slam telegraph ids diverged ' + slamId);
+    for (let n = 0; n < 30 && plainOffs.indexOf(slamId) < 0; n++) plain.__svStep(0.05);
+    if (plainOffs.indexOf(slamId) < 0) fail('telegraphOff missed slam ' + slamId);
+  } else {
+    let ring = null;
+    for (let n = 0; n < 80 && !ring; n++) {
+      plain.__svStep(0.05);
+      ring = plain.__svTells().filter((tell) => tell.kind === 'ring' && tell.r > 2)[0];
+    }
+    if (!ring) fail('slam fallback ring missing');
+    plain.__svDraw();
+    for (let n = 0; n < 30 && plain.__svTells().some((tell) => tell.id === ring.id); n++) plain.__svStep(0.05);
+    if (plain.__svTells().some((tell) => tell.id === ring.id)) fail('slam fallback stayed up');
   }
-  if (!ring) fail('slam fallback ring missing');
-  plain.__svDraw();
-  for (let n = 0; n < 30 && plain.__svTells().some((tell) => tell.id === ring.id); n++) plain.__svStep(0.05);
-  if (plain.__svTells().some((tell) => tell.id === ring.id)) fail('slam fallback stayed up');
-  console.log('fallback dash line and slam ring draw after the hero');
+  const dashNote = hasLine ? 'FX telegraphLine' : 'fallback dash line';
+  const slamNote = hasRing ? 'slam telegraph' : 'fallback slam ring';
+  console.log(dashNote + ' and ' + slamNote + (hasLine || hasRing
+    ? ' share an id and clear with telegraphOff'
+    : ' draw after the hero'));
 }
 
 function bannerToastCap(label, search, bannerText) {
