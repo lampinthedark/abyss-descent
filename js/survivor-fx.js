@@ -519,10 +519,18 @@ const FX = (function () {
   }
 
   function rarityId(r) {
-    if (r === 'uncommon') return 1;
-    if (r === 'rare') return 2;
-    if (r === 'epic' || r === 'very rare' || r === 'veryrare') return 3;
-    if (r === 'legendary') return 4;
+    if (typeof r === 'number' || r == null) return 0;
+    let raw;
+    if (typeof r === 'string') raw = r;
+    else {
+      try { raw = String(r); } catch (e) { return 0; }
+    }
+    if (typeof raw !== 'string' || !raw) return 0;
+    const name = raw.trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (name === 'uncommon') return 1;
+    if (name === 'rare') return 2;
+    if (name === 'epic' || name === 'very rare' || name === 'veryrare') return 3;
+    if (name === 'legendary') return 4;
     return 0;
   }
 
