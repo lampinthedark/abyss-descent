@@ -52,7 +52,8 @@
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 24;
-  // Trail only. The lerp still lands the gem, and banking stays here.
+  // Trail only. Re-aim it every tick from the gem we just moved. The lerp
+  // still lands the gem, and banking stays here. FX's own timer is ignored.
   // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
   const LOOTPULL_FX = true;
   const LOOT_FLIGHT = 0.4;
@@ -856,10 +857,15 @@
   let fxDrawMs = 0;
 
   function lootPullFx(g) {
-    if (!LOOTPULL_FX || !g || !g.item) return;
+    if (!LOOTPULL_FX || !g || !g.item || !g.pull || g.banked) return;
     const box = fxBox();
     if (!box || typeof box.lootPull !== 'function') return;
     box.lootPull(g.item.id, g.x, g.y, player.x, player.y, 400, g.item.rarity);
+  }
+
+  function feedLootTrails() {
+    if (!LOOTPULL_FX) return;
+    for (let i = 0; i < gems.length; i++) lootPullFx(gems[i]);
   }
 
   function lootPullOff(id, pop) {
@@ -2881,7 +2887,6 @@
         if (!g.pull && ((g.age || 0) >= 10 || dist <= 3)) {
           g.pull = 1;
           g.pullT = 0;
-          lootPullFx(g);
         }
         if (g.pull) {
           const leftT = Math.max(dt, LOOT_FLIGHT - (g.pullT || 0));
@@ -2891,6 +2896,7 @@
             g.y += (dy / dist) * step;
           }
           g.pullT = (g.pullT || 0) + dt;
+          lootPullFx(g);
         }
       }
       if (!walked) {
@@ -3143,6 +3149,7 @@
       hitPause = Math.max(0, hitPause - dt);
       animT += dt;
       fxCall('update', dt);
+      feedLootTrails();
       evoWindow = false;
       return;
     }
