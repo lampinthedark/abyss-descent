@@ -51,9 +51,9 @@
     function hero() { return RPG.hero || { x: 0, y: 0 }; }
     function zoneId() { var z = RPG.world && RPG.world.zone; return z ? (z.id || z) : null; }
     function emit(e, d) { if (RPG.bus) RPG.bus.emit(e, d); }
-    function ask(npcId, lines, choices) {
+    function ask(npcId, lines, choices, opts) {
       if (!(RPG.ui && RPG.ui.dialog)) return Promise.resolve(choices && choices[0] ? choices[0].id : null);
-      return Promise.resolve(RPG.ui.dialog('npc_' + npcId, lines, choices)).then(function (c) { return c && c.id ? c.id : c; });
+      return Promise.resolve(opts ? RPG.ui.dialog('npc_' + npcId, lines, choices, opts) : RPG.ui.dialog('npc_' + npcId, lines, choices)).then(function (c) { return c && c.id ? c.id : c; });
     }
 
     /** Feed one bus event through RPGContent.advance(). */
@@ -110,15 +110,13 @@
       if (RPG.fx) RPG.fx('levelUp', h.x, h.y);
       refresh();
     }
-    function rumourLines(r) {
-      var lines = r.lines.slice(0, 3);
-      if (r.showDrops) {
-        var L = S.items().Loot, p = L && L.preview ? L.preview(r.showDrops) : [];
-        var top = p.filter(function (x) { return x.label === 'legendary'; })[0] || p[0];
-        if (top) lines.push('Can drop: ' + top.name);
-      }
-      return lines;
+    /** Rumour screen: 3 lines + the same Loot.preview list as the boss "Can drop" panel (order and colours). */
+    function rumourOpts(r) {
+      var L = S.items().Loot, drops = r.showDrops && L && L.preview ? L.preview(r.showDrops) : [];
+      return { showDrops: r.showDrops || null, title: drops.length ? 'Can drop' : null,
+        drops: drops.map(function (d) { return { name: d.name, icon: d.icon, color: d.beamColor, rarity: d.rarity, label: d.label }; }) };
     }
+    function showRumour(id, r) { return ask(id, r.lines.slice(0, 4), [{ id: 'ok', label: 'Okay' }], rumourOpts(r)); }
     function lastRumour() {
       var d = log().done, qs = C().QUESTS || [], r = null;
       for (var i = 0; i < qs.length; i++) if (d[qs[i].id] && qs[i].dialogue && qs[i].dialogue.rumour) r = qs[i].dialogue.rumour;
@@ -138,7 +136,7 @@
             feed({ type: 'talk', target: id });
             complete(q);
             var r = q.dialogue.rumour;
-            return r ? ask(id, rumourLines(r), [{ id: 'ok', label: 'Okay' }]) : null;
+            return r ? showRumour(id, r) : null;
           }).then(done, done);
         }
         return ask(id, q.dialogue.progress.lines.concat([C().tracker(state().active)]), [{ id: 'ok', label: 'Okay' }]).then(done, done);
@@ -151,7 +149,7 @@
         }).then(done, done);
       }
       var rum = lastRumour(), npc = C().NPCS[id] || { idle: ['...'] };
-      return ask(id, rum ? rumourLines(rum) : [npc.idle[0]], [{ id: 'ok', label: 'Okay' }]).then(done, done);
+      return (rum ? showRumour(id, rum) : ask(id, [npc.idle[0]], [{ id: 'ok', label: 'Okay' }])).then(done, done);
     }
 
     /** Tracker text + arrow point for the next thing to do. */

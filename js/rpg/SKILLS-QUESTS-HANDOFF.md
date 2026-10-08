@@ -20,6 +20,7 @@ Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests`
 - `equip {slot, itemId}`: I look up the base via `Equipment.list()[slot].base`; passing `base` in the event is welcome.
 - `Store.get('quests')` is read first (GD confirmed for D1); the mirror is only a fallback.
 - Markers use `RPG.camera.toScreen(x, y)` (GD confirmed for D1).
+- Rumour screen: I call `RPG.ui.dialog(npcId, lines, choices, { showDrops:'ashmaw', title:'Can drop', drops:[{name, icon, color, rarity, label}] })`, built from `Loot.preview('ashmaw')` at runtime (same order and colours as the boss panel). **Ask:** render `opts.drops` as icon rows in the rarity colour, reusing the panel's row drawer.
 - `RPG.ui.dialog(npcId, lines, choices)` should resolve to the chosen `id` (or the choice object). `null` for a closed dialog means decline.
 
 ## What I emit / call
@@ -34,4 +35,4 @@ Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests`
 2. Tap a Rustbound rock: swings about once a second, ore on success, rock empties and comes back in 4 s.
 3. Tap the furnace: smelts both bars. Tap the anvil: smiths the sword (quest recipe picked, no menu).
 4. Wield the sword, tap Ilse (`?`): 25 gold, 3 Hearth Bread, Mining and Smithing XP, then `!` for Q2.
-5. Q2: fish at the pond, cook at the range (burnt counts), walk into the Goblin Field, kill 4 goblins, hand in, rumour shows "Can drop: Wyrmfang".
+5. Q2: fish at the pond, cook at the range (burnt counts), walk into the Goblin Field, kill 4 goblins, hand in, rumour shows the "Can drop" list, Wyrmfang first in `#ff9a2e`.

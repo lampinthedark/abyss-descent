@@ -56,7 +56,7 @@ function makeCore(seed) {
     ui: {
       choose: null,
       toast: t => log.toast.push(t), float: (x, y, t) => log.float.push(t), tracker: (t, p) => log.tracker.push({ t, p }),
-      dialog(npc, lines, choices) { log.dialog.push({ npc, lines, choices }); const c = RPG.ui.choose ? RPG.ui.choose(npc, lines, choices) : choices[0]; return Promise.resolve(c); },
+      dialog(npc, lines, choices, opts) { log.dialog.push({ npc, lines, choices, opts }); const c = RPG.ui.choose ? RPG.ui.choose(npc, lines, choices) : choices[0]; return Promise.resolve(c); },
     },
     fx: (n) => log.fx.push(n),
     rng: () => () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; },
@@ -183,7 +183,10 @@ async function playQ1(seed) {
         ok(RPG.quests.state().done.q2_field, 'Q2 done');
         eq(w.Gold.balance(), 85); ok(w.Inventory.has('rustbound_shield'));
         const rum = s.log.dialog.find(d => d.lines.some(l => /Ashmaw/.test(l)));
-        ok(rum && rum.lines.includes('Can drop: Wyrmfang'), 'rumour with drop preview');
+        ok(rum && rum.opts && rum.opts.drops.length, 'rumour carries the drop list');
+        const pv = w.Loot.preview('ashmaw');
+        eq(rum.opts.drops.map(d => d.name).join('|'), pv.map(d => d.name).join('|'), 'same list and order as Loot.preview');
+        eq(rum.opts.drops[0].name, 'Wyrmfang'); eq(rum.opts.drops[0].color, '#ff9a2e'); eq(rum.opts.drops[0].icon, 'icon_wyrmfang');
         eq(RPG.quests.marker('npc_questgiver'), '', 'stub Q3 not offered');
         eq(RPG.quests.current().text, 'Explore the Ash Stair');
         console.log('       Q2 game time (no combat) ' + (s.t - t0).toFixed(1) + ' s');
