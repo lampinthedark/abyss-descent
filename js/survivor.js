@@ -48,7 +48,7 @@
     minSpawn: 3,
     idleClose: 2.4,
     idleReach: 3.6,
-    eliteHp: 16,
+    eliteHp: 26,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 24;
