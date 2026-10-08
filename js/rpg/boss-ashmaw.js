@@ -12,19 +12,69 @@
   const RPG = root.RPG || (root.RPG = {});
   const ai = RPG.ai || (RPG.ai = {});
 
-  const WIND = { slam: 720, charge: 780 };
+  const WIND = { claw: 650, slam: 1000, charge: 900 };
   const FLOOR = 600;
-  const SLAM_R = 2.25;
-  const CHARGE_REACH = 6;
+  const SLAM_R = 2.5;
+  const CHARGE_REACH = 7;
   const CHARGE_HIT = 0.85;
+  const RARITY_COLOR = {
+    legendary: '#ff9a2e',
+    'very rare': '#c070ff',
+    veryrare: '#c070ff',
+    epic: '#c070ff',
+    rare: '#5aa0ff',
+  };
+
+  function attackRow(kind) {
+    const mapped = kind === 'claw' ? 'melee' : kind;
+    const atk = ai.attacks;
+    const rows = atk && typeof atk.attacksOf === 'function' ? atk.attacksOf('ashmaw') : null;
+    return (rows && rows[mapped]) || null;
+  }
 
   function windupMs(kind) {
     const atk = ai.attacks;
     const mapped = kind === 'claw' ? 'melee' : kind;
     if (atk && typeof atk.windupFor === 'function') return atk.windupFor('ashmaw', mapped);
-    const ms = WIND[kind] || (mapped === 'melee' ? 480 : FLOOR);
-    const floor = mapped === 'slam' || mapped === 'charge' ? FLOOR : 400;
-    return ms < floor ? floor : ms;
+    const ms = WIND[kind] || WIND[mapped] || FLOOR;
+    return ms < FLOOR ? FLOOR : ms;
+  }
+
+  function slamRadius() {
+    const row = attackRow('slam');
+    if (row && typeof row.radius === 'number') return row.radius;
+    if (row && typeof row.range === 'number') return row.range;
+    return SLAM_R;
+  }
+
+  function chargeReach() {
+    const row = attackRow('charge');
+    if (row && typeof row.range === 'number') return row.range;
+    return CHARGE_REACH;
+  }
+
+  function clawReach(mob, hero) {
+    const row = attackRow('claw');
+    const melee = row && typeof row.range === 'number' ? row.range : (mob.melee || 1.2);
+    const pad = hero && typeof hero.radius === 'number' ? hero.radius : 0;
+    return melee + pad;
+  }
+
+  function attackDamage(kind, mob) {
+    const row = attackRow(kind);
+    if (row && typeof row.dmg === 'number') return row.dmg;
+    return mob && mob.dmg;
+  }
+
+  function cooldownFor(kind, mob) {
+    const row = attackRow(kind);
+    let cd = row && typeof row.cooldownMs === 'number' ? row.cooldownMs : 800;
+    const en = mob && mob.enrage;
+    if (en && mob.maxHp > 0 && (mob.hp / mob.maxHp) * 100 <= en.belowHpPct) {
+      const mult = en.cooldownMult;
+      if (typeof mult === 'number' && mult > 0) cd *= mult;
+    }
+    return cd;
   }
 
   function pose(mob, kind, frame) {
@@ -83,9 +133,23 @@
     return hero;
   }
 
-  function hurt(mob) {
+  function hurt(mob, kind) {
     const atk = ai.attacks;
-    if (atk && typeof atk.hurtHero === 'function') atk.hurtHero(mob, mob.dmg);
+    const row = attackRow(kind);
+    const dmg = attackDamage(kind, mob);
+    const srcName = (row && row.srcName) || (mob && (mob.label || mob.name)) || '';
+    const info = {
+      amount: dmg,
+      dmg: dmg,
+      srcId: mob ? mob.id : '',
+      monsterId: mob ? mob.monsterId : 'ashmaw',
+      name: srcName || 'Ashmaw the Wyrmling',
+      srcName: srcName,
+      attack: row && (row.name || row.kind) || kind,
+      crit: false,
+      target: 'hero',
+    };
+    if (atk && typeof atk.hurtHero === 'function') atk.hurtHero(mob, dmg, info);
   }
 
   function distToSegment(px, py, line) {
@@ -114,10 +178,12 @@
     mob.tellId = mob.id + '-' + kind + '-' + mob.serial;
     pose(mob, kind === 'claw' ? 'melee' : kind, 0);
     if (kind === 'slam') {
-      mob.slam = { x: mob.x, y: mob.y, r: SLAM_R };
+      const radius = slamRadius();
+      mob.slam = { x: mob.x, y: mob.y, r: radius };
       mob.line = null;
-      fx('telegraph', mob.x, mob.y, SLAM_R, { id: mob.tellId, ms: ms, kind: 'slam' });
+      fx('telegraph', mob.x, mob.y, radius, { id: mob.tellId, ms: ms, kind: 'slam' });
     } else if (kind === 'charge') {
+      const reach = chargeReach();
       const hero = heroOf() || { x: mob.x + 1, y: mob.y };
       const dx = hero.x - mob.x;
       const dy = hero.y - mob.y;
@@ -126,8 +192,8 @@
       mob.line = {
         x1: mob.x,
         y1: mob.y,
-        x2: mob.x + (dx / len) * CHARGE_REACH,
-        y2: mob.y + (dy / len) * CHARGE_REACH,
+        x2: mob.x + (dx / len) * reach,
+        y2: mob.y + (dy / len) * reach,
       };
       fx('telegraphLine', mob.line.x1, mob.line.y1, mob.line.x2, mob.line.y2, {
         id: mob.tellId,
@@ -141,13 +207,13 @@
     }
   }
 
-  function endAttack(mob) {
+  function endAttack(mob, kind) {
     mob.tellId = null;
     mob.slam = null;
     mob.line = null;
     mob.state = 'chase';
     mob.aggro = true;
-    mob.cdMs = 800;
+    mob.cdMs = cooldownFor(kind || mob.attackName, mob);
     mob.path = null;
     mob._repath = 0;
     poseIdle(mob);
@@ -159,7 +225,7 @@
     const hero = heroOf();
     if (line && hero && !hero.dead) {
       const pad = typeof hero.radius === 'number' ? hero.radius : 0;
-      if (distToSegment(hero.x, hero.y, line) <= CHARGE_HIT + pad) hurt(mob);
+      if (distToSegment(hero.x, hero.y, line) <= CHARGE_HIT + pad) hurt(mob, 'charge');
     }
     clearTell(tell);
     mob.tellId = null;
@@ -193,7 +259,7 @@
       mob.x = nx;
       mob.y = ny;
     }
-    if (t >= 1 || blocked) endAttack(mob);
+    if (t >= 1 || blocked) endAttack(mob, 'charge');
   }
 
   function resolve(mob) {
@@ -201,9 +267,9 @@
     const hero = heroOf();
     if (kind === 'slam' && mob.slam && hero && !hero.dead) {
       const pad = typeof hero.radius === 'number' ? hero.radius : 0;
-      if (dist(hero.x, hero.y, mob.slam.x, mob.slam.y) <= mob.slam.r + pad) hurt(mob);
+      if (dist(hero.x, hero.y, mob.slam.x, mob.slam.y) <= mob.slam.r + pad) hurt(mob, 'slam');
       clearTell(mob.tellId);
-      endAttack(mob);
+      endAttack(mob, 'slam');
       return;
     }
     if (kind === 'charge') {
@@ -211,10 +277,9 @@
       return;
     }
     if (kind === 'claw') {
-      const pad = hero && typeof hero.radius === 'number' ? hero.radius : 0;
-      const reach = (mob.melee || 1.2) + pad;
-      if (hero && !hero.dead && dist(hero.x, hero.y, mob.x, mob.y) <= reach) hurt(mob);
-      endAttack(mob);
+      const reach = clawReach(mob, hero);
+      if (hero && !hero.dead && dist(hero.x, hero.y, mob.x, mob.y) <= reach) hurt(mob, 'claw');
+      endAttack(mob, 'claw');
     }
   }
 
@@ -301,16 +366,96 @@
       if (d > 1.6) moveToward(mob, dt, hero.x, hero.y);
       return;
     }
-    const pad = typeof hero.radius === 'number' ? hero.radius : 0;
-    const clawReach = (mob.melee || 1.2) + pad;
+    const close = clawReach(mob, hero);
+    const ring = slamRadius();
+    const rush = chargeReach();
     const r = roll();
-    let kind = 'charge';
-    if (d > clawReach) kind = r < 0.5 ? 'slam' : 'charge';
-    else if (r < 0.5) kind = 'claw';
-    else if (r < 0.75) kind = 'slam';
+    let kind = null;
+    if (d <= close) {
+      if (r < 0.5) kind = 'claw';
+      else if (r < 0.75) kind = 'slam';
+      else kind = 'charge';
+    } else if (d <= ring) {
+      kind = r < 0.5 ? 'slam' : 'charge';
+    } else if (d <= rush) {
+      kind = 'charge';
+    }
+    if (!kind) {
+      mob.state = 'chase';
+      moveToward(mob, dt, hero.x, hero.y);
+      return;
+    }
     begin(mob, kind);
     mob.windupElapsed += (dt > 0 ? dt : 0) * 1000;
     if (mob.windupElapsed >= mob.windupMs) resolve(mob);
+  }
+
+  function previewOf(monsterId) {
+    const id = monsterId || 'ashmaw';
+    let list = null;
+    const Loot = root.Loot;
+    if (Loot && typeof Loot.preview === 'function') {
+      try { list = Loot.preview(id); } catch (err) { list = null; }
+    }
+    if (!Array.isArray(list) && RPG.Loot && typeof RPG.Loot.preview === 'function') {
+      try { list = RPG.Loot.preview(id); } catch (err) { list = null; }
+    }
+    if (!Array.isArray(list) && RPG.items && typeof RPG.items.preview === 'function') {
+      try { list = RPG.items.preview(id); } catch (err) { list = null; }
+    }
+    return Array.isArray(list) ? list : [];
+  }
+
+  function dropColor(entry) {
+    const name = entry && entry.name ? String(entry.name) : '';
+    if (/^wyrmfang$/i.test(name)) return '#ff9a2e';
+    if (entry && entry.beamColor) return entry.beamColor;
+    const rarity = String((entry && entry.rarity) || '').toLowerCase();
+    if (RARITY_COLOR[rarity]) return RARITY_COLOR[rarity];
+    return (entry && entry.color) || '#d9d3c4';
+  }
+
+  /**
+   * Ashmaw nameplate drops. Order is Loot.preview order (do not sort).
+   * Skills & Quests owns the rumour line; this is only the panel.
+   */
+  function canDropPanel(monsterId) {
+    const id = monsterId || 'ashmaw';
+    const raw = previewOf(id);
+    const drops = [];
+    for (let i = 0; i < raw.length; i++) {
+      const entry = raw[i] || {};
+      const color = dropColor(entry);
+      drops.push({
+        name: entry.name,
+        base: entry.base,
+        rarity: entry.rarity,
+        color: color,
+        beamColor: color,
+        icon: entry.icon || '',
+        label: entry.label,
+        source: entry.source,
+      });
+    }
+    const panel = {
+      monsterId: id,
+      title: 'Can drop',
+      drops: drops,
+    };
+    const ui = RPG.ui || null;
+    const hooks = ['showCanDrop', 'showBossDrops', 'bossNameplate', 'nameplate', 'showNameplate'];
+    let drawn = false;
+    if (ui) {
+      for (let i = 0; i < hooks.length; i++) {
+        const fn = ui[hooks[i]];
+        if (typeof fn !== 'function') continue;
+        try { fn(panel); drawn = true; } catch (err) {}
+        break;
+      }
+    }
+    panel.drawn = drawn;
+    RPG.bossPanel = panel;
+    return panel;
   }
 
   function spawn(x, y, opts) {
@@ -318,15 +463,19 @@
     if (typeof ai.spawnPack !== 'function') return null;
     const leash = typeof opts.leash === 'number' ? opts.leash : undefined;
     const pack = ai.spawnPack('ashmaw', x, y, 1, leash);
-    return pack[0] || null;
+    const mob = pack[0] || null;
+    if (mob) mob.canDrop = canDropPanel('ashmaw');
+    return mob;
   }
 
   ai.boss = {
     spawn: spawn,
     tick: tick,
     windupMs: windupMs,
+    canDropPanel: canDropPanel,
     WIND: WIND,
     FLOOR: FLOOR,
   };
+  RPG.boss = ai.boss;
   ai.bossWindupMs = windupMs;
 })(typeof window !== 'undefined' ? window : globalThis);

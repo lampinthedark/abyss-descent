@@ -151,13 +151,15 @@ assert(RPG.ai.attacks.animKeyFor('brute', 'slam') === 'mob_brute_slam', 'brute s
 assert(RPG.ai.attacks.animKeyFor('ashmaw', 'claw') === 'mob_ashmaw_attack', 'ashmaw claw key');
 assert(RPG.ai.attacks.animKeyFor('ashmaw', 'slam') === 'mob_ashmaw_slam', 'ashmaw slam key');
 assert(RPG.ai.attacks.animKeyFor('ashmaw', 'charge') === 'mob_ashmaw_charge', 'ashmaw charge key');
-assert(RPG.ai.meleeWindupMs('rat') === 450, 'rat windup stays on content');
+assert(RPG.ai.meleeWindupMs('rat') === 400, 'rat windup stays on content');
 RPG.sheet = { anims: { mob_rat_attack: { duration: 120, ms: [120, 80] } } };
-assert(RPG.ai.meleeWindupMs('rat') === 450, 'sheet ms[0] below content does not shorten the tell');
+assert(RPG.ai.meleeWindupMs('rat') === 400, 'sheet ms[0] below content does not shorten the tell');
 RPG.sheet = { anims: { mob_goblin_attack: { duration: 860, ms: [200, 660] } } };
-assert(RPG.ai.meleeWindupMs('goblin') === 480, 'full clip length is not the windup');
+assert(RPG.ai.meleeWindupMs('goblin') === 500, 'full clip length is not the windup');
 RPG.sheet = { mobs2: { anims: { mob_imp_attack: { ms: [500, 80] } } } };
-assert(RPG.ai.meleeWindupMs('imp') === 500, 'ms[0] raises imp windup when it beats content');
+assert(RPG.ai.meleeWindupMs('imp') === 600, 'sheet ms[0] below content does not shorten imp');
+RPG.sheet = { mobs2: { anims: { mob_imp_attack: { ms: [800, 80] } } } };
+assert(RPG.ai.meleeWindupMs('imp') === 800, 'ms[0] raises imp windup when it beats content');
 RPG.content = { monsters: { brute: { attacks: { slam: { windupMs: 710 } } } } };
 assert(RPG.ai.attacks.windupFor('brute', 'slam') === 710, 'content slam windup is live');
 RPG.content = null;
@@ -226,7 +228,9 @@ const outsider = pack.find((m) => m !== focus && dist(hero, m) > m.sight);
 assert(outsider, 'at least one packmate cannot see the hero');
 const pathsBefore = pathCalls.length;
 RPG.ai.tick(0.1);
-assert(pack.every((m) => m.aggro && m.state === 'chase'), 'pack aggros together: ' + pack.map((m) => m.state + ':' + m.aggro).join(','));
+assert(pack.every((m) => m.aggro), 'pack aggros together: ' + pack.map((m) => m.state + ':' + m.aggro).join(','));
+assert(focus.state === 'windup' && focus.animKey === 'mob_goblin_attack', 'goblin inside bow range winds up, state=' + focus.state);
+assert(outsider.state === 'chase', 'unseen packmate chases, state=' + outsider.state);
 assert(pathCalls.length > pathsBefore, 'chase asks world.path');
 for (const m of pack) m.takeHit(9999, {});
 
@@ -296,7 +300,7 @@ hero.x = claw.x + 0.4;
 hero.y = claw.y;
 hero.hp = 100;
 const clawMs = RPG.ai.attacks.windupFor('ashmaw', 'melee');
-assert(clawMs >= 400, 'claw windup >= 400');
+assert(clawMs >= 600, 'claw windup >= 600');
 RPG.ai.tick(0.016);
 assert(claw.state === 'claw', 'close Ashmaw opens with claw, state=' + claw.state);
 assert(claw.animKey === 'mob_ashmaw_attack' && claw.animFrame === 0, 'claw uses _attack frame 0');
@@ -311,7 +315,7 @@ claw.takeHit(99999, {});
 fxLog.length = 0;
 resetHero(0, 0);
 const [slamBrute] = RPG.ai.spawnPack('brute', 80, 0, 1, 20);
-hero.x = slamBrute.x + 1.7;
+hero.x = slamBrute.x + 1.4;
 hero.y = slamBrute.y;
 const bruteSlam = RPG.ai.attacks.windupFor('brute', 'slam');
 assert(bruteSlam >= 600, 'brute slam windup >= 600');
@@ -325,6 +329,26 @@ assert(hero.hp === hpBrute && slamBrute.animFrame === 0 && slamBrute.animKey ===
 RPG.ai.tick(0.08);
 assert(hero.hp < hpBrute, 'brute slam hits after the tell');
 slamBrute.takeHit(99999, {});
+
+// Brute charge is the line tell, then frame 1 for the dash.
+fxLog.length = 0;
+resetHero(0, 0);
+const [chargeBrute] = RPG.ai.spawnPack('brute', 90, 0, 1, 20);
+hero.x = chargeBrute.x + 3;
+hero.y = chargeBrute.y;
+const bruteCharge = RPG.ai.attacks.windupFor('brute', 'charge');
+assert(bruteCharge >= 600, 'brute charge windup >= 600');
+RPG.ai.tick(0.016);
+assert(chargeBrute.state === 'charge', 'brute charge, state=' + chargeBrute.state);
+assert(chargeBrute.animKey === 'mob_brute_charge' && chargeBrute.animFrame === 0, 'brute charge clip frame 0');
+assert(fxLog.some((e) => e.name === 'telegraphLine'), 'brute charge telegraphs a line');
+const hpBruteCharge = hero.hp;
+RPG.ai.tick((bruteCharge - 50) / 1000);
+assert(hero.hp === hpBruteCharge && chargeBrute.animFrame === 0, 'brute charge holds frame 0');
+RPG.ai.tick(0.08);
+assert(hero.hp < hpBruteCharge, 'brute charge hits after the tell');
+assert(chargeBrute.state === 'dash' && chargeBrute.animFrame === 1 && chargeBrute.animKey === 'mob_brute_charge', 'brute charge holds frame 1 for the dash');
+chargeBrute.takeHit(99999, {});
 
 // Field stays on mobs/. Dungeon ids use mobs2 when that key exists, else a labelled box.
 RPG.sheet = {
@@ -428,6 +452,86 @@ const field = RPG.ai.spawnField();
 assert(field.length === 12, 'default goblin field count');
 assert(field.some((m) => m.monsterId === 'rat') && field.some((m) => m.monsterId === 'goblin'), 'field is rats and goblins');
 assert(IDS.every((id) => RPG.ai.specs[id] && RPG.ai.specs[id].id === id), 'monster ids are exactly the six names');
+
+const ATK = { rat: 1, goblin: 8, skeleton: 14, imp: 18, brute: 24, ashmaw: 30 };
+for (const id of IDS) {
+  const [mob] = RPG.ai.spawnPack(id, 0, 70, 1, 4);
+  assert(mob && mob.atk === ATK[id], id + ' atk ' + (mob && mob.atk));
+  mob.takeHit(99999, {});
+}
+
+// Live RPGContent replaces the thin crypt and the fallback attack numbers.
+rngValue = 0;
+context.RPGContent = {
+  REST_MS: 500,
+  MONSTERS: {
+    skeleton: {
+      id: 'skeleton', name: 'Rattlebone Skeleton', hp: 123, def: 10, atk: 14, speed: 1.6, aggro: 5, leash: 9, pack: [2, 3], sprite: 'mob_skeleton',
+      attacks: [{ kind: 'melee', dmg: 2, range: 1, windupMs: 640, cooldownMs: 2600, srcName: 'Rattlebone Skeleton' }],
+    },
+    ashmaw: {
+      id: 'ashmaw', name: 'Ashmaw the Wyrmling', hp: 961, def: 8, atk: 30, speed: 1.6, aggro: 8, leash: 99, pack: [1, 1], boss: true, sprite: 'mob_ashmaw',
+      attacks: [
+        { kind: 'slam', dmg: 24, range: 2.5, radius: 2.5, windupMs: 1000, cooldownMs: 8000, telegraph: 'ring', name: 'Cinder Ring' },
+        { kind: 'charge', dmg: 20, range: 7, windupMs: 900, cooldownMs: 11000, telegraph: 'line', name: 'Ash Rush' },
+        { kind: 'melee', dmg: 5, range: 1.2, windupMs: 650, cooldownMs: 2000, name: 'Claw' },
+      ],
+    },
+  },
+  Dungeon: {
+    id: 'ash_stair',
+    name: 'The Ash Stair',
+    rows: ['......', '.ssss.', '.ssss.', '......'],
+    legend: { '.': { walk: false }, s: { walk: true } },
+    props: [{ key: 'prop_rock_0', x: 2, y: 1, block: true }],
+    rooms: [{ id: 'den', kind: 'boss', x: 1, y: 1, w: 4, h: 2 }],
+    spawns: [
+      { monsterId: 'skeleton', x: 2, y: 2, room: 'hall_1' },
+      { monsterId: 'ashmaw', x: 3, y: 2, room: 'den' },
+    ],
+    entry: { x: 11, y: 3 },
+    exits: [
+      { x: 11, y: 1, to: { map: 'town', x: 12, y: 26 } },
+      { x: 11, y: 74, to: { map: 'town', x: 12, y: 26 }, unlockedBy: 'ashmaw' },
+    ],
+    bossRoom: { x: 2, y: 62, w: 20, h: 12 },
+  },
+};
+assert(RPG.ai.attacks.windupFor('skeleton', 'melee') === 640, 'live monster windup replaces the fallback');
+const stair = RPG.dungeon.sample();
+assert(stair.id === 'ash_stair' && stair.name === 'The Ash Stair', 'sample loads Ash Stair');
+assert(stair.entry.x === 11 && stair.entry.y === 3, 'Ash Stair entry');
+assert(stair.bossRoom && stair.bossRoom.w === 20 && stair.bossRoom.h === 12, 'boss room rect');
+assert(stair.exits && stair.exits[1].unlockedBy === 'ashmaw', 'boss exit stays locked until ashmaw');
+assert(stair.grid[0][0] === 1 && stair.grid[1][1] === 0 && stair.grid[1][2] === 1, 'rows and blocking props become a grid');
+const stairLoad = RPG.dungeon.load(stair);
+assert(zoneLoads[zoneLoads.length - 1].id === 'ash_stair', 'loadZone receives Ash Stair');
+assert(hero.x === 11 && hero.y === 3, 'hero stands on the stair entry');
+const stairSkel = stairLoad.spawned.filter((m) => m.monsterId === 'skeleton');
+const stairBoss = stairLoad.spawned.filter((m) => m.monsterId === 'ashmaw');
+assert(stairSkel.length === 2 && stairSkel[0].hp === 123 && stairSkel[0].atk === 14 && stairSkel[0].room === 'hall_1', 'skeleton pack comes from the content record');
+assert(stairBoss.length === 1 && stairBoss[0].boss && stairBoss[0].hp === 961 && stairBoss[0].atk === 30, 'ashmaw is not spawned twice from the boss rect');
+
+let shown = null;
+RPG.ui.showCanDrop = function (panel) { shown = panel; };
+context.Loot.preview = function (id) {
+  assert(id === 'ashmaw', 'preview asked for ashmaw');
+  return [
+    { name: 'Wyrmfang', rarity: 'legendary', icon: 'icon_wyrmfang', source: 'monster' },
+    { name: "Gravewarden's Crown", rarity: 'very rare', beamColor: '#c070ff', icon: 'icon_gravewarden_crown', source: 'monster' },
+    { name: 'Wyrmscale armour', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrmscale_armour', source: 'monster' },
+    { name: 'Wyrm Scale', rarity: 'rare', beamColor: '#5aa0ff', icon: 'icon_wyrm_scale', source: 'shared' },
+  ];
+};
+const panel = RPG.boss.canDropPanel('ashmaw');
+assert(shown === panel && panel.drawn === true, 'nameplate hook receives the can-drop panel');
+assert(panel.title === 'Can drop', 'panel title');
+assert(panel.drops.map((d) => d.name).join('|') === "Wyrmfang|Gravewarden's Crown|Wyrmscale armour|Wyrm Scale", 'preview order is kept');
+assert(panel.drops[0].beamColor === '#ff9a2e' && panel.drops[0].icon === 'icon_wyrmfang', 'Wyrmfang is legendary orange');
+assert(panel.drops[1].beamColor === '#c070ff' && panel.drops[1].icon === 'icon_gravewarden_crown', 'crown keeps its rarity colour and icon');
+assert(panel.drops[2].beamColor === '#5aa0ff' && panel.drops[2].icon === 'icon_wyrmscale_armour', 'wyrmscale armour colour and icon');
+assert(panel.drops[3].icon === 'icon_wyrm_scale' && panel.drops[3].beamColor === '#5aa0ff', 'wyrm scale icon');
+assert(stairBoss[0].canDrop && stairBoss[0].canDrop.drops, 'spawn attaches a can-drop list');
 
 if (failed) {
   console.error(failed + ' rpg ai check(s) failed');
