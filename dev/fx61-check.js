@@ -18,7 +18,7 @@ src = src.replace(
 );
 src = src.replace(
   'LEVELUP_RADIUS: LEVELUP_RADIUS,',
-  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _live: function () { return __live; },\n    _seed: function () { __seed(); },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
+  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _live: function () { return __live; },\n    _seed: function () { __seed(); },\n    _lootOn: function () { let n = 0; for (let i = 0; i < LOOT_N; i++) if (loots[i].on || loots[i].pop || loots[i].wait || loots[i].lit) n++; return n; },\n    _lootRank: function (id) { for (let i = 0; i < LOOT_N; i++) if (loots[i].on && loots[i].id === id) return loots[i].r; return 0; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
 );
 
 function makeCtx() {
@@ -716,6 +716,832 @@ check('telegraphs do not change the particle count', telMonsters.live === bareMo
 check('telegraphs do not change the flash count', telMonsters.flash === bareMonsters.flash);
 check('telegraph frames draw no text', telMonsters.text === 0 && textCalls === 0);
 
+function countStyle(color, alpha) {
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color) continue;
+    if (alpha == null || Math.abs(c[2] - alpha) < 0.001) n += 1;
+  }
+  return n;
+}
+
+function centroidX(color) {
+  let sx = 0;
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color || Math.abs(c[2] - 1) > 0.001) continue;
+    sx += c[3] + c[5] * 0.5;
+    n += 1;
+  }
+  return n ? sx / n : 0;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.shield('bubble', 0, 0, 1.25, 2000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const idleSteel = countStyle('#9fb4c8', 1);
+const idleInner = countStyle('#9fb4c8', 0.35);
+const idleWhite = countStyle('#ffffff', 1);
+check('shield draws a steel hex', idleSteel > 40);
+check('shield inner ring is 35% steel', idleInner > 20);
+check('shield glint is one white dot', idleWhite === 1);
+const idleSnap = calls.map(function (c) { return c.join(','); }).join('|');
+advance(0.4);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spun = calls.map(function (c) { return c.join(','); }).join('|');
+check('shield hex rotates', spun !== idleSnap && countStyle('#ffffff', 1) === 1);
+
+FX.shield('bubble', 2.5, 0, 1.25, 500);
+advance(0.4);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('same id restarts the shield', countStyle('#9fb4c8', 1) > 40);
+check('restarted shield sits on the new point', Math.abs(centroidX('#9fb4c8') - (2.5 * 16 * cam.zoom + cam.x)) < 12);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('restarted shield expires on its new duration', countStyle('#9fb4c8', 1) === 0);
+
+FX.shield('gone', 0, 0, 1.125, 2000);
+FX.shieldOff('gone');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shieldOff removes the bubble', countStyle('#9fb4c8', null) === 0);
+
+FX.shield('brief', 0, 0, 1.125, 200);
+advance(0.1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shield stays up inside its duration', countStyle('#9fb4c8', 1) > 20);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('shield expires after ms', countStyle('#9fb4c8', null) === 0);
+
+function chevronWhites(n) {
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(ctx, cam);
+  FX.shield('hit', 0, 0, 1.25, 3000);
+  for (let i = 0; i < n; i++) FX.shieldHit('hit', 5, 0);
+  advance(0.12);
+  calls.length = 0;
+  FX.draw(ctx, cam);
+  return countStyle('#ffffff', null);
+}
+const sixHits = chevronWhites(6);
+const sevenHits = chevronWhites(7);
+console.log('chevron whites', sixHits, sevenHits);
+check('six hits leave six chevrons', sixHits === 19);
+check('a seventh hit is dropped', sevenHits === sixHits);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.shield('still', 0, 0, 1.25, 2000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const stillShield = calls.map(function (c) { return c.join(','); }).join('|');
+check('reduced motion shield has no glint', countStyle('#ffffff', null) === 0);
+check('reduced motion shield keeps the hex', countStyle('#9fb4c8', 1) > 20);
+advance(0.3);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion shield does not rotate', calls.map(function (c) { return c.join(','); }).join('|') === stillShield);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+const liveBefore = (FX.update(0.001), FX._live());
+FX.shield('pop', 0, 0, 1.125, 2000);
+FX.shieldBreak('pop');
+calls.length = 0;
+textCalls = 0;
+FX.draw(ctx, cam);
+check('shield break flashes white at 60%', countStyle('#ffffff', 0.6) > 20);
+check('shield break draws no text', textCalls === 0);
+FX.update(0.001);
+const shardLive = FX._live();
+console.log('break shards', shardLive);
+check('shield break shards use the particle pool', shardLive === liveBefore + 12);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('break ring is steel', countStyle('#9fb4c8', 1) > 10);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.update(0.001);
+const calmLive = FX._live();
+FX.shield('calm', 0, 0, 1.125, 2000);
+FX.shieldBreak('calm');
+calls.length = 0;
+FX.draw(ctx, cam);
+FX.update(0.001);
+check('reduced motion break is a ring only', countStyle('#9fb4c8', 1) > 10 && countStyle('#ffffff', 0.6) === 0);
+check('reduced motion break adds no shards', FX._live() === calmLive);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+const seenBreak = [];
+for (let i = 0; i < 4; i++) {
+  FX.shield('b' + i, i * 4.375, 0, 1, 2000);
+  FX.shieldBreak('b' + i);
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff' || Math.abs(c[2] - 0.6) > 0.001) continue;
+  const px = c[3] + c[5] * 0.5;
+  let nearest = 0;
+  let best = 1e9;
+  for (let s = 0; s < 4; s++) {
+    const cx = s * 4.375 * 16 * cam.zoom + cam.x;
+    const d = px > cx ? px - cx : cx - px;
+    if (d < best) {
+      best = d;
+      nearest = s;
+    }
+  }
+  let known = false;
+  for (let k = 0; k < seenBreak.length; k++) if (seenBreak[k] === nearest) known = true;
+  if (!known) seenBreak.push(nearest);
+}
+console.log('instant break flashes', seenBreak.length);
+check('break flash budget is 3 per instant', seenBreak.length === 3);
+
+const breakTimes = [];
+let breakClock = 0;
+let breakLiveMax = 0;
+FX.reset();
+FX.setReducedMotion(false);
+for (let i = 0; i < 50; i++) {
+  FX.kill((i % 8) * 0.4, (i % 5) * 0.3, 'skel', vis);
+  FX.shield('wave', 0, 0, 1.125, 2000);
+  FX.shieldBreak('wave');
+  calls.length = 0;
+  FX.draw(ctx, cam);
+  let flashes = sils().n;
+  if (countStyle('#ffffff', 0.6) > 0) flashes += 1;
+  for (let k = 0; k < flashes; k++) breakTimes.push(breakClock);
+  FX.update(0.04);
+  if (FX._live() > breakLiveMax) breakLiveMax = FX._live();
+  breakClock += 0.04;
+}
+let breakPeak = 0;
+for (let i = 0; i < breakTimes.length; i++) {
+  let c = 1;
+  for (let j = i + 1; j < breakTimes.length && breakTimes[j] - breakTimes[i] < 0.1; j++) c += 1;
+  if (c > breakPeak) breakPeak = c;
+}
+console.log('flash peak with breaks at 25 kills/s', breakPeak, 'particles', breakLiveMax);
+check('breaks keep the 0.1s flash cap', breakPeak <= 3);
+check('breaks stay inside the particle cap', breakLiveMax <= 200);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.spawn(0, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const oneSpawn = countStyle('#26252b', null);
+check('spawn draws a dark ring', oneSpawn > 8);
+advance(0.11);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('spawn ring grows', countStyle('#26252b', null) > oneSpawn);
+advance(0.15);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('spawn expires after 220ms', countStyle('#26252b', null) === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+for (let i = 0; i < 40; i++) FX.spawn((i - 20) * 5, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const capped = countStyle('#26252b', null);
+console.log('spawn draw cap rings', oneSpawn ? (capped / oneSpawn) : 0);
+check('spawns draw the nearest 24', oneSpawn > 0 && capped === oneSpawn * 24);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.spawn(0, 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spawnStill = calls.map(function (c) { return c.join(','); }).join('|');
+check('reduced motion spawn is a ring', countStyle('#26252b', null) > 8);
+advance(0.1);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion spawn does not expand', calls.map(function (c) { return c.join(','); }).join('|') === spawnStill);
+
+function steelCentre() {
+  return fillCentroid(function (c) {
+    return c[1] === '#9fb4c8' && Math.abs(c[2] - 1) < 0.001;
+  });
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+const demon = { id: 41, x: 1.7, y: 0.15, radius: 1.35 };
+const shieldR = demon.radius + 0.9;
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const demonX = demon.x * 16 * cam.zoom + cam.x;
+const demonY = demon.y * 16 * cam.zoom + cam.y;
+const bossScale = demon.radius / 0.9;
+const bossFoot = (40 - 2) * cam.zoom * bossScale;
+const bodyX = demonX;
+const bodyY = demonY - bossFoot + (2 + 20) * cam.zoom * bossScale;
+console.log('hex was below the body by', (demonY - bodyY).toFixed(2), 'device px');
+const hexAt = steelCentre();
+check('shield centre matches the demon body', hexAt.n > 0 && Math.abs(hexAt.x - bodyX) <= 2 && Math.abs(hexAt.y - bodyY) <= 2);
+let hexReach = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#9fb4c8' || Math.abs(c[2] - 1) > 0.001) continue;
+  const dx = c[3] + c[5] * 0.5 - bodyX;
+  const dy = c[4] + c[6] * 0.5 - bodyY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > hexReach) hexReach = dist;
+}
+const spritePx = demon.radius * 16 * cam.zoom;
+console.log('demon hex reach', hexReach.toFixed(2), 'sprite px', spritePx.toFixed(2));
+check('shield hex radius covers the demon sprite', hexReach >= spritePx);
+
+FX.shield(demon.id, demon.x + 0.8, demon.y - 0.35, shieldR, 4000);
+calls.length = 0;
+FX.draw(ctx, cam);
+const moved = steelCentre();
+const movedX = (demon.x + 0.8) * 16 * cam.zoom + cam.x;
+const movedFeetY = (demon.y - 0.35) * 16 * cam.zoom + cam.y;
+const movedY = movedFeetY - bossFoot + (2 + 20) * cam.zoom * bossScale;
+check('shield follows a later tile update', moved.n > 0 && Math.abs(moved.x - movedX) <= 2 && Math.abs(moved.y - movedY) <= 2);
+
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000, { lift: 0 });
+calls.length = 0;
+FX.draw(ctx, cam);
+const planted = steelCentre();
+check('opts.lift 0 keeps the hex on the feet', planted.n > 0 && Math.abs(planted.x - demonX) <= 2 && Math.abs(planted.y - demonY) <= 2);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000);
+const bodyTileY = demon.y - (bossFoot - (2 + 20) * cam.zoom * bossScale) / (16 * cam.zoom);
+FX.shieldHit(demon.id, demon.x + shieldR, bodyTileY);
+calls.length = 0;
+FX.draw(ctx, cam);
+let hitX = 0;
+let hitY = 0;
+let hitN = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff' || Math.abs(c[2] - 1) > 0.001) continue;
+  const px = c[3] + c[5] * 0.5;
+  const py = c[4] + c[6] * 0.5;
+  if (px < demonX + 40) continue;
+  hitX += px;
+  hitY += py;
+  hitN += 1;
+}
+const rimX = demonX + Math.round(shieldR * 16 * Math.cos(Math.PI / 6)) * cam.zoom;
+const hitDx = hitN ? hitX / hitN - rimX : 99;
+const hitDy = hitN ? hitY / hitN - bodyY : 99;
+console.log('shield hit rim dx', hitDx.toFixed(2), 'dy', hitDy.toFixed(2));
+check('shield hit lands on the demon rim', hitN > 0 && Math.abs(hitDx) <= 1 && Math.abs(hitDy) <= 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.spawn(demon.x, demon.y);
+calls.length = 0;
+FX.draw(ctx, cam);
+const spawnAt = fillCentroid(function (c) { return c[1] === '#26252b' || c[1] === '#141318'; });
+check('spawn centre matches the demon', spawnAt.n > 0 && Math.abs(spawnAt.x - demonX) <= 1 && Math.abs(spawnAt.y - demonY) <= 1);
+
+function nearestLane(ex, ey) {
+  let best = 1e9;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill') continue;
+    const color = c[1];
+    if (color !== '#c9a8ff' && color !== '#9fb4c8' && color !== '#14120f' && color !== '#ffffff') continue;
+    const px = c[3] + c[5] * 0.5;
+    const py = c[4] + c[6] * 0.5;
+    const dx = px - ex;
+    const dy = py - ey;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < best) best = dist;
+  }
+  return best;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+let laneThrew = false;
+try {
+  FX.telegraphLine('nope', NaN, 0, 1, 1, 700);
+  FX.telegraphLine('nope', 0, 0, Infinity, 1, 700);
+  FX.telegraphLine();
+} catch (err) {
+  laneThrew = true;
+}
+check('bad telegraphLine args do not throw', laneThrew === false);
+const laneFrom = { x: 0.4, y: -0.2 };
+const laneTo = { x: 2.1, y: 0.35 };
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const laneX0 = laneFrom.x * 16 * cam.zoom + cam.x;
+const laneY0 = laneFrom.y * 16 * cam.zoom + cam.y;
+const laneX1 = laneTo.x * 16 * cam.zoom + cam.x;
+const laneY1 = laneTo.y * 16 * cam.zoom + cam.y;
+const startErr = nearestLane(laneX0, laneY0);
+const endErr = nearestLane(laneX1, laneY1);
+console.log('lane endpoint px', startErr.toFixed(2), endErr.toFixed(2));
+check('lane start matches the tile', startErr <= 1.3);
+check('lane end matches the tile', endErr <= 1.3);
+let laneMinA = 1;
+let laneDark = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill') continue;
+  if (c[1] === '#c9a8ff' && c[2] < laneMinA) laneMinA = c[2];
+  if (c[1] === '#14120f' && Math.abs(c[2] - 0.7) < 0.001) laneDark += 1;
+}
+check('lane fill starts near 15%', laneMinA > 0.1 && laneMinA < 0.2);
+check('lane edges are 70% ink', laneDark > 8);
+
+const laneAim = { x: -0.15, y: 1.6 };
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneAim.x, laneAim.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const aimX = laneAim.x * 16 * cam.zoom + cam.x;
+const aimY = laneAim.y * 16 * cam.zoom + cam.y;
+check('re-aim moves the lane end', nearestLane(aimX, aimY) <= 1 && nearestLane(laneX1, laneY1) > 8);
+
+FX.telegraphOff('dash');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('telegraphOff clears the lane', nearestLane(laneX0, laneY0) > 8 && nearestLane(aimX, aimY) > 8);
+
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+advance(0.6);
+calls.length = 0;
+FX.draw(ctx, cam);
+let laneHot = 0;
+let laneWhite = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff') continue;
+  laneWhite += 1;
+  if (c[2] > 0.6 + 0.001) laneHot += 1;
+}
+check('lane blink stays at most 60% white', laneWhite > 0 && laneHot === 0);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.telegraphLine('still-lane', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const calmLane = calls.map(function (c) { return c.join(','); }).join('|');
+let calmSweep = 0;
+let calmCap = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill') continue;
+  if (c[1] === '#ffffff') calmSweep += 1;
+  if (c[1] === '#14120f' && Math.abs(c[2] - 1) < 0.001) calmCap += 1;
+}
+advance(0.3);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion lane does not sweep', calmSweep === 0 && calls.map(function (c) { return c.join(','); }).join('|') === calmLane);
+check('reduced motion lane outlines the sides and the end', calmCap > 40);
+
+FX.telegraph('still-lane', laneFrom.x, laneFrom.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('a ring replaces a lane with the same id', nearestLane(laneX1, laneY1) > 8 && countStyle('#c9a8ff', null) > 0);
+
+function lootRing(color) {
+  let n = 0;
+  let sx = 0;
+  let sy = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color) continue;
+    if (c[2] < 0.99 || c[5] !== 1 || c[6] !== 1) continue;
+    n += 1;
+    sx += c[3] + 0.5;
+    sy += c[4] + 0.5;
+  }
+  return { n: n, x: n ? sx / n : 0, y: n ? sy / n : 0 };
+}
+
+function lootCores(color) {
+  const out = [];
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || c[1] !== color || c[5] <= 1) continue;
+    out.push({ a: c[2], x: c[3] + c[5] * 0.5, y: c[4] + c[6] * 0.5, w: c[5], h: c[6] });
+  }
+  return out;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+let lootThrew = false;
+try {
+  FX.lootPull('nope', NaN, 0, 1, 1, 400, 'rare');
+  FX.lootPull('nope', 0, 0, Infinity, 1, 400, 'rare');
+  FX.lootPull();
+  FX.lootPullOff();
+} catch (err) {
+  lootThrew = true;
+}
+check('bad lootPull args do not throw', lootThrew === false);
+
+const lootHero = { x: -1.6, y: 0.7 };
+const lootHeadAt = { x: 1.15, y: -0.36 };
+FX.lootPull('gem', lootHeadAt.x, lootHeadAt.y, lootHero.x, lootHero.y, 400, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('loot trail waits for FX.update', fills('#4c7cff') === 0);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+const lootHx = lootHeadAt.x * 16 * cam.zoom + cam.x;
+const lootHy = lootHeadAt.y * 16 * cam.zoom + cam.y;
+const rareRing = lootRing('#4c7cff');
+const rareDx = rareRing.x - lootHx;
+const rareDy = rareRing.y - lootHy;
+const rareErr = Math.sqrt(rareDx * rareDx + rareDy * rareDy);
+const rareCores = lootCores('#4c7cff');
+rareCores.sort(function (p, q) {
+  const dp = (p.x - lootHx) * (p.x - lootHx) + (p.y - lootHy) * (p.y - lootHy);
+  const dq = (q.x - lootHx) * (q.x - lootHx) + (q.y - lootHy) * (q.y - lootHy);
+  return dp - dq;
+});
+let size3 = 0;
+let size2 = 0;
+let a90 = 0;
+let a70 = 0;
+let a50 = 0;
+let a30 = 0;
+let gapOk = rareCores.length === 4;
+const tilePx = 16 * cam.zoom;
+for (let i = 0; i < rareCores.length; i++) {
+  const c = rareCores[i];
+  if (c.w === 9 && c.h === 9) size3 += 1;
+  if (c.w === 6 && c.h === 6) size2 += 1;
+  if (Math.abs(c.a - 0.9) < 0.02) a90 += 1;
+  if (Math.abs(c.a - 0.7) < 0.02) a70 += 1;
+  if (Math.abs(c.a - 0.5) < 0.02) a50 += 1;
+  if (Math.abs(c.a - 0.3) < 0.02) a30 += 1;
+  const dist = Math.sqrt((c.x - lootHx) * (c.x - lootHx) + (c.y - lootHy) * (c.y - lootHy));
+  const want = 0.35 * (i + 1) * tilePx;
+  if (Math.abs(dist - want) > 0.08 * tilePx) gapOk = false;
+}
+let inkEdges = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] === 'fill' && c[1] === '#14120f' && Math.abs(c[2] - 0.7) < 0.02) inkEdges += 1;
+}
+console.log('loot ring px', rareErr.toFixed(2), 'squares', rareCores.length);
+check('loot ring matches the tile', rareRing.n > 8 && rareErr <= 1);
+check('loot trail is 4 squares', rareCores.length === 4 && size3 === 2 && size2 === 2);
+check('loot trail alphas are 90/70/50/30', a90 === 1 && a70 === 1 && a50 === 1 && a30 === 1);
+check('loot squares sit about 0.35 tiles apart', gapOk);
+check('loot trail squares have 70% ink edges', inkEdges === 4);
+
+const lootMoved = { x: 0.15, y: 0.85 };
+FX.lootPull('gem', lootMoved.x, lootMoved.y, -0.4, 1.4, 400, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+const held = lootRing('#4c7cff');
+const heldDx = held.x - lootHx;
+const heldDy = held.y - lootHy;
+check('lootPull before update does not move the trail', Math.sqrt(heldDx * heldDx + heldDy * heldDy) <= 1);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+const movedHx = lootMoved.x * 16 * cam.zoom + cam.x;
+const movedHy = lootMoved.y * 16 * cam.zoom + cam.y;
+const movedRing = lootRing('#4c7cff');
+const movedDx = movedRing.x - movedHx;
+const movedDy = movedRing.y - movedHy;
+const oldDx = movedRing.x - lootHx;
+const oldDy = movedRing.y - lootHy;
+check('update moves the trail to the new tile', Math.sqrt(movedDx * movedDx + movedDy * movedDy) <= 1 && Math.sqrt(oldDx * oldDx + oldDy * oldDy) > 8);
+
+const frozen = calls.map(function (c) { return c.join(','); }).join('|');
+const wall0 = Date.now();
+while (Date.now() - wall0 < 2000) {}
+FX.lootPull('gem', lootHeadAt.x, lootHeadAt.y, lootHero.x, lootHero.y, 400, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('trail stays put for 2s without FX.update', calls.map(function (c) { return c.join(','); }).join('|') === frozen);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.lootPull('common-drop', 1, 0.2, 0, 0, 400, 'common');
+FX.lootPull('junk-drop', 1.2, 0.4, 0, 0, 400, 'junk');
+FX.lootPull('blank-drop', 0.6, -0.2, 0, 0, 400);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('common and junk loot draw nothing', fills('#4c7cff') === 0 && fills('#5ed37a') === 0 && fills('#b48cff') === 0 && fills('#ffb43c') === 0 && FX._lootOn() === 0);
+
+FX.lootPull('epic-drop', 2.4, 0.6, -1.2, 0.4, 400, 'epic');
+FX.update(0.016);
+FX.lootPullOff('epic-drop');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('lootPullOff clears the trail', fills('#b48cff') === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.lootPull('off-live', 2.2, -0.4, -1.4, 0.8, 400, 'rare');
+FX.update(0.016);
+FX.update(0.001);
+const offLive = FX._live();
+FX.lootPullOff('off-live');
+FX.update(0.016);
+check('lootPullOff during a flight fires no pop', FX._live() === offLive && FX._lootOn() === 0);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('lootPullOff leaves no trail', fills('#4c7cff') === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const bankBase = FX._live();
+FX.lootPull('bank-rare', 2.2, -0.5, 0, 0, 400, 'rare');
+FX.update(0.016);
+FX.lootPullOff('bank-rare', true);
+FX.update(0.001);
+check('pop=true on an active Rare fires exactly one pop', FX._live() === bankBase + 4);
+calls.length = 0;
+FX.draw(ctx, cam);
+const bankCores = lootCores('#4c7cff');
+let bankSx = 0;
+let bankSy = 0;
+for (let i = 0; i < bankCores.length; i++) {
+  bankSx += bankCores[i].x;
+  bankSy += bankCores[i].y;
+}
+const bankDx = bankCores.length ? bankSx / bankCores.length - cam.x : 99;
+const bankDy = bankCores.length ? bankSy / bankCores.length - cam.y : 99;
+check('bank pop sits on the last hero point', bankCores.length >= 1 && Math.sqrt(bankDx * bankDx + bankDy * bankDy) <= 8);
+FX.lootPullOff('bank-rare', true);
+FX.update(0.001);
+check('pop=true twice fires one pop', FX._live() === bankBase + 4);
+const idleLive = FX._live();
+FX.lootPullOff('bank-missing', true);
+FX.update(0.001);
+check('pop=true on an inactive id does nothing', FX._live() === idleLive);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+FX.lootPull('bank-silent', 2.1, 0.4, -1, 0.2, 400, 'epic');
+FX.update(0.016);
+const silentLive = FX._live();
+FX.lootPullOff('bank-silent');
+FX.update(0.016);
+check('no-arg off still never pops', FX._live() === silentLive && FX._lootOn() === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const onceBase = FX._live();
+FX.lootPull('bank-once', 2.4, 0.3, 0, 0, 400, 'rare');
+FX.update(0.016);
+FX.lootPull('bank-once', 0.1, 0, 0, 0, 400, 'rare');
+FX.update(0.001);
+FX.lootPullOff('bank-once', true);
+FX.update(0.001);
+FX.lootPullOff('bank-once', true);
+FX.update(0.001);
+check('auto-pop then lootPullOff fires one pop', FX._live() === onceBase + 4);
+FX.lootPull('bank-once', 2.6, -0.8, 0, 0, 400, 'rare');
+FX.update(0.016);
+FX.lootPullOff('bank-once', true);
+FX.update(0.001);
+check('a new flight after a self-pop may pop once more', FX._live() === onceBase + 8);
+FX.lootPullOff('bank-once', true);
+FX.update(0.001);
+check('the new flight pops only once', FX._live() === onceBase + 8);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX._seed();
+FX.update(0.001);
+const calmBank = FX._live();
+FX.lootPull('calm-bank', 1.8, 0.4, 0, 0, 400, 'rare');
+FX.update(0.016);
+FX.lootPullOff('calm-bank', true);
+calls.length = 0;
+FX.draw(ctx, cam);
+const calmBankRing = fills('#4c7cff');
+calls.length = 0;
+FX.draw(ctx, cam);
+FX.update(0.001);
+check('reduced motion bank pop is a 1-frame ring', calmBankRing > 4 && fills('#4c7cff') === 0 && FX._live() === calmBank);
+FX.setReducedMotion(false);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.lootPull('rst', 2.5, 0.7, -1.6, -0.4, 400, 'epic');
+FX.update(0.016);
+FX.update(0.001);
+check('a flight has not popped yet', FX._live() === 0);
+FX.reset();
+check('reset during a flight clears pull slots', FX._lootOn() === 0 && FX._live() === 0);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reset during a flight fires no pop', FX._live() === 0 && FX._lootOn() === 0 && fills('#b48cff') === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const feedLive = FX._live();
+for (let i = 0; i < 60; i++) {
+  FX.lootPull('feed', 3.1 - i * 0.02, 1.4, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+const fedAt = 3.1 - 59 * 0.02;
+const fedHx = fedAt * 16 * cam.zoom + cam.x;
+const fedHy = 1.4 * 16 * cam.zoom + cam.y;
+const fedRing = lootRing('#4c7cff');
+const fedDx = fedRing.x - fedHx;
+const fedDy = fedRing.y - fedHy;
+check('re-feed for 60 ticks keeps the trail', FX._live() === feedLive && fedRing.n > 8 && Math.sqrt(fedDx * fedDx + fedDy * fedDy) <= 1);
+for (let i = 0; i < 40; i++) {
+  FX.lootPull('feed', fedAt, 1.4, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+const pauseRing = lootRing('#4c7cff');
+const pauseDx = pauseRing.x - fedHx;
+const pauseDy = pauseRing.y - fedHy;
+check('hit-pause re-feed does not expire the trail', FX._live() === feedLive && pauseRing.n > 8 && Math.sqrt(pauseDx * pauseDx + pauseDy * pauseDy) <= 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const frameLive = FX._live();
+for (let frame = 0; frame < 25; frame++) {
+  FX.lootPull('frame25', 2.4, -0.7, 0, 0, 400, 'rare');
+  FX.update(0.016);
+}
+FX.lootPullOff('frame25', true);
+FX.update(0.001);
+check('bank on frame 25 pops once', FX._live() === frameLive + 4);
+FX.lootPullOff('frame25', true);
+FX.update(0.001);
+check('bank on frame 25 does not pop twice', FX._live() === frameLive + 4);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const staleLive = FX._live();
+const stale0 = FX._stats.lootStale;
+FX.lootPull('stale-drop', 2.8, 0.9, -1, -1, 400, 'epic');
+FX.update(0.016);
+advance(1.5);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('stale pull clears with no pop', fills('#b48cff') === 0 && FX._live() === staleLive && FX._stats.lootStale === stale0 + 1);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+for (let i = 0; i < 16; i++) FX.lootPull('rare' + i, 2 + (i % 4) * 0.3, 1 + (i % 4) * 0.2, 0, 0, 400, 'rare');
+FX.update(0.016);
+const evictLive = FX._live();
+FX.lootPull('common-extra', 3.5, 2.2, 0, 0, 400, 'common');
+FX.update(0.016);
+let raresLeft = 0;
+for (let i = 0; i < 16; i++) if (FX._lootRank('rare' + i) === 2) raresLeft += 1;
+check('a common does not take a full rare table', raresLeft === 16 && FX._lootRank('common-extra') === 0 && FX._live() === evictLive);
+
+FX.reset();
+FX._seed();
+for (let i = 0; i < 15; i++) FX.lootPull('unc' + i, 2.2, 1 + (i % 5) * 0.15, 0, 0, 400, 'uncommon');
+FX.lootPull('old-rare', 3.2, 1.1, 0, 0, 400, 'rare');
+FX.lootPull('new-rare', 3.4, 1.4, 0, 0, 400, 'rare');
+FX.update(0.016);
+let uncLeft = 0;
+for (let i = 0; i < 15; i++) if (FX._lootRank('unc' + i) === 1) uncLeft += 1;
+check('a new rare evicts the oldest uncommon', uncLeft === 14 && FX._lootRank('unc0') === 0 && FX._lootRank('old-rare') === 2 && FX._lootRank('new-rare') === 2 && FX._live() === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.lootPull(NaN, 1, 1.2, 0, 0, 400, 'rare');
+FX.lootPull(Infinity, 1.2, 1.2, 0, 0, 400, 'epic');
+FX.telegraph(NaN, 1, 1, 800);
+FX.telegraphLine(NaN, 0, 0, 1, 1, 800);
+FX.telegraphLine(Infinity, 0.2, 0.2, 1, 1, 800);
+FX.shield(NaN, 0, 0, 1.2, 2000);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('non-finite ids draw nothing', FX._lootOn() === 0 && fills('#4c7cff') === 0 && fills('#c9a8ff') === 0 && fills('#9fb4c8') === 0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.lootPull('legend', 2.1, -1.1, -0.4, 0.2, 400, 'legendary');
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+const goldCores = lootCores('#ffb43c');
+let goldEdge = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] === 'fill' && c[1] === '#ffd27a' && Math.abs(c[2] - 0.7) < 0.02) goldEdge += 1;
+}
+check('legendary trail is a gold core with a light edge', goldCores.length === 4 && goldEdge === 4);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+const lootLive0 = FX._live();
+FX.lootPull('pop', 0.4, 0.25, 0.4, 0.25, 400, 'rare');
+FX.update(0.001);
+FX.update(0.001);
+check('loot arrival pops 4 sparks', FX._live() === lootLive0 + 4);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('loot arrival allows white sparks', fills('#ffffff') > 0 && fills('#4c7cff') > 0);
+advance(0.13);
+FX.update(0.001);
+check('loot sparks last under 150ms', FX._live() === lootLive0);
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+FX.update(0.001);
+FX.lootPull('track', 1.2, 0.8, 3, 3, 400, 'legendary');
+FX.update(0.001);
+const trackLive = FX._live();
+FX.lootPull('track', 1.2, 0.8, 1.22, 0.84, 400, 'legendary');
+FX.update(0.001);
+FX.update(0.001);
+check('retarget onto the item pops arrival', FX._live() === trackLive + 4);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.lootPull('calm-pull', 1.4, 0.5, -1, 0.2, 400, 'legendary');
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion loot draws no trail', fills('#ffb43c') === 0 && fills('#ffd27a') === 0);
+FX._seed();
+FX.update(0.001);
+const calmLoot = FX._live();
+FX.lootPull('calm-pull', 0.04, 0.02, 0, 0, 400, 'legendary');
+FX.update(0.001);
+calls.length = 0;
+FX.draw(ctx, cam);
+const calmRing = fills('#ffb43c');
+calls.length = 0;
+FX.draw(ctx, cam);
+FX.update(0.001);
+check('reduced motion loot is a 1-frame ring', calmRing > 4 && fills('#ffb43c') === 0 && FX._live() === calmLoot);
+
 function quietCtx() {
   return {
     canvas: { width: 390, height: 844 },
@@ -749,6 +1575,18 @@ if (typeof global.gc === 'function') {
     FX.draw(quiet, cam);
   }
   global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let w = 0; w < 4; w++) {
+    for (let i = 0; i < 120; i++) {
+      FX.update(0.016);
+      FX.draw(quiet, cam);
+    }
+    global.gc();
+  }
   const before = process.memoryUsage().heapUsed;
   for (let i = 0; i < 120; i++) {
     FX.update(0.016);
@@ -759,9 +1597,181 @@ if (typeof global.gc === 'function') {
   const per = (after - before) / 120;
   console.log('telegraph heap bytes/frame', per.toFixed(2));
   check('zero allocations per telegraph frame', per < 16);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  FX.shield('s', 0, 0, 1.375, 20000);
+  for (let i = 0; i < 8; i++) FX.spawn((i - 4) * 1.25, 0.5);
+  for (let i = 0; i < 160; i++) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  function shieldFrame(i) {
+    if (i % 8 === 0) {
+      FX.spawn((i % 5) * 0.875, (i % 3) * 0.625);
+      FX.shieldHit('s', 2.5, 0);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  for (let i = 0; i < 300; i++) shieldFrame(i);
+  global.gc();
+  for (let w = 0; w < 3; w++) {
+    for (let i = 0; i < 2400; i++) shieldFrame(300 + w * 2400 + i);
+    global.gc();
+  }
+  const shieldFrames = 2400;
+  const shieldBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < shieldFrames; i++) shieldFrame(7500 + i);
+  global.gc();
+  const shieldAfter = process.memoryUsage().heapUsed;
+  const shieldPer = (shieldAfter - shieldBefore) / shieldFrames;
+  console.log('shield heap bytes/frame', shieldPer.toFixed(2));
+  check('zero allocations per shield frame', shieldPer <= 0.3);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  FX.telegraphLine('lane', 0.2, -0.4, 1.8, 0.6, 8000);
+  for (let i = 0; i < 160; i++) {
+    if (i % 10 === 0) FX.telegraphLine('lane', 0.2, -0.4, 1.4 + (i % 3) * 0.2, 0.3, 8000);
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const laneBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    if (i % 10 === 0) FX.telegraphLine('lane', 0.2, -0.4, 1.4 + (i % 3) * 0.2, 0.3, 8000);
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const lanePer = (process.memoryUsage().heapUsed - laneBefore) / 120;
+  console.log('lane heap bytes/frame', lanePer.toFixed(2));
+  check('zero allocations per lane frame', lanePer < 16);
+
+  const lootIds = ['h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7'];
+  const lootRarities = ['uncommon', 'rare', 'epic', 'legendary', 'rare', 'epic', 'uncommon', 'legendary'];
+  function lootFrame(i) {
+    for (let n = 0; n < 8; n++) {
+      FX.lootPull(lootIds[n], 1.7 + n * 0.1 + (i % 4) * 0.07, 1.05 + (n % 3) * 0.08, -1.5 + (i % 3) * 0.1, -0.6, 400, lootRarities[n]);
+    }
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  for (let n = 0; n < 8; n++) FX.lootPull(lootIds[n], 1.8 + n * 0.12, 1.1, -1.4, -0.8, 400, lootRarities[n]);
+  for (let i = 0; i < 400; i++) lootFrame(i);
+  global.gc();
+  for (let i = 0; i < 160; i++) lootFrame(400 + i);
+  global.gc();
+  for (let w = 0; w < 6; w++) {
+    for (let i = 0; i < 120; i++) lootFrame(560 + w * 120 + i);
+    global.gc();
+  }
+  const lootBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) lootFrame(1280 + i);
+  global.gc();
+  const lootPer = (process.memoryUsage().heapUsed - lootBefore) / 120;
+  console.log('loot heap bytes/frame', lootPer.toFixed(2));
+  check('loot heap stays at or under 0.3 bytes per frame', lootPer <= 0.3);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  const mixNames = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  for (let i = 0; i < 20; i++) FX.beam('mixg' + i, (i - 10) * 0.6, 0, mixNames[i % 5]);
+  FX.shield('mixg', 0, 0, 1.375, 60000);
+  FX.telegraph('mixg-a', 1.5, 0, 60000);
+  FX.telegraph('mixg-b', -1.5, 1, 60000);
+  FX.telegraph('mixg-c', 0, -1.25, 60000);
+  for (let i = 0; i < 160; i++) {
+    FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+    FX.update(0.04);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+    FX.update(0.04);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const mixSamples = [];
+  for (let w = 0; w < 5; w++) {
+    global.gc();
+    const mixBefore = process.memoryUsage().heapUsed;
+    for (let i = 0; i < 120; i++) {
+      FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', vis);
+      FX.update(0.04);
+      FX.draw(quiet, cam);
+    }
+    global.gc();
+    mixSamples.push((process.memoryUsage().heapUsed - mixBefore) / 120);
+  }
+  mixSamples.sort(function (a, b) { return a - b; });
+  const mixPer = mixSamples[2];
+  console.log('mixed heap bytes/frame', mixPer.toFixed(2));
+  check('zero allocations per mixed frame', mixPer < 16);
 } else {
   console.log('skip alloc check (run with node --expose-gc)');
 }
+
+FX.reset();
+FX.setReducedMotion(false);
+FX._seed();
+const mixRarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+for (let i = 0; i < 20; i++) {
+  const x = i < 3 ? -6 - i : (i - 8) * 0.7;
+  FX.beam('mix' + i, x, (i % 5) * 0.4, mixRarities[i % 5]);
+}
+FX.shield('mix-shield', 0, 0, 1.375, 20000);
+FX.telegraph('mix-a', 1.5, 0, 8000);
+FX.telegraph('mix-b', -1.5, 1, 8000);
+FX.telegraph('mix-c', 0, -1.25, 8000);
+FX.telegraphLine('mix-lane-a', -1.1, 0.35, 1.35, -0.25, 8000);
+FX.telegraphLine('mix-lane-b', 0.55, 1.15, -1.05, 0.45, 8000);
+const pullIds = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+const pullRarities = ['uncommon', 'rare', 'epic', 'legendary', 'rare', 'epic', 'uncommon', 'legendary'];
+for (let n = 0; n < 8; n++) FX.lootPull(pullIds[n], 1.8 + n * 0.12, -1.2, 0, 0, 400, pullRarities[n]);
+let mixPeak = 0;
+for (let i = 0; i < 400; i++) {
+  FX.telegraphLine('mix-lane-a', -1.1, 0.35, 1.35 - (i % 5) * 0.04, -0.25, 8000);
+  FX.telegraphLine('mix-lane-b', 0.55, 1.15, -1.05, 0.45 + (i % 4) * 0.05, 8000);
+  for (let n = 0; n < 8; n++) {
+    const x = 1.7 + n * 0.1 + (i % 4) * 0.06;
+    const y = -1.3 - (n % 3) * 0.15;
+    FX.lootPull(pullIds[n], x, y, (i % 3) * 0.05, 0, 400, pullRarities[n]);
+  }
+  FX.kill((i % 12) * 0.5, (i % 9) * 0.4, 'skel', { color: '#8a6cff', frame: vis.frame });
+  FX.update(0.04);
+  FX.draw(ctx, cam);
+  if (FX._live() > mixPeak) mixPeak = FX._live();
+}
+console.log('particle peak at 25/s with 20 beams, shield, 3 telegraphs, 2 lanes, 8 pulls', mixPeak);
+check('mixed beams shield telegraphs lanes and pulls stay under 200', mixPeak < 200);
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));

@@ -26,6 +26,45 @@
  * ring stay in art px. A numeric opts.radius, opts.r, or opts.size is a radius
  * in tiles. It uses its own 32-slot table, never the particle pool, and never a
  * white flash. opts.boss enlarges the default ring.
+ * FX.telegraphLine(id, x, y, toX, toY, ms, opts) draws a dash lane in those
+ * same tiles and the same 32 slots. telegraphOff(id) clears a ring or a lane.
+ * Calling it again with the same id moves the endpoints without restarting
+ * the wind-up. opts.width is the lane width in tiles (default 0.5). opts.boss
+ * uses the steel tint. The fill ramps from 15% to 45% and a bright edge
+ * sweeps the lane; the last 120ms blinks once at 60% white. Reduced motion
+ * keeps a static lane and a solid end outline, with no sweep and no blink.
+ * FX.lootPull(id, x, y, toX, toY, ms, rarity) draws the trail of a flying
+ * drop. Coordinates are tiles. The game owns the positions and re-feeds
+ * this call every tick after the gem moves, including hit-pause, the same
+ * re-aim pattern as telegraphLine. This draws four squares behind the fed
+ * point (3, 3, 2, 2 art px, about 0.35 tiles apart, alpha 90/70/50/30,
+ * 1px #14120f edges at 70%) and a 1px rarity ring on the item. Legendary
+ * squares use a #ffb43c core and a #ffd27a edge. The same id re-aims: it
+ * updates the point and the hero, keeps the trail continuous, and does not
+ * reset or pop. Rarity stays until the rarity argument changes. ms is only
+ * the trail and ring phase, clamped to 120-1200, not a lifetime. A flight
+ * that is still being fed never expires on its own. It ends on the
+ * 0.15-tile auto-pop, on lootPullOff(id, true) once at the last hero
+ * point, or silently on lootPullOff(id) or FX.reset(). A slot that is not
+ * re-fed for more than 1500ms of FX.update time is cleared with no pop and
+ * counted on FX._stats.lootStale. When all 16 slots are live, a new pull
+ * evicts the lowest-rarity slot, oldest first among equals, and never
+ * evicts a higher rarity; if every live slot is higher, the new pull is
+ * dropped. Common, junk, and unknown names draw nothing and take no slot.
+ * Non-finite ids are ignored. Reduced motion skips the trail and draws one
+ * ring on arrival, including that banked pop. The trail advances only in
+ * FX.update, so a level-up or background skips it, and slow-mo follows the
+ * dt passed in.
+ * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
+ * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
+ * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
+ * at scale body/0.9. The opaque body on that 36px sheet is centred 16
+ * source px above the foot row, so the bubble, hit sparks, and break
+ * shards rise by body/0.9 tiles. opts.lift, in tiles, overrides that.
+ * Line width and pixel snap stay in art px.
+ * Its bubble, chevrons, and arrival puffs sit on fixed tables. Only a shield
+ * break's shards use the particle pool, and its one white flash shares the
+ * 3-per-0.1s death window.
  */
 const FX = (function () {
   'use strict';
@@ -46,6 +85,14 @@ const FX = (function () {
   const BEAM_CSS_PER_ART = 2;
   const TEL_N = 32;
   const TEL_DRAW = 24;
+  const SH_N = 8;
+  const CH_PER = 6;
+  const CH_N = SH_N * CH_PER;
+  const SP_N = 32;
+  const SP_DRAW = 24;
+  const BR_N = 8;
+  const LOOT_N = 16;
+  const SPAWN_MS = 220;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
@@ -134,6 +181,7 @@ const FX = (function () {
   const toneColor = [
     '#ffffff', '#c8cdd4', '#9aa3ad', '#5fd8ff', '#8a6cff',
     '#b9b4aa', '#5ed37a', '#4c7cff', '#b48cff', '#f4f2ff',
+    '#ffb43c',
   ];
   const tints = new Array(TINT_N);
   for (let i = 0; i < TINT_N; i++) tints[i] = '#8a6cff';
@@ -153,14 +201,121 @@ const FX = (function () {
 
   const tels = new Array(TEL_N);
   for (let i = 0; i < TEL_N; i++) {
-    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0 };
+    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0, x2: 0.5, y2: 0.5, line: 0, w: 0.5 };
     t.x = 0;
     t.y = 0;
+    t.x2 = 0;
+    t.y2 = 0;
     t.age = 0;
     t.dur = 0.7;
     t.rad = 0;
+    t.line = 0;
+    t.w = 0.5;
   }
   let telGen = 0;
+
+  const shields = new Array(SH_N);
+  const shEdge = new Array(CH_N);
+  for (let i = 0; i < SH_N; i++) {
+    const s = shields[i] = { on: 0, id: null, x: 0.5, y: 0.5, r: 0.5, age: 0.5, dur: 0.5, lift: 0.5 };
+    s.x = 0;
+    s.y = 0;
+    s.r = 16;
+    s.lift = 0;
+    s.age = 0;
+    s.dur = 1;
+  }
+  for (let i = 0; i < CH_N; i++) shEdge[i] = 0;
+
+  const chevs = new Array(CH_N);
+  for (let i = 0; i < CH_N; i++) {
+    const c = chevs[i] = { on: 0, age: 0.5, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5, px: 0.5, py: 0.5 };
+    c.age = 0;
+    c.x = 0;
+    c.y = 0;
+    c.nx = 1;
+    c.ny = 0;
+    c.px = 0;
+    c.py = 1;
+  }
+
+  const spawns = new Array(SP_N);
+  for (let i = 0; i < SP_N; i++) {
+    const s = spawns[i] = { on: 0, x: 0.5, y: 0.5, age: 0.5, mark: 0 };
+    s.x = 0;
+    s.y = 0;
+    s.age = 0;
+  }
+  let spGen = 0;
+
+  const breaks = new Array(BR_N);
+  for (let i = 0; i < BR_N; i++) {
+    const b = breaks[i] = { on: 0, x: 0.5, y: 0.5, r: 0.5, age: 0.5, flash: 0 };
+    b.x = 0;
+    b.y = 0;
+    b.r = 0;
+    b.age = 0;
+  }
+
+  const LOOT_ARRIVE2 = 0.0225;
+  const LOOT_GAP = 0.35;
+  const LOOT_A0 = 0.9;
+  const LOOT_A1 = 0.7;
+  const LOOT_A2 = 0.5;
+  const LOOT_A3 = 0.3;
+  const LOOT_EDGE_A = 0.7;
+  const LOOT_INK = '#14120f';
+  const LOOT_GREEN = '#5ed37a';
+  const LOOT_RARE = '#4c7cff';
+  const LOOT_EPIC = '#b48cff';
+  const LOOT_GOLD = '#ffb43c';
+  const LOOT_GOLD_EDGE = '#ffd27a';
+  const loots = new Array(LOOT_N);
+  for (let i = 0; i < LOOT_N; i++) {
+    const s = loots[i] = {
+      on: 0, id: null, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5,
+      toX: 0.5, toY: 0.5, ux: 0.5, uy: 0.5,
+      age: 0.5, dur: 0.5, gap: 0.5, r: 0, pop: 0, wait: 0, lit: 0, popped: 0, ord: 0, tag: null,
+    };
+    s.x = -0;
+    s.y = -0;
+    s.nx = -0;
+    s.ny = -0;
+    s.toX = -0;
+    s.toY = -0;
+    s.ux = -0;
+    s.uy = -0;
+    s.age = -0;
+    s.dur = 0.4;
+    s.r = 0;
+    s.pop = 0;
+    s.wait = 0;
+    s.lit = 0;
+    s.popped = 0;
+    s.gap = -0;
+    s.ord = 0;
+  }
+
+  const LOOT_STALE = 1.5;
+  let lootOrd = 1;
+  let lootMissTag = null;
+  let lootMissR = 0;
+  const fxStats = { lootStale: 0 };
+
+  const hexUx = new Array(6);
+  const hexUy = new Array(6);
+  const hexVX = new Array(6);
+  const hexVY = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    const a = -1.5707963267948966 + (i / 6) * TAU;
+    hexUx[i] = Math.cos(a);
+    hexUy[i] = Math.sin(a);
+    hexVX[i] = 0;
+    hexVY[i] = 0;
+  }
+  let shieldTone = 0;
+  let shQx = 0;
+  let shQy = 0;
 
   const shakeOut = { x: 0.5, y: 0.5 };
   shakeOut.x = 0;
@@ -253,6 +408,11 @@ const FX = (function () {
 
   function ok(n) {
     return typeof n === 'number' && n === n;
+  }
+
+  function idOk(id) {
+    if (typeof id !== 'number') return true;
+    return id === id && id !== Infinity && id !== -Infinity;
   }
 
   function framePx() {
@@ -454,6 +614,7 @@ const FX = (function () {
     tintCursor = (tintCursor + 1) % TINT_N;
     return id;
   }
+  shieldTone = colorTone('#9fb4c8');
 
   function noteKill() {
     killStamp[killSlot] = clock;
@@ -957,7 +1118,88 @@ const FX = (function () {
     return framePx() * z;
   }
 
+  function paintLane(ctx, t, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    const x0 = t.x * span + camX;
+    const y0 = t.y * span + camY;
+    const x1 = t.x2 * span + camX;
+    const y1 = t.y2 * span + camY;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    let len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0)) len = 0;
+    const inv = len > 0 ? 1 / len : 0;
+    const ux = dx * inv;
+    const uy = dy * inv;
+    const nx = -uy;
+    const ny = ux;
+    const z = zoom > 0 ? zoom : 1;
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    const wide = t.w > 0 ? t.w : 0.5;
+    let across = Math.round(wide * framePx() * 0.5);
+    if (across < 1) across = 1;
+    const along = len > 0 ? Math.round(len / z) : 0;
+    let u = t.dur > 0 ? t.age / t.dur : 1;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const left = t.dur - t.age;
+    const blink = (!calm && left <= 0.12 && left > 0.06) ? 1 : 0;
+    const fillA = calm ? 0.3 : (0.15 + 0.3 * u);
+    const fill = t.boss ? '#9fb4c8' : '#c9a8ff';
+    const leadAt = along > 0 ? Math.round(along * u) : 0;
+    const steps = along > 480 ? 480 : along;
+    for (let i = 0; i <= steps; i++) {
+      const bx = x0 + ux * i * z;
+      const by = y0 + uy * i * z;
+      for (let k = -across; k <= across; k++) {
+        if (k <= -across || k >= across) {
+          ctx.globalAlpha = calm ? 1 : 0.7;
+          ctx.fillStyle = '#14120f';
+        } else if (blink) {
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = '#ffffff';
+        } else {
+          ctx.globalAlpha = fillA;
+          ctx.fillStyle = fill;
+        }
+        plotArt(ctx, bx, by, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    if (blink) {
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#ffffff';
+    } else {
+      ctx.globalAlpha = fillA;
+      ctx.fillStyle = fill;
+    }
+    plotArt(ctx, x0, y0, 0, 0, zoom, cell, half);
+    plotArt(ctx, x1, y1, 0, 0, zoom, cell, half);
+    if (!calm && !blink) {
+      const bx = x0 + ux * leadAt * z;
+      const by = y0 + uy * leadAt * z;
+      const inner = across > 1 ? across - 1 : 0;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      for (let k = -inner; k <= inner; k++) {
+        plotArt(ctx, bx, by, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    if (calm) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#14120f';
+      for (let k = -across; k <= across; k++) {
+        plotArt(ctx, x1, y1, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function paintTelegraph(ctx, t, zoom, camX, camY, calm) {
+    if (t.line) {
+      paintLane(ctx, t, zoom, camX, camY, calm);
+      return;
+    }
     const span = tileSpan(zoom);
     const sx = t.x * span + camX;
     const sy = t.y * span + camY;
@@ -1004,10 +1246,7 @@ const FX = (function () {
       for (let i = 0; i < TEL_N; i++) {
         const t = tels[i];
         if (!t.on || t.mark === telGen) continue;
-        const span = tileSpan(zoom);
-        const dx = t.x * span + camX - hx;
-        const dy = t.y * span + camY - hy;
-        const d = dx * dx + dy * dy;
+        const d = telDist2(t, tileSpan(zoom), camX, camY, hx, hy);
         if (best < 0 || d < bestD) {
           best = i;
           bestD = d;
@@ -1029,10 +1268,7 @@ const FX = (function () {
     let bestD = -1;
     for (let i = 0; i < TEL_N; i++) {
       const t = tels[i];
-      const span = tileSpan(zoom);
-      const dx = t.x * span + lastCamX - hx;
-      const dy = t.y * span + lastCamY - hy;
-      const d = dx * dx + dy * dy;
+      const d = telDist2(t, tileSpan(zoom), lastCamX, lastCamY, hx, hy);
       if (d > bestD) {
         bestD = d;
         best = i;
@@ -1042,7 +1278,7 @@ const FX = (function () {
   }
 
   function telegraphOn(id, x, y, ms, opts) {
-    if (!ok(x) || !ok(y)) return;
+    if (!idOk(id) || !ok(x) || !ok(y)) return;
     let dur = 0.7;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
     const boss = opts && opts.boss ? 1 : 0;
@@ -1074,11 +1310,809 @@ const FX = (function () {
     slot.dur = dur;
     slot.boss = boss;
     slot.rad = rad;
+    slot.line = 0;
+  }
+
+  function telDist2(t, span, camX, camY, hx, hy) {
+    const dx = t.x * span + camX - hx;
+    const dy = t.y * span + camY - hy;
+    let d = dx * dx + dy * dy;
+    if (!t.line) return d;
+    const ex = t.x2 * span + camX - hx;
+    const ey = t.y2 * span + camY - hy;
+    const d2 = ex * ex + ey * ey;
+    return d2 < d ? d2 : d;
+  }
+
+  function telegraphLineOn(id, x, y, toX, toY, ms, opts) {
+    if (!idOk(id) || !ok(x) || !ok(y) || !ok(toX) || !ok(toY)) return;
+    let dur = 0.7;
+    if (ok(ms) && ms > 0) dur = ms * 0.001;
+    const boss = opts && opts.boss ? 1 : 0;
+    let w = 0.5;
+    if (opts && ok(opts.width) && opts.width > 0) w = opts.width;
+    let slot = null;
+    let keep = 0;
+    for (let i = 0; i < TEL_N; i++) {
+      if (tels[i].on && tels[i].id === id) {
+        slot = tels[i];
+        keep = tels[i].line ? 1 : 0;
+        break;
+      }
+    }
+    if (!slot) {
+      for (let i = 0; i < TEL_N; i++) {
+        if (!tels[i].on) {
+          slot = tels[i];
+          break;
+        }
+      }
+    }
+    if (!slot) slot = telFarSlot();
+    slot.on = 1;
+    slot.id = id;
+    slot.x = x;
+    slot.y = y;
+    slot.x2 = toX;
+    slot.y2 = toY;
+    slot.line = 1;
+    slot.w = w;
+    slot.boss = boss;
+    slot.rad = 0;
+    if (!keep) {
+      slot.age = 0;
+      slot.dur = dur;
+    } else if (ok(ms) && ms > 0) {
+      slot.dur = dur;
+    }
   }
 
   function telegraphClear(id) {
     for (let i = 0; i < TEL_N; i++) {
       if (tels[i].on && tels[i].id === id) tels[i].on = 0;
+    }
+  }
+
+  function lootFinite(n) {
+    return ok(n) && n !== Infinity && n !== -Infinity;
+  }
+
+  function lootTone(r) {
+    if (r === 1) return 6;
+    if (r === 2) return 7;
+    if (r === 3) return 8;
+    if (r === 4) return 10;
+    return 0;
+  }
+
+  function lootDur(ms) {
+    let v = 400;
+    if (lootFinite(ms) && ms > 0) v = ms;
+    if (v < 120) v = 120;
+    if (v > 1200) v = 1200;
+    return v * 0.001;
+  }
+
+  function lootCore(r) {
+    if (r === 1) return LOOT_GREEN;
+    if (r === 2) return LOOT_RARE;
+    if (r === 3) return LOOT_EPIC;
+    return LOOT_GOLD;
+  }
+
+  function lootEdgeColor(r) {
+    if (r === 4) return LOOT_GOLD_EDGE;
+    return LOOT_INK;
+  }
+
+  function lootSparks(x, y, r) {
+    const tone = lootTone(r);
+    for (let i = 0; i < 4; i++) {
+      const p = takePart();
+      const a = i * 1.5707963267948966;
+      p.life = 0.12;
+      p.max = 0.12;
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(a) * 3.2;
+      p.vy = Math.sin(a) * 3.2;
+      p.w = 2;
+      p.h = 2;
+      p.tone = (i & 1) ? tone : 0;
+      p.peak = 1;
+      p.art = 1;
+      p.grav = 0;
+      p.screen = 0;
+    }
+  }
+
+  function lootStop(s) {
+    s.on = 0;
+    s.pop = 0;
+    s.wait = 0;
+    s.lit = 0;
+  }
+
+  function lootArriveAt(s, x, y) {
+    const r = s.r;
+    s.popped = 1;
+    lootStop(s);
+    if (reducedNow()) {
+      s.pop = 1;
+      s.x = x;
+      s.y = y;
+      s.r = r;
+      return;
+    }
+    lootSparks(x, y, r);
+  }
+
+  function lootArrive(s) {
+    lootArriveAt(s, s.x, s.y);
+  }
+
+  function lootClear(id, pop) {
+    if (pop) {
+      for (let i = 0; i < LOOT_N; i++) {
+        const s = loots[i];
+        if (s.id !== id) continue;
+        if (s.on && !s.popped) lootArriveAt(s, s.toX, s.toY);
+        return;
+      }
+      return;
+    }
+    for (let i = 0; i < LOOT_N; i++) {
+      if (loots[i].id === id) lootStop(loots[i]);
+    }
+  }
+
+  let lootSlot = null;
+  let lootFresh = 1;
+
+  function lootTake(id, rid) {
+    lootSlot = null;
+    lootFresh = 1;
+    for (let i = 0; i < LOOT_N; i++) {
+      if (loots[i].id === id) {
+        lootSlot = loots[i];
+        lootFresh = loots[i].on ? 0 : 1;
+        return;
+      }
+    }
+    for (let i = 0; i < LOOT_N; i++) {
+      if (!loots[i].on && !loots[i].pop) {
+        lootSlot = loots[i];
+        return;
+      }
+    }
+    let best = -1;
+    let bestR = 99;
+    let bestOrd = 0;
+    for (let i = 0; i < LOOT_N; i++) {
+      const s = loots[i];
+      if (!s.on) continue;
+      if (s.r < bestR || (s.r === bestR && (best < 0 || s.ord < bestOrd))) {
+        best = i;
+        bestR = s.r;
+        bestOrd = s.ord;
+      }
+    }
+    if (best < 0 || bestR > rid) return;
+    lootStop(loots[best]);
+    lootSlot = loots[best];
+    lootFresh = 1;
+  }
+
+  function lootPullOn(id, x, y, toX, toY, ms, rarity) {
+    if (!idOk(id) || !lootFinite(x) || !lootFinite(y) || !lootFinite(toX) || !lootFinite(toY)) return;
+    let known = null;
+    for (let i = 0; i < LOOT_N; i++) {
+      if (loots[i].id === id) {
+        known = loots[i];
+        break;
+      }
+    }
+    let rid = 0;
+    if (known && known.tag === rarity) rid = known.r;
+    else if (lootMissTag === rarity) rid = lootMissR;
+    else {
+      rid = rarityId(rarity);
+      lootMissTag = rarity;
+      lootMissR = rid;
+    }
+    if (!(rid > 0)) {
+      if (known) {
+        known.tag = rarity;
+        known.r = 0;
+        lootStop(known);
+      }
+      return;
+    }
+    if (known && known.tag !== rarity) {
+      known.tag = rarity;
+      known.r = rid;
+    }
+    lootTake(id, rid);
+    if (!lootSlot) return;
+    const slot = lootSlot;
+    const dur = lootDur(ms);
+    const fresh = lootFresh;
+    slot.id = id;
+    slot.tag = rarity;
+    slot.r = rid;
+    slot.nx = x;
+    slot.ny = y;
+    slot.toX = toX;
+    slot.toY = toY;
+    slot.dur = dur;
+    slot.wait = 1;
+    slot.pop = 0;
+    slot.gap = -0;
+    if (fresh) {
+      slot.on = 1;
+      slot.x = x;
+      slot.y = y;
+      slot.ux = -0;
+      slot.uy = -0;
+      slot.age = -0;
+      slot.lit = 0;
+      slot.popped = 0;
+      slot.ord = lootOrd;
+      lootOrd += 1;
+    } else {
+      slot.on = 1;
+    }
+  }
+
+  function lootApply(s) {
+    const dx = s.nx - s.x;
+    const dy = s.ny - s.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 0.0000001) {
+      const inv = 1 / Math.sqrt(d2);
+      s.ux = dx * inv;
+      s.uy = dy * inv;
+      s.x = s.nx;
+      s.y = s.ny;
+    } else if (!(s.ux * s.ux + s.uy * s.uy > 0.25)) {
+      const tx = s.toX - s.x;
+      const ty = s.toY - s.y;
+      const t2 = tx * tx + ty * ty;
+      if (t2 > 0.0000001) {
+        const inv = 1 / Math.sqrt(t2);
+        s.ux = tx * inv;
+        s.uy = ty * inv;
+      }
+    }
+    s.wait = 0;
+    s.lit = 1;
+  }
+
+  function lootPlot(ctx, x, y) {
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  function paintLootRing(ctx, sx, sy, zoom, color) {
+    const z = zoom > 0 ? zoom : 1;
+    let rad = Math.round(3 * z);
+    if (rad < 2) rad = 2;
+    const cx = Math.round(sx);
+    const cy = Math.round(sy);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    let x = 0;
+    let y = rad;
+    let d = 1 - rad;
+    while (x <= y) {
+      lootPlot(ctx, cx + x, cy + y);
+      lootPlot(ctx, cx - x, cy + y);
+      lootPlot(ctx, cx + x, cy - y);
+      lootPlot(ctx, cx - x, cy - y);
+      lootPlot(ctx, cx + y, cy + x);
+      lootPlot(ctx, cx - y, cy + x);
+      lootPlot(ctx, cx + y, cy - x);
+      lootPlot(ctx, cx - y, cy - x);
+      x += 1;
+      if (d < 0) d += 2 * x + 1;
+      else {
+        y -= 1;
+        d += 2 * (x - y) + 1;
+      }
+    }
+  }
+
+  function paintLootMark(ctx, sx, sy, art, zoom, alpha, core, edge) {
+    const z = zoom > 0 ? zoom : 1;
+    let pix = Math.round(art * z);
+    if (pix < 1) pix = 1;
+    const x0 = Math.round(sx) - (pix >> 1);
+    const y0 = Math.round(sy) - (pix >> 1);
+    ctx.globalAlpha = LOOT_EDGE_A;
+    ctx.fillStyle = edge;
+    ctx.fillRect(x0 - 1, y0 - 1, pix + 2, pix + 2);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = core;
+    ctx.fillRect(x0, y0, pix, pix);
+  }
+
+  function paintLoot(ctx, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    for (let i = 0; i < LOOT_N; i++) {
+      const s = loots[i];
+      if (s.pop) {
+        ctx.globalAlpha = 1;
+        paintPixelRing(ctx, s.x * span + camX, s.y * span + camY, 4, zoom, lootCore(s.r), 0);
+        s.pop = 0;
+        continue;
+      }
+      if (!s.on || !s.lit || calm) continue;
+      const core = lootCore(s.r);
+      const edge = lootEdgeColor(s.r);
+      const ux = s.ux;
+      const uy = s.uy;
+      for (let k = 3; k >= 0; k--) {
+        let art = 2;
+        let alpha = LOOT_A3;
+        if (k === 0) {
+          art = 3;
+          alpha = LOOT_A0;
+        } else if (k === 1) {
+          art = 3;
+          alpha = LOOT_A1;
+        } else if (k === 2) {
+          art = 2;
+          alpha = LOOT_A2;
+        }
+        const back = LOOT_GAP * (k + 1);
+        paintLootMark(ctx, (s.x - ux * back) * span + camX, (s.y - uy * back) * span + camY, art, zoom, alpha, core, edge);
+      }
+      paintLootRing(ctx, s.x * span + camX, s.y * span + camY, zoom, core);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function plotArt(ctx, sx, sy, ix, iy, zoom, cell, half) {
+    ctx.fillRect(Math.round(sx + ix * zoom) - half, Math.round(sy + iy * zoom) - half, cell, cell);
+  }
+
+  function artLine(ctx, sx, sy, x0, y0, x1, y1, zoom, cell, half, color) {
+    ctx.fillStyle = color;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const adx = dx < 0 ? -dx : dx;
+    const ady = dy < 0 ? -dy : dy;
+    const steps = adx > ady ? adx : ady;
+    if (!(steps > 0)) {
+      plotArt(ctx, sx, sy, x0, y0, zoom, cell, half);
+      return;
+    }
+    const inv = 1 / steps;
+    for (let i = 0; i <= steps; i++) {
+      const t = i * inv;
+      plotArt(ctx, sx, sy, Math.round(x0 + dx * t), Math.round(y0 + dy * t), zoom, cell, half);
+    }
+  }
+
+  function layHex(rot, r) {
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    for (let i = 0; i < 6; i++) {
+      const bx = hexUx[i] * r;
+      const by = hexUy[i] * r;
+      hexVX[i] = Math.round(bx * c - by * s);
+      hexVY[i] = Math.round(bx * s + by * c);
+    }
+  }
+
+  function shieldSpin() {
+    if (reducedNow()) return 0;
+    return clock * 0.25 * TAU;
+  }
+
+  function clearChevrons(slot) {
+    const base = slot * CH_PER;
+    for (let k = 0; k < CH_PER; k++) chevs[base + k].on = 0;
+  }
+
+  function clearEdges(slot) {
+    const base = slot * CH_PER;
+    for (let k = 0; k < CH_PER; k++) shEdge[base + k] = 0;
+  }
+
+  function shieldFar() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const hx = w * 0.5;
+    const hy = h * 0.5;
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < SH_N; i++) {
+      const s = shields[i];
+      const span = tileSpan(zoom);
+      const dx = s.x * span + lastCamX - hx;
+      const dy = shieldCY(s) * span + lastCamY - hy;
+      const d = dx * dx + dy * dy;
+      if (d > bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  function findShield(id) {
+    for (let i = 0; i < SH_N; i++) {
+      if (shields[i].on && shields[i].id === id) return i;
+    }
+    return -1;
+  }
+
+  const SHIELD_PAD = 0.9;
+  const BODY_RISE_SRC = 16;
+
+  function shieldLiftOf(r, opts) {
+    if (opts && ok(opts.lift)) return opts.lift;
+    const body = r - SHIELD_PAD;
+    if (!(body > 0)) return 0;
+    return body * BODY_RISE_SRC / (SHIELD_PAD * framePx());
+  }
+
+  function shieldCY(s) {
+    return s.y - s.lift;
+  }
+
+  function shieldOn(id, x, y, r, ms, opts) {
+    if (!idOk(id) || !ok(x) || !ok(y) || !(r > 0)) return;
+    let dur = 1;
+    if (ok(ms) && ms > 0) dur = ms * 0.001;
+    let idx = findShield(id);
+    if (idx < 0) {
+      for (let i = 0; i < SH_N; i++) {
+        if (!shields[i].on) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) idx = shieldFar();
+    else if (!shields[idx].on) clearChevrons(idx);
+    if (!shields[idx].on || shields[idx].id !== id) {
+      clearChevrons(idx);
+      clearEdges(idx);
+    }
+    const s = shields[idx];
+    s.on = 1;
+    s.id = id;
+    s.x = x;
+    s.y = y;
+    s.r = r;
+    s.lift = shieldLiftOf(r, opts);
+    s.age = 0;
+    s.dur = dur;
+    clearEdges(idx);
+  }
+
+  function shieldClear(id) {
+    const idx = findShield(id);
+    if (idx < 0) return;
+    shields[idx].on = 0;
+    clearEdges(idx);
+    clearChevrons(idx);
+  }
+
+  function shieldNearest(dx, dy) {
+    let bestD = 1e18;
+    let bestE = 0;
+    let bestX = 0;
+    let bestY = 0;
+    for (let i = 0; i < 6; i++) {
+      const j = i === 5 ? 0 : i + 1;
+      const ax = hexVX[i];
+      const ay = hexVY[i];
+      const abx = hexVX[j] - ax;
+      const aby = hexVY[j] - ay;
+      const ab2 = abx * abx + aby * aby;
+      let t = 0;
+      if (ab2 > 0) t = ((dx - ax) * abx + (dy - ay) * aby) / ab2;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      const qx = ax + abx * t;
+      const qy = ay + aby * t;
+      const ex = dx - qx;
+      const ey = dy - qy;
+      const d = ex * ex + ey * ey;
+      if (d < bestD) {
+        bestD = d;
+        bestE = i;
+        bestX = qx;
+        bestY = qy;
+      }
+    }
+    shQx = bestX;
+    shQy = bestY;
+    return bestE;
+  }
+
+  function shieldHit(id, x, y) {
+    const idx = findShield(id);
+    if (idx < 0 || !ok(x) || !ok(y)) return;
+    const s = shields[idx];
+    const frame = framePx();
+    const cy = shieldCY(s);
+    layHex(shieldSpin(), s.r * frame);
+    const edge = shieldNearest((x - s.x) * frame, (y - cy) * frame);
+    const base = idx * CH_PER;
+    let slot = -1;
+    for (let k = 0; k < CH_PER; k++) {
+      if (!chevs[base + k].on) {
+        slot = base + k;
+        break;
+      }
+    }
+    shEdge[base + edge] = 0.08;
+    if (slot < 0) return;
+    let nx = shQx;
+    let ny = shQy;
+    let len = Math.sqrt(nx * nx + ny * ny);
+    if (!(len > 0.001)) {
+      nx = 1;
+      ny = 0;
+      len = 1;
+    }
+    nx /= len;
+    ny /= len;
+    const ch = chevs[slot];
+    ch.on = 1;
+    ch.age = 0;
+    ch.x = s.x + shQx / frame;
+    ch.y = cy + shQy / frame;
+    ch.nx = nx;
+    ch.ny = ny;
+    ch.px = -ny;
+    ch.py = nx;
+  }
+
+  function takeBreak() {
+    let best = 0;
+    let bestAge = -1;
+    for (let i = 0; i < BR_N; i++) {
+      if (!breaks[i].on) return breaks[i];
+      if (breaks[i].age > bestAge) {
+        bestAge = breaks[i].age;
+        best = i;
+      }
+    }
+    return breaks[best];
+  }
+
+  function shatterShards(x, y, r) {
+    for (let i = 0; i < 12; i++) {
+      const p = takePart();
+      const a = (i / 12) * TAU;
+      p.life = 0.18;
+      p.max = 0.18;
+      p.x = x + Math.cos(a) * r;
+      p.y = y + Math.sin(a) * r;
+      p.vx = Math.cos(a) * 4;
+      p.vy = Math.sin(a) * 4;
+      p.w = 2;
+      p.h = 2;
+      p.tone = (i & 1) ? 0 : shieldTone;
+      p.peak = 1;
+      p.art = 1;
+      p.grav = 0;
+      p.screen = 0;
+    }
+  }
+
+  function shieldBreak(id) {
+    const idx = findShield(id);
+    if (idx < 0) return;
+    const s = shields[idx];
+    const x = s.x;
+    const y = shieldCY(s);
+    const r = s.r;
+    s.on = 0;
+    clearEdges(idx);
+    clearChevrons(idx);
+    const calm = reducedNow();
+    if (!calm) shatterShards(x, y, r);
+    const b = takeBreak();
+    b.on = 1;
+    b.x = x;
+    b.y = y;
+    b.r = r;
+    b.age = 0;
+    b.flash = 0;
+    if (!calm && deathWindowOpen()) {
+      commitDeathWindow();
+      b.flash = 1;
+    }
+  }
+
+  function spawnFar() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const hx = w * 0.5;
+    const hy = h * 0.5;
+    let best = 0;
+    let bestD = -1;
+    for (let i = 0; i < SP_N; i++) {
+      const s = spawns[i];
+      const span = tileSpan(zoom);
+      const dx = s.x * span + lastCamX - hx;
+      const dy = s.y * span + lastCamY - hy;
+      const d = dx * dx + dy * dy;
+      if (d > bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return spawns[best];
+  }
+
+  function spawnOn(x, y) {
+    if (!ok(x) || !ok(y)) return;
+    let slot = null;
+    for (let i = 0; i < SP_N; i++) {
+      if (!spawns[i].on) {
+        slot = spawns[i];
+        break;
+      }
+    }
+    if (!slot) slot = spawnFar();
+    slot.on = 1;
+    slot.x = x;
+    slot.y = y;
+    slot.age = 0;
+  }
+
+  function paintChevron(ctx, ch, zoom, camX, camY, cell, half) {
+    const u = ch.age / 0.16;
+    let fade = 1 - u;
+    if (fade < 0) fade = 0;
+    if (fade <= 0.02) return;
+    const dist = u * 4;
+    const span = tileSpan(zoom);
+    const sx = ch.x * span + camX + ch.nx * dist * zoom;
+    const sy = ch.y * span + camY + ch.ny * dist * zoom;
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#ffffff';
+    plotArt(ctx, sx, sy, Math.round(ch.nx), Math.round(ch.ny), zoom, cell, half);
+    plotArt(ctx, sx, sy, Math.round(-ch.nx + ch.px), Math.round(-ch.ny + ch.py), zoom, cell, half);
+    plotArt(ctx, sx, sy, Math.round(-ch.nx - ch.px), Math.round(-ch.ny - ch.py), zoom, cell, half);
+  }
+
+  function paintShield(ctx, s, idx, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    const sx = s.x * span + camX;
+    const sy = shieldCY(s) * span + camY;
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    const radArt = s.r * framePx();
+    layHex(shieldSpin(), radArt);
+    ctx.globalAlpha = 1;
+    const base = idx * CH_PER;
+    for (let i = 0; i < 6; i++) {
+      const j = i === 5 ? 0 : i + 1;
+      const color = shEdge[base + i] > 0 ? '#ffffff' : '#9fb4c8';
+      artLine(ctx, sx, sy, hexVX[i], hexVY[i], hexVX[j], hexVY[j], zoom, cell, half, color);
+    }
+    const inner = Math.round(radArt - 2);
+    if (inner >= 2) {
+      ctx.globalAlpha = 0.35;
+      paintPixelRing(ctx, sx, sy, inner, zoom, '#9fb4c8', 0);
+      ctx.globalAlpha = 1;
+    }
+    if (!calm) {
+      let turns = clock;
+      let u = turns - Math.floor(turns);
+      if (u < 0) u += 1;
+      const along = u * 6;
+      let e = along | 0;
+      if (e < 0) e = 0;
+      if (e > 5) e = 5;
+      const t = along - e;
+      const j = e === 5 ? 0 : e + 1;
+      const gx = hexVX[e] + (hexVX[j] - hexVX[e]) * t;
+      const gy = hexVY[e] + (hexVY[j] - hexVY[e]) * t;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      plotArt(ctx, sx, sy, Math.round(gx), Math.round(gy), zoom, cell, half);
+    }
+    for (let k = 0; k < CH_PER; k++) {
+      const ch = chevs[base + k];
+      if (ch.on) paintChevron(ctx, ch, zoom, camX, camY, cell, half);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function paintShields(ctx, zoom, camX, camY, calm) {
+    for (let i = 0; i < SH_N; i++) {
+      if (shields[i].on) paintShield(ctx, shields[i], i, zoom, camX, camY, calm);
+    }
+    for (let i = 0; i < BR_N; i++) {
+      const b = breaks[i];
+      if (!b.on) continue;
+      const span = tileSpan(zoom);
+      const sx = b.x * span + camX;
+      const sy = b.y * span + camY;
+      let u = b.age / 0.18;
+      if (u < 0) u = 0;
+      if (u > 1) u = 1;
+      const radArt = b.r * framePx();
+      const rad = Math.round(radArt + 8 * u);
+      ctx.globalAlpha = 1;
+      if (rad >= 1) paintPixelRing(ctx, sx, sy, rad, zoom, '#9fb4c8', 0);
+      if (b.flash && b.age < 0.012) {
+        const cell = telCell(zoom);
+        const half = cell >> 1;
+        layHex(shieldSpin(), radArt);
+        ctx.globalAlpha = 0.6;
+        for (let e = 0; e < 6; e++) {
+          const j = e === 5 ? 0 : e + 1;
+          artLine(ctx, sx, sy, hexVX[e], hexVY[e], hexVX[j], hexVY[j], zoom, cell, half, '#ffffff');
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  function paintSpawnOne(ctx, s, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    const sx = s.x * span + camX;
+    const sy = s.y * span + camY;
+    ctx.globalAlpha = 1;
+    if (calm) {
+      paintPixelRing(ctx, sx, sy, 6, zoom, '#26252b', 0);
+      return;
+    }
+    let u = s.age / (SPAWN_MS * 0.001);
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const rad = 3 + 6 * u;
+    const ri = Math.round(rad);
+    if (ri >= 1) paintPixelRing(ctx, sx, sy, ri, zoom, '#26252b', 0);
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    ctx.fillStyle = '#141318';
+    for (let k = 0; k < 4; k++) {
+      const a = k * 1.5707963267948966;
+      plotArt(ctx, sx, sy, Math.round(Math.cos(a) * rad), Math.round(Math.sin(a) * rad), zoom, cell, half);
+    }
+  }
+
+  function paintSpawns(ctx, zoom, camX, camY, viewW, viewH, calm) {
+    spGen += 1;
+    if (spGen > 1000000000) {
+      spGen = 1;
+      for (let i = 0; i < SP_N; i++) spawns[i].mark = 0;
+    }
+    let active = 0;
+    for (let i = 0; i < SP_N; i++) if (spawns[i].on) active += 1;
+    const limit = active > SP_DRAW ? SP_DRAW : active;
+    const hx = viewW * 0.5;
+    const hy = viewH * 0.5;
+    for (let n = 0; n < limit; n++) {
+      let best = -1;
+      let bestD = 0;
+      for (let i = 0; i < SP_N; i++) {
+        const s = spawns[i];
+        if (!s.on || s.mark === spGen) continue;
+        const span = tileSpan(zoom);
+        const dx = s.x * span + camX - hx;
+        const dy = s.y * span + camY - hy;
+        const d = dx * dx + dy * dy;
+        if (best < 0 || d < bestD) {
+          best = i;
+          bestD = d;
+        }
+      }
+      if (best < 0) break;
+      spawns[best].mark = spGen;
+      paintSpawnOne(ctx, spawns[best], zoom, camX, camY, calm);
     }
   }
 
@@ -1152,6 +2186,61 @@ const FX = (function () {
       if (!t.on) continue;
       t.age += dt;
       if (t.age >= t.dur) t.on = 0;
+    }
+    for (let i = 0; i < SH_N; i++) {
+      const s = shields[i];
+      if (!s.on) continue;
+      s.age += dt;
+      const base = i * CH_PER;
+      for (let k = 0; k < CH_PER; k++) {
+        if (shEdge[base + k] > 0) {
+          shEdge[base + k] -= dt;
+          if (shEdge[base + k] < 0) shEdge[base + k] = 0;
+        }
+      }
+      if (s.age >= s.dur) {
+        s.on = 0;
+        clearEdges(i);
+        clearChevrons(i);
+      }
+    }
+    for (let i = 0; i < CH_N; i++) {
+      const c = chevs[i];
+      if (!c.on) continue;
+      c.age += dt;
+      if (c.age >= 0.16) c.on = 0;
+    }
+    for (let i = 0; i < SP_N; i++) {
+      const s = spawns[i];
+      if (!s.on) continue;
+      s.age += dt;
+      if (s.age >= SPAWN_MS * 0.001) s.on = 0;
+    }
+    for (let i = 0; i < BR_N; i++) {
+      const b = breaks[i];
+      if (!b.on) continue;
+      b.age += dt;
+      if (b.age >= 0.18) b.on = 0;
+    }
+    for (let i = 0; i < LOOT_N; i++) {
+      const s = loots[i];
+      if (!s.on) continue;
+      s.age += dt;
+      if (s.dur > 0) {
+        while (s.age >= s.dur) s.age -= s.dur;
+      }
+      s.gap += dt;
+      if (s.wait) lootApply(s);
+      const dx = s.toX - s.x;
+      const dy = s.toY - s.y;
+      if (dx * dx + dy * dy <= LOOT_ARRIVE2) {
+        lootArrive(s);
+        continue;
+      }
+      if (s.gap > LOOT_STALE) {
+        lootStop(s);
+        fxStats.lootStale += 1;
+      }
     }
   }
 
@@ -1589,6 +2678,9 @@ const FX = (function () {
     if (!skipBeams) paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintTels(ctx, zoom, camX, camY, viewW, viewH, calm);
+    paintSpawns(ctx, zoom, camX, camY, viewW, viewH, calm);
+    paintShields(ctx, zoom, camX, camY, calm);
+    paintLoot(ctx, zoom, camX, camY, calm);
 
     if (flashLeft > 0) {
       let a = 0.6 * (flashLeft / FLASH_LIFE);
@@ -1737,6 +2829,15 @@ const FX = (function () {
       for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
       for (let i = 0; i < TEL_N; i++) tels[i].on = 0;
+      for (let i = 0; i < SH_N; i++) {
+        shields[i].on = 0;
+        clearEdges(i);
+        clearChevrons(i);
+      }
+      for (let i = 0; i < SP_N; i++) spawns[i].on = 0;
+      for (let i = 0; i < BR_N; i++) breaks[i].on = 0;
+      for (let i = 0; i < LOOT_N; i++) lootStop(loots[i]);
+      fxStats.lootStale = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
@@ -1828,6 +2929,38 @@ const FX = (function () {
       telegraphClear(id);
     },
 
+    telegraphLine: function (id, x, y, toX, toY, ms, opts) {
+      telegraphLineOn(id, x, y, toX, toY, ms, opts);
+    },
+
+    lootPull: function (id, x, y, toX, toY, ms, rarity) {
+      lootPullOn(id, x, y, toX, toY, ms, rarity);
+    },
+
+    lootPullOff: function (id, pop) {
+      lootClear(id, pop);
+    },
+
+    shield: function (id, x, y, r, ms, opts) {
+      shieldOn(id, x, y, r, ms, opts);
+    },
+
+    shieldOff: function (id) {
+      shieldClear(id);
+    },
+
+    shieldHit: function (id, x, y) {
+      shieldHit(id, x, y);
+    },
+
+    shieldBreak: function (id) {
+      shieldBreak(id);
+    },
+
+    spawn: function (x, y) {
+      spawnOn(x, y);
+    },
+
     shakeOffset: function () {
       return readShake();
     },
@@ -1842,6 +2975,7 @@ const FX = (function () {
       return sweepOut;
     },
 
+    _stats: fxStats,
     LEVELUP_RADIUS: LEVELUP_RADIUS,
     EVOLVE_SWEEP_MS: EVOLVE_SWEEP_MS,
   };
