@@ -400,6 +400,59 @@ FX.update(0.016);
 console.log('particle peak one-frame burst', FX._peak());
 check('burst particle peak <= 200', FX._peak() <= 200);
 
+function tallOf(color, minH) {
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] === 'fill' && c[1] === color && c[6] >= minH) n += 1;
+  }
+  return n;
+}
+
+FX.reset();
+FX.beam('leg-case', 0, 0, 'Legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('Legendary gives r=4 and draws the double gold beam', tallOf('#ffb43c', 280) === 2 && tallOf('#ffd27a', 280) === 2);
+
+FX.reset();
+FX.beam('rare-case', 0, 0, 'RARE');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('RARE gives r=2', tallOf('#4c7cff', 140) === 1 && tallOf('#ffb43c', 200) === 0);
+
+FX.reset();
+FX.beam('vr-case', 0, 0, 'Very Rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('Very Rare gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1 && tallOf('#ffb43c', 200) === 0);
+
+FX.reset();
+FX.beam('pad-epic', 0, 0, ' Epic ');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('padded Epic gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1);
+
+FX.reset();
+FX.beam('us-rare', 0, 0, 'very_rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('very_rare gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1);
+
+FX.reset();
+let rarityThrew = false;
+try {
+  FX.beam('bad1', 0, 0, 'bogus');
+  FX.beam('bad2', 1, 0, null);
+  FX.beam('bad3', 2, 0, 42);
+  FX.beam('bad4', 3, 0, undefined);
+} catch (e) {
+  rarityThrew = true;
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+check('bogus, null and 42 give r=0 with no throw', !rarityThrew && tallOf('#4c7cff', 20) === 0 && tallOf('#b48cff', 20) === 0 && tallOf('#ffb43c', 20) === 0 && tallOf('#5ed37a', 20) === 0);
+
 if (fails.length) {
   console.error('FAILED', fails.join(', '));
   process.exit(1);
