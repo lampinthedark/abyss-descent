@@ -223,7 +223,7 @@
     window.shotCaster = function () {
       boot();
       props.push({ kind: 'foe', x: 0.15, y: -0.45, color: '#8a6cff' });
-      FX.telegraph('caster', 0.15 * 16, -0.45 * 16 - 10, 700);
+      FX.telegraph('caster', 0.15, -0.45, 700);
       age(0.35);
       draw();
     };
@@ -231,7 +231,7 @@
     window.shotBossTel = function () {
       boot();
       props.push({ kind: 'foe', x: 0.1, y: -0.35, color: '#7b4fd4' });
-      FX.telegraph('boss', 0.1 * 16, -0.35 * 16 - 16, 550, { boss: true });
+      FX.telegraph('boss', 0.1, -0.35, 550, { boss: true });
       age(0.28);
       draw();
     };
@@ -245,7 +245,7 @@
         var ty = Math.sin(ang) * rad * 0.7;
         var boss = i % 7 === 0;
         props.push({ kind: 'foe', x: tx, y: ty, color: boss ? '#7b4fd4' : '#8a6cff' });
-        FX.telegraph('crowd' + i, tx * 16, ty * 16 - 8, boss ? 550 : 700, boss ? { boss: true } : null);
+        FX.telegraph('crowd' + i, tx, ty, boss ? 550 : 700, boss ? { boss: true } : null);
       }
       age(0.3);
       draw();
@@ -255,7 +255,7 @@
       boot();
       draw();
       for (var i = 0; i < 40; i++) {
-        FX.telegraph(i, (i - 20) * 28, ((i % 8) - 4) * 22, 8000, i % 9 === 0 ? { boss: true } : null);
+        FX.telegraph(i, (i - 20) * 1.75, ((i % 8) - 4) * 1.375, 8000, i % 9 === 0 ? { boss: true } : null);
       }
       for (var m = 0; m < 150; m++) {
         FX.kill((m % 15) * 0.4 - 3, ((m / 15) | 0) * 0.35 - 1.2, 'skel', { frame: FRAME, color: '#8a6cff' });

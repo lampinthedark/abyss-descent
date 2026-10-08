@@ -518,7 +518,7 @@ calls.length = 0;
 FX.draw(ctx, cam);
 check('restart still paints beams', tallOf('#4c7cff', 140) === 1);
 
-// Cast telegraphs. x,y are art-pixel world coordinates.
+// Cast telegraphs. x,y are tile coordinates, same as FX.kill.
 function telColors() {
   let white = 0;
   let lilac = 0;
@@ -647,11 +647,45 @@ check('boss ring starts near 18 art px', bossR > 17 && bossR < 19);
 check('boss uses 14 sparks', telColors().n === 14);
 check('boss sparks are 2 art px', calls.some(function (c) { return c[0] === 'fill' && c[5] === 6 && c[6] === 6; }));
 
+function fillCentroid(match) {
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill' || !match(c)) continue;
+    sx += c[3] + c[5] * 0.5;
+    sy += c[4] + c[6] * 0.5;
+    n += 1;
+  }
+  return n ? { x: sx / n, y: sy / n, n: n } : { x: 0, y: 0, n: 0 };
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph('sized', 0, 0, 700, { radius: 1 });
+calls.length = 0;
+FX.draw(ctx, cam);
+check('opts.radius is a tile radius', meanArtRadius() > 15 && meanArtRadius() < 17);
+
+const caster = { id: 7, x: 2.5, y: -0.15 };
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+FX.telegraph(caster.id, caster.x, caster.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const telAt = fillCentroid(function (c) { return c[1] === '#ffffff' || c[1] === '#c9a8ff'; });
+const casterX = caster.x * 16 * cam.zoom + cam.x;
+const casterY = caster.y * 16 * cam.zoom + cam.y;
+check('telegraph centre matches the caster', telAt.n > 0 && Math.abs(telAt.x - casterX) <= 1 && Math.abs(telAt.y - casterY) <= 1);
+
 FX.reset();
 FX.setReducedMotion(false);
 calls.length = 0;
 FX.draw(ctx, cam);
-for (let i = 0; i < 40; i++) FX.telegraph('c' + i, (i - 20) * 80, 0, 700);
+for (let i = 0; i < 40; i++) FX.telegraph('c' + i, (i - 20) * 5, 0, 700);
 calls.length = 0;
 FX.draw(ctx, cam);
 const cap = telColors();
@@ -664,7 +698,7 @@ function monsterFlash(withTel) {
   FX.setReducedMotion(false);
   FX.draw(ctx, cam);
   if (withTel) {
-    for (let i = 0; i < 40; i++) FX.telegraph(i, (i - 20) * 30, (i % 5) * 12, 700, i % 11 === 0 ? { boss: true } : null);
+    for (let i = 0; i < 40; i++) FX.telegraph(i, (i - 20) * 1.875, (i % 5) * 0.75, 700, i % 11 === 0 ? { boss: true } : null);
   }
   FX._seed();
   for (let i = 0; i < 150; i++) FX.kill((i % 15) * 0.45, ((i / 15) | 0) * 0.4, 'skel', vis);
@@ -708,7 +742,7 @@ if (typeof global.gc === 'function') {
   FX.reset();
   FX.setReducedMotion(false);
   FX.draw(quiet, cam);
-  for (let i = 0; i < 32; i++) FX.telegraph(i, (i - 16) * 24, (i % 6) * 16, 8000, i === 3 ? { boss: true } : null);
+  for (let i = 0; i < 32; i++) FX.telegraph(i, (i - 16) * 1.5, (i % 6), 8000, i === 3 ? { boss: true } : null);
   for (let i = 0; i < 150; i++) FX.kill((i % 12) * 0.4, ((i / 12) | 0) * 0.35, 'skel', vis);
   for (let i = 0; i < 160; i++) {
     FX.update(0.016);

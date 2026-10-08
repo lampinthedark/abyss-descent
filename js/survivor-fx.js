@@ -20,9 +20,12 @@
  * front edge in art px, or -1 when no sweep is running.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
- * FX.telegraph(id, x, y, ms, opts) warns at a cast point. x and y are art-pixel
- * world coordinates (tile position times 16), not tiles. It uses its own 32-slot
- * table, never the particle pool, and never a white flash. opts.boss enlarges it.
+ * FX.telegraph(id, x, y, ms, opts) warns at a cast point. x and y are tile
+ * coordinates, the same units as FX.beam, FX.kill, and FX.pickup. Screen position
+ * is x * framePx * zoom + cam, matching those calls. Spark size and the default
+ * ring stay in art px. A numeric opts.radius, opts.r, or opts.size is a radius
+ * in tiles. It uses its own 32-slot table, never the particle pool, and never a
+ * white flash. opts.boss enlarges the default ring.
  */
 const FX = (function () {
   'use strict';
@@ -150,11 +153,12 @@ const FX = (function () {
 
   const tels = new Array(TEL_N);
   for (let i = 0; i < TEL_N; i++) {
-    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, mark: 0 };
+    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0 };
     t.x = 0;
     t.y = 0;
     t.age = 0;
     t.dur = 0.7;
+    t.rad = 0;
   }
   let telGen = 0;
 
@@ -948,9 +952,15 @@ const FX = (function () {
     }
   }
 
+  function tileSpan(zoom) {
+    const z = zoom > 0 ? zoom : 1;
+    return framePx() * z;
+  }
+
   function paintTelegraph(ctx, t, zoom, camX, camY, calm) {
-    const sx = t.x * zoom + camX;
-    const sy = t.y * zoom + camY;
+    const span = tileSpan(zoom);
+    const sx = t.x * span + camX;
+    const sy = t.y * span + camY;
     ctx.globalAlpha = 1;
     if (calm) {
       paintPixelRing(ctx, sx, sy, t.boss ? 7 : 4, zoom, '#c9a8ff', 1);
@@ -960,7 +970,8 @@ const FX = (function () {
     if (u < 0) u = 0;
     if (u > 1) u = 1;
     const eased = u * u;
-    const r0 = t.boss ? 18 : 10;
+    let r0 = t.boss ? 18 : 10;
+    if (t.rad > 0) r0 = t.rad * framePx();
     const rad = r0 + (2 - r0) * eased;
     const n = t.boss ? 14 : 8;
     const cell = telCell(zoom);
@@ -993,8 +1004,9 @@ const FX = (function () {
       for (let i = 0; i < TEL_N; i++) {
         const t = tels[i];
         if (!t.on || t.mark === telGen) continue;
-        const dx = t.x * zoom + camX - hx;
-        const dy = t.y * zoom + camY - hy;
+        const span = tileSpan(zoom);
+        const dx = t.x * span + camX - hx;
+        const dy = t.y * span + camY - hy;
         const d = dx * dx + dy * dy;
         if (best < 0 || d < bestD) {
           best = i;
@@ -1017,8 +1029,9 @@ const FX = (function () {
     let bestD = -1;
     for (let i = 0; i < TEL_N; i++) {
       const t = tels[i];
-      const dx = t.x * zoom + lastCamX - hx;
-      const dy = t.y * zoom + lastCamY - hy;
+      const span = tileSpan(zoom);
+      const dx = t.x * span + lastCamX - hx;
+      const dy = t.y * span + lastCamY - hy;
       const d = dx * dx + dy * dy;
       if (d > bestD) {
         bestD = d;
@@ -1033,6 +1046,10 @@ const FX = (function () {
     let dur = 0.7;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
     const boss = opts && opts.boss ? 1 : 0;
+    let rad = 0;
+    if (opts && opts.radius > 0) rad = opts.radius;
+    else if (opts && opts.r > 0) rad = opts.r;
+    else if (opts && opts.size > 0) rad = opts.size;
     let slot = null;
     for (let i = 0; i < TEL_N; i++) {
       if (tels[i].on && tels[i].id === id) {
@@ -1056,6 +1073,7 @@ const FX = (function () {
     slot.age = 0;
     slot.dur = dur;
     slot.boss = boss;
+    slot.rad = rad;
   }
 
   function telegraphClear(id) {
