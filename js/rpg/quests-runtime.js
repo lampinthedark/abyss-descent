@@ -7,12 +7,52 @@
  *          plus area 'enter' steps (e.g. goblin_field) detected from the hero's position.
  * Bus out: questAccept {questId}, questStep {questId, step}, questDone {questId}.
  * UI: RPG.ui.dialog for offer / progress / hand-in / rumour, RPG.ui.tracker(text, {x,y}) for the next step.
+ * Kill steps: the arrow points at the nearest live monster of the step's target (hero distance), refreshed
+ * every 0.25 s; with none alive (or no world entity API) it falls back to the step's arrowTo marker.
  * Installing RPG.quests switches off core's stand-in quest and tracker.
  */
 (function (root) {
   'use strict';
   var SQ = root.RPGSQ = root.RPGSQ || {};
   SQ.TRACKER_REFRESH_S = 0.5;
+  SQ.KILL_ARROW_REFRESH_S = 0.25;   // kill steps: the target moves, so re-aim the arrow more often
+
+  /** Monster id of a world entity: monsterId, else an object def/spec id. */
+  SQ.mobIdOf = function (e) {
+    if (!e) return null;
+    if (e.monsterId) return e.monsterId;
+    if (e.def && typeof e.def === 'object' && e.def.id) return e.def.id;
+    if (e.spec && typeof e.spec === 'object' && e.spec.id) return e.spec.id;
+    return null;
+  };
+  /** Alive: not flagged dead / corpse / alive:false, and hp (if numeric) above 0. */
+  SQ.mobAlive = function (e) {
+    return !!e && !e.dead && e.alive !== false && !e.corpse && e.state !== 'dead' && !(typeof e.hp === 'number' && e.hp <= 0);
+  };
+  /** World entities, via entities() / forEach / near(), whichever core has. Never throws. */
+  SQ.worldEntities = function (RPG) {
+    var W = RPG && RPG.world, h = (RPG && RPG.hero) || { x: 0, y: 0 }, out = [];
+    if (!W) return out;
+    try {
+      if (typeof W.entities === 'function') return W.entities() || out;
+      if (typeof W.forEach === 'function') { W.forEach(function (e) { out.push(e); }); return out; }
+      if (typeof W.near === 'function') return W.near(h.x, h.y, 999, 'mob') || out;
+    } catch (err) { /* fall back to the marker */ }
+    return out;
+  };
+  /** Nearest live mob whose id is monsterId, measured from the hero; null if none. */
+  SQ.nearestMob = function (RPG, monsterId) {
+    if (!monsterId) return null;
+    var h = (RPG && RPG.hero) || { x: 0, y: 0 }, list = SQ.worldEntities(RPG), best = null, bd = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (!e || (e.kind && e.kind !== 'mob') || SQ.mobIdOf(e) !== monsterId || !SQ.mobAlive(e)) continue;
+      if (typeof e.x !== 'number' || typeof e.y !== 'number') continue;
+      var d = Math.hypot(e.x - h.x, e.y - h.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best;
+  };
 
   SQ.questsReducer = function (s, a) {
     s = s || { active: null, done: {} };
@@ -165,8 +205,19 @@
       if (rum) return { text: 'Explore the Ash Stair', arrowTo: rum.arrowTo };
       return { text: '', arrowTo: null };
     }
+    /** Arrow point for the tracker: kill steps aim at the nearest live target, else the arrowTo marker. */
+    function arrowPoint(c) {
+      c = c || current();
+      var st = state().active ? step() : null;
+      if (st && st.done && st.done.type === 'kill') {
+        var m = SQ.nearestMob(RPG, st.done.target);
+        if (m) return { x: m.x, y: m.y };
+      }
+      return c.arrowTo ? S.resolvePoint(c.arrowTo) : null;
+    }
+    function isKillStep() { var st = state().active ? step() : null; return !!(st && st.done && st.done.type === 'kill'); }
     function refresh() {
-      var c = current(), p = c.arrowTo ? S.resolvePoint(c.arrowTo) : null;
+      var c = current(), p = arrowPoint(c);
       var key = c.text + '|' + (p ? p.x.toFixed(1) + ',' + p.y.toFixed(1) : '-');
       if (key === lastTracker) return c;
       lastTracker = key;
@@ -215,7 +266,7 @@
       equipT -= dt;
       if (equipT <= 0) { equipT = 0.25; autoCheck(); } // equip steps need no bus event: poll what's worn
       refreshT -= dt;
-      if (refreshT <= 0) { refreshT = SQ.TRACKER_REFRESH_S; refresh(); }
+      if (refreshT <= 0) { refreshT = isKillStep() ? SQ.KILL_ARROW_REFRESH_S : SQ.TRACKER_REFRESH_S; refresh(); }
     }
 
     if (RPG.bus) {
@@ -233,7 +284,7 @@
     }
     RPG.registerSystem({ id: 'sq-quests', update: update, draw: function () {} });
 
-    RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh,
+    RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh, arrowPoint: function () { return arrowPoint(); },
       marker: marker, wantRecipe: wantRecipe, wantEquip: wantEquip, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
     refresh();
     return RPG.quests;

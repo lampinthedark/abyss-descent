@@ -234,6 +234,49 @@ async function playQ1(seed) {
     w.Inventory.grant({ src: 'quest', ref: 't', items: [{ base: 'rustbound_pickaxe', qty: 1 }] });
     const r = w.Crafting.gather('node_ore_cinderiron'); ok(r.reason !== 'level_too_low', JSON.stringify(r));
   });
+  // Kill-step arrow: nearest live target from the hero, else the step's arrowTo marker.
+  function atStep(s, questId, stepIdx) {
+    s.RPG.store.dispatch({ type: 'quests/progress', progress: { questId, step: stepIdx, n: 0 } });
+    s.tick(0.6);
+  }
+  function lastArrow(s) { const t = s.log.tracker[s.log.tracker.length - 1]; return t && t.p; }
+  function addMob(s, monsterId, x, y, extra) { const e = Object.assign({ kind: 'mob', monsterId, x, y, hp: 22 }, extra || {}); s.RPG.world.addEntity(e); return e; }
+  test('kill step: arrow points at the nearest alive goblin (dead, hp 0 and rats skipped)', () => {
+    const s = makeCore(21), { RPG } = s; RPG.hero.x = 8; RPG.hero.y = 31;
+    addMob(s, 'goblin', 8, 31.4, { dead: true, hp: 0 });         // corpse right next to the hero
+    addMob(s, 'goblin', 8.5, 31.2, { hp: 0 });                    // hp 0, no dead flag
+    addMob(s, 'rat', 8.2, 31.1);                                  // nearest mob, wrong id
+    const far = addMob(s, 'goblin', 4.5, 30.5), near = addMob(s, 'goblin', 9.5, 32.5);
+    atStep(s, 'q2_field', 3);
+    eq(RPG.quests.current().text, 'Defeat goblins (0/4)');
+    const p = RPG.quests.arrowPoint(); eq(p.x, near.x); eq(p.y, near.y);
+    const t = lastArrow(s); eq(t.x, near.x, 'tracker arrow x'); eq(t.y, near.y, 'tracker arrow y');
+    near.x = 20; near.y = 37; s.tick(0.3);                        // goblin wanders off: re-aimed within 0.25 s
+    eq(lastArrow(s).x, far.x, 're-aimed at the other goblin'); eq(lastArrow(s).y, far.y);
+  });
+  test('kill step: no live goblin (or no world API) falls back to the goblin_field marker', () => {
+    const s = makeCore(22), { RPG } = s, z = C.ZONES.goblin_field.anchor;
+    const g = addMob(s, 'goblin', 6, 31, { dead: true }); addMob(s, 'goblin', 7, 31, { alive: false }); addMob(s, 'rat', 8, 33);
+    atStep(s, 'q2_field', 3);
+    eq(RPG.quests.arrowPoint().x, z.x); eq(RPG.quests.arrowPoint().y, z.y); eq(lastArrow(s).x, z.x); eq(lastArrow(s).y, z.y);
+    g.dead = false; s.tick(0.3); eq(lastArrow(s).x, 6, 'respawned goblin picked up'); eq(lastArrow(s).y, 31);
+    eq(SQ.nearestMob({ hero: { x: 0, y: 0 }, world: {} }, 'goblin'), null, 'world without entity API');
+    eq(SQ.nearestMob({ hero: { x: 0, y: 0 } }, 'goblin'), null, 'no world');
+    eq(SQ.nearestMob({ world: { entities() { throw new Error('x'); } } }, 'goblin'), null, 'entities() throws');
+    const viaEntities = SQ.nearestMob({ hero: { x: 0, y: 0 }, world: { entities: () => [{ kind: 'mob', def: { id: 'goblin' }, x: 3, y: 4 }, { kind: 'mob', monsterId: 'goblin', x: 1, y: 1, state: 'dead' }] } }, 'goblin');
+    eq(viaEntities && viaEntities.x, 3, 'entities() + def id; state dead skipped');
+  });
+  test('non-kill steps keep their arrowTo marker even with goblins about', () => {
+    const s = makeCore(23), { RPG } = s; RPG.hero.x = 8; RPG.hero.y = 31;
+    addMob(s, 'goblin', 9, 31);
+    atStep(s, 'q2_field', 2);
+    const z = C.ZONES.goblin_field.anchor; eq(RPG.quests.current().text, 'Head to the Goblin Field');
+    eq(RPG.quests.arrowPoint().x, z.x); eq(RPG.quests.arrowPoint().y, z.y);
+    atStep(s, 'q2_field', 1);
+    const r = RPG.skills.pointFor('prop_range_0'); eq(RPG.quests.arrowPoint().x, r.x); eq(lastArrow(s).y, r.y);
+    atStep(s, 'q1_blade', 4);
+    const q = RPG.quests.arrowPoint(); eq(q.x, C.TOWN_POINTS.questgiver.x); eq(q.y, C.TOWN_POINTS.questgiver.y);
+  });
   test('markers use RPG.camera.toScreen when core has it', () => {
     const prev = globalThis.RPG; globalThis.RPG = { camera: { toScreen: (x, y) => ({ x: x * 10, y: y * 10 }) } };
     const p = SQ.toScreen({}, 2, 3); globalThis.RPG = prev; eq(p.x, 20); eq(p.y, 30);
