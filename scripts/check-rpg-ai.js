@@ -393,6 +393,114 @@ sheetSkel.takeHit(9999, {});
 boxedRat.takeHit(9999, {});
 RPG.sheet = null;
 
+// attack.anim wins over the derived suffix. jab/claw become _attack. mob_boss is mob_ashmaw.
+RPG.content = {
+  monsters: {
+    brute: {
+      attacks: {
+        melee: { anim: 'jab' },
+        slam: { anim: 'mob_brute_slam' },
+        charge: { anim: 'charge' },
+      },
+    },
+    ashmaw: {
+      sprite: 'mob_boss',
+      attacks: {
+        melee: { anim: 'claw' },
+        slam: { anim: 'mob_boss_slam' },
+        charge: { anim: 'mob_boss_claw' },
+      },
+    },
+  },
+};
+assert(RPG.ai.attacks.animKeyFor('brute', 'melee') === 'mob_brute_attack', 'jab anim maps to mob_brute_attack');
+assert(RPG.ai.attacks.animKeyFor('brute', 'slam') === 'mob_brute_slam', 'full slam anim key is kept');
+assert(RPG.ai.attacks.animKeyFor('brute', 'charge') === 'mob_brute_charge', 'charge anim suffix maps to _charge');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'melee') === 'mob_ashmaw_attack', 'claw anim maps to mob_ashmaw_attack');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'slam') === 'mob_ashmaw_slam', 'mob_boss slam key rewrites to mob_ashmaw');
+assert(RPG.ai.attacks.animKeyFor('ashmaw', 'charge') === 'mob_ashmaw_attack', 'mob_boss claw key rewrites off mob_boss');
+RPG.content.monsters.brute.attacks.melee.anim = 'poke';
+resetHero(0, 0);
+const [animBrute] = RPG.ai.spawnPack('brute', 20, 70, 1, 12);
+hero.x = animBrute.x + 0.2;
+hero.y = animBrute.y;
+RPG.ai.tick(0.016);
+assert(animBrute.state === 'windup' && animBrute.animKey === 'mob_brute_poke', 'live swing uses attack.anim, got ' + animBrute.animKey);
+animBrute.takeHit(99999, {});
+const [namedMaw] = RPG.ai.spawnPack('ashmaw', 24, 70, 1, 12);
+assert(namedMaw.sprite === 'mob_ashmaw', 'ashmaw sprite stays mob_ashmaw when content says mob_boss');
+assert(namedMaw.sheet.attack === 'mob_ashmaw_attack' && namedMaw.sheet.slam === 'mob_ashmaw_slam', 'ashmaw sheet keys drop mob_boss');
+assert(JSON.stringify(namedMaw.sheet).indexOf('mob_boss') === -1, 'no mob_boss key on the ashmaw sheet');
+namedMaw.takeHit(99999, {});
+RPG.content = null;
+
+// Optional hurt/death/throw clips live on mobs2. Missing clips fall back to idle.
+const [plainRat] = RPG.ai.spawnPack('rat', 0, 80, 1, 4);
+const [plainGob] = RPG.ai.spawnPack('goblin', 3, 80, 1, 8);
+assert(plainRat.sheetPack === 'mobs' && plainGob.sheetPack === 'mobs', 'field packs stay on the lighter mobs atlas');
+assert(plainRat.sheet.hurt === 'mob_rat_idle' && plainRat.sheet.death === 'mob_rat_idle', 'rat hurt/death fall back to idle');
+assert(plainRat.sheet.throw === undefined, 'rat has no throw clip');
+assert(plainGob.sheet.hurt === 'mob_goblin_idle' && plainGob.sheet.death === 'mob_goblin_idle' && plainGob.sheet.throw === 'mob_goblin_idle', 'goblin optional clips fall back to idle');
+assert(plainGob.sheet.attack === 'mob_goblin_attack' && RPG.ai.attacks.animKeyFor('goblin', 'ranged') === 'mob_goblin_attack', 'ranged stays _attack until the throw clip exists');
+plainRat.takeHit(1, {});
+assert(plainRat.anim === 'hurt' && plainRat.animKey === 'mob_rat_idle' && plainRat.hp > 0, 'a graze poses the idle fallback');
+plainRat.takeHit(9999, {});
+assert(plainRat.anim === 'death' && plainRat.animKey === 'mob_rat_idle', 'a kill poses the idle death fallback');
+plainGob.takeHit(9999, {});
+
+RPG.sheet = {
+  mobs: { anims: { mob_rat_attack: { ms: [200] }, mob_goblin_attack: { ms: [180] } } },
+  mobs2: {
+    anims: {
+      mob_rat_hurt: { ms: [120] },
+      mob_rat_death: { ms: [200] },
+      mob_goblin_hurt: { ms: [120] },
+      mob_goblin_death: { ms: [200] },
+      mob_goblin_throw: { ms: [80, 80, 120], hit_frame: 2 },
+    },
+  },
+};
+const [clipRat] = RPG.ai.spawnPack('rat', 6, 80, 1, 4);
+assert(clipRat.sheetPack === 'mobs' && clipRat.placeholder === false, 'hurt clips on mobs2 do not move the rat off mobs');
+assert(clipRat.sheet.idle === 'mob_rat_idle' && clipRat.sheet.attack === 'mob_rat_attack', 'rat idle and attack keys stay the field set');
+assert(clipRat.sheet.hurt === 'mob_rat_hurt' && clipRat.sheet.death === 'mob_rat_death', 'rat hurt and death use the mobs2 clips');
+clipRat.takeHit(1, {});
+assert(clipRat.anim === 'hurt' && clipRat.animKey === 'mob_rat_hurt', 'takeHit poses mob_rat_hurt');
+clipRat.takeHit(9999, {});
+assert(clipRat.anim === 'death' && clipRat.animKey === 'mob_rat_death', 'lethal takeHit poses mob_rat_death');
+
+const [throwGob] = RPG.ai.spawnPack('goblin', 10, 80, 1, 12);
+assert(throwGob.sheetPack === 'mobs' && throwGob.sheet.attack === 'mob_goblin_attack', 'goblin attack stays on the field key');
+assert(throwGob.sheet.throw === 'mob_goblin_throw' && throwGob.sheet.hurt === 'mob_goblin_hurt' && throwGob.sheet.death === 'mob_goblin_death', 'goblin hurt, death, and throw keys');
+resetHero(0, 0);
+hero.x = throwGob.x + 3;
+hero.y = throwGob.y;
+hero.hp = 100;
+fxLog.length = 0;
+heroHits.length = 0;
+RPG.ai.tick(0.016);
+assert(throwGob.state === 'windup' && throwGob.animKey === 'mob_goblin_throw' && throwGob.animFrame === 0, 'ranged goblin opens the throw clip on frame 0, state=' + throwGob.state + ' key=' + throwGob.animKey);
+const hpThrow = hero.hp;
+RPG.ai.tick(0.1);
+assert(hero.hp === hpThrow && throwGob.animFrame === 1 && !fxLog.some((e) => e.name === 'rock'), 'throw advances frames and holds the rock before hit_frame');
+RPG.ai.tick(0.05);
+assert(hero.hp < hpThrow && fxLog.filter((e) => e.name === 'rock').length === 1, 'rock releases once on hit_frame');
+assert(heroHits[heroHits.length - 1].srcName === 'Ditch Goblin', 'throw passes the goblin srcName');
+const hitsAfterThrow = heroHits.length;
+const hpAfterThrow = hero.hp;
+RPG.ai.tick(0.6);
+assert(hero.hp === hpAfterThrow && heroHits.length === hitsAfterThrow && fxLog.filter((e) => e.name === 'rock').length === 1, 'throw does not hit again when the windup ends');
+throwGob.takeHit(1, {});
+assert(throwGob.animKey === 'mob_goblin_hurt', 'goblin graze poses mob_goblin_hurt');
+throwGob.takeHit(9999, {});
+assert(throwGob.animKey === 'mob_goblin_death', 'goblin kill poses mob_goblin_death');
+
+// A content anim still beats the throw clip.
+RPG.content = { monsters: { goblin: { attacks: { ranged: { anim: 'attack' } } } } };
+assert(RPG.ai.attacks.animKeyFor('goblin', 'ranged') === 'mob_goblin_attack', 'attack.anim wins over the throw clip');
+RPG.content = null;
+RPG.sheet = null;
+
 // Loot, beam, single kill.
 fxLog.length = 0;
 lootCalls.length = 0;
