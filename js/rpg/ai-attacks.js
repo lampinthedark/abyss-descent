@@ -4,7 +4,9 @@
  * otherwise the fallback table in ai-monsters.js (same shape).
  * Windup floors: field melee/ranged >= 400, brute slam/charge >= 600, Ashmaw >= 600.
  * Content windup is held on animation frame 0, and is always >= sheet ms[0].
- * Clip keys: melee/ranged `${sprite}_attack`, slam `${sprite}_slam`, charge `${sprite}_charge`.
+ * Clip keys: attack.anim when content sets it, else melee/ranged `${sprite}_attack`,
+ * slam `${sprite}_slam`, charge `${sprite}_charge`. A mobs2 `${sprite}_throw` clip
+ * is the ranged rock and releases on hit_frame. Ashmaw's sprite is mob_ashmaw.
  */
 (function (root) {
   'use strict';
@@ -99,11 +101,16 @@
   }
 
   function spriteOf(monsterId) {
+    if (monsterId === 'ashmaw') return 'mob_ashmaw';
     const ext = externalRow(monsterId);
-    if (ext && ext.sprite) return ext.sprite;
-    const spec = ai.specs && ai.specs[monsterId];
-    if (spec && spec.sprite) return spec.sprite;
-    return 'mob_' + monsterId;
+    let sprite = ext && ext.sprite;
+    if (!sprite) {
+      const spec = ai.specs && ai.specs[monsterId];
+      sprite = spec && spec.sprite;
+    }
+    if (!sprite) sprite = 'mob_' + monsterId;
+    if (sprite === 'mob_boss') return 'mob_ashmaw';
+    return sprite;
   }
 
   function sheetPackOf(monsterId) {
@@ -120,7 +127,30 @@
     return kind;
   }
 
+  function mobs2Atlas() {
+    return nestedSheet('mobs2');
+  }
+
+  function clipOnMobs2(key) {
+    return !!animRecord(mobs2Atlas(), key);
+  }
+
+  /** attack.anim wins. A full mobs2 key is used as written; jab/claw map to _attack. */
+  function resolveAnimToken(monsterId, anim) {
+    let token = String(anim);
+    if (token === 'jab' || token === 'claw') token = 'attack';
+    let key = token.indexOf('mob_') === 0 ? token : (spriteOf(monsterId) + '_' + token);
+    key = key.replace(/mob_boss/g, 'mob_ashmaw');
+    key = key.replace(/_jab$/, '_attack').replace(/_claw$/, '_attack');
+    return key;
+  }
+
   function animKeyFor(monsterId, kind) {
+    const row = rowFor(monsterId, kind);
+    if (row && row.anim) return resolveAnimToken(monsterId, row.anim);
+    if ((kind === 'ranged' || kind === 'throw') && clipOnMobs2(spriteOf(monsterId) + '_throw')) {
+      return spriteOf(monsterId) + '_throw';
+    }
     return spriteOf(monsterId) + '_' + suffixFor(kind);
   }
 
@@ -239,10 +269,9 @@
 
   function pose(mob, kind, frame) {
     if (!mob) return;
-    const suffix = suffixFor(kind);
-    const sprite = mob.sprite || spriteOf(mob.monsterId);
-    mob.anim = suffix;
-    mob.animKey = sprite + '_' + suffix;
+    const key = animKeyFor(mob.monsterId, kind);
+    mob.anim = key.indexOf('_throw') !== -1 ? 'throw' : suffixFor(kind);
+    mob.animKey = key;
     mob.animFrame = frame;
     mob.holdFrame = frame;
     mob.attacking = true;
@@ -364,9 +393,72 @@
     return false;
   }
 
+  function hitFrame(anim) {
+    if (!anim) return null;
+    if (typeof anim.hit_frame === 'number') return anim.hit_frame;
+    if (typeof anim.hitFrame === 'number') return anim.hitFrame;
+    return null;
+  }
+
+  function releaseAtMs(anim) {
+    const frame = hitFrame(anim);
+    if (frame == null) return null;
+    if (frame <= 0) return 0;
+    const ms = anim.ms;
+    if (!Array.isArray(ms)) return null;
+    let t = 0;
+    for (let i = 0; i < frame && i < ms.length; i++) t += ms[i];
+    return t;
+  }
+
+  function frameAt(anim, elapsed) {
+    const ms = anim && anim.ms;
+    if (!Array.isArray(ms) || !ms.length) return 0;
+    let t = 0;
+    for (let i = 0; i < ms.length; i++) {
+      t += ms[i];
+      if (elapsed < t) return i;
+    }
+    return ms.length - 1;
+  }
+
   function holdWindup(mob) {
+    if (mob && mob.throwAnim) {
+      const frame = frameAt(mob.throwAnim, mob.windupElapsed || 0);
+      mob.animFrame = frame;
+      mob.holdFrame = frame;
+      return;
+    }
     mob.animFrame = 0;
     mob.holdFrame = 0;
+  }
+
+  function armThrow(mob, kind) {
+    mob.throwAnim = null;
+    mob.throwRelease = null;
+    mob.thrown = false;
+    if (kind !== 'ranged' && kind !== 'throw') return;
+    const key = mob.animKey;
+    const anim = animRecord(mobs2Atlas(), key);
+    if (!anim) return;
+    mob.throwAnim = anim;
+    mob.throwRelease = releaseAtMs(anim);
+  }
+
+  function maybeRelease(mob) {
+    if (!mob || mob.thrown || mob.throwRelease == null) return;
+    if (mob.windupElapsed < mob.throwRelease) return;
+    mob.thrown = true;
+    const frame = hitFrame(mob.throwAnim);
+    if (typeof frame === 'number') {
+      mob.animFrame = frame;
+      mob.holdFrame = frame;
+    }
+    const kind = mob.attackKind || 'ranged';
+    const row = rowFor(mob.monsterId, kind);
+    const dmg = row && typeof row.dmg === 'number' ? row.dmg : mob.dmg;
+    fx((row && row.projectile) || 'rock', mob.x, mob.y);
+    if (bandHit(mob, kind)) hurtHero(mob, dmg, hitInfo(mob, row, dmg));
   }
 
   function kindReady(mob, kind) {
@@ -437,9 +529,11 @@
     mob.windupMs = ms;
     mob.windupElapsed = 0;
     pose(mob, use, 0);
+    armThrow(mob, use);
     const dtMs = (dtSec > 0 ? dtSec : 0) * 1000;
     mob.windupElapsed += dtMs;
     holdWindup(mob);
+    maybeRelease(mob);
     if (mob.windupElapsed >= mob.windupMs) return finishMelee(mob);
     return 'wind';
   }
@@ -447,7 +541,7 @@
   function finishMelee(mob) {
     const kind = mob.attackKind || (mob.style === 'ranged' ? 'ranged' : 'melee');
     const row = rowFor(mob.monsterId, kind);
-    const hit = bandHit(mob, kind);
+    const hit = !mob.thrown && bandHit(mob, kind);
     const dmg = row && typeof row.dmg === 'number' ? row.dmg : mob.dmg;
     mob.state = mob.aggro ? 'chase' : 'wander';
     mob.windupElapsed = mob.windupMs;
@@ -462,6 +556,7 @@
     const dtMs = (dtSec > 0 ? dtSec : 0) * 1000;
     mob.windupElapsed += dtMs;
     holdWindup(mob);
+    maybeRelease(mob);
     if (mob.windupElapsed < mob.windupMs) return 'wind';
     return finishMelee(mob);
   }
@@ -673,6 +768,7 @@
     windupFor: windupFor,
     attackKey: attackKey,
     animKeyFor: animKeyFor,
+    clipOnMobs2: clipOnMobs2,
     attacksOf: attacksOf,
     clipReady: clipReady,
     frame0Ms: frame0Ms,

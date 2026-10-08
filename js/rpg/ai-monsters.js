@@ -183,7 +183,7 @@
       color: seed.color,
       elite: typeof o.elite === 'boolean' ? o.elite : (typeof src.elite === 'boolean' ? src.elite : !!seed.elite),
       boss: typeof o.boss === 'boolean' ? o.boss : (typeof src.boss === 'boolean' ? src.boss : !!seed.boss),
-      sprite: o.sprite || src.sprite || seed.sprite,
+      sprite: canonSprite(id, o.sprite || src.sprite || seed.sprite),
       sheet: o.sheet || o.atlas || src.sheet || src.atlas || seed.sheet,
       style: style,
       enrage: o.enrage || src.enrage || seed.enrage || null,
@@ -197,14 +197,37 @@
     return (spec && spec.attacks) || {};
   }
 
-  function sheetKeysFor(sprite, attacks) {
+  function canonSprite(monsterId, sprite) {
+    if (monsterId === 'ashmaw' || sprite === 'mob_boss') return 'mob_ashmaw';
+    return sprite || ('mob_' + monsterId);
+  }
+
+  function optionalClip(sprite, suffix, idle) {
+    const key = sprite + '_' + suffix;
+    const atk = ai.attacks;
+    if (atk && typeof atk.clipOnMobs2 === 'function' && atk.clipOnMobs2(key)) return key;
+    return idle;
+  }
+
+  function sheetKeysFor(sprite, attacks, monsterId) {
+    const atk = ai.attacks;
+    const clip = function (kind, fallback) {
+      if (atk && typeof atk.animKeyFor === 'function') return atk.animKeyFor(monsterId, kind);
+      return fallback;
+    };
+    const idle = sprite + '_idle';
     const keys = {
-      idle: sprite + '_idle',
+      idle: idle,
       walk: sprite + '_walk',
       attack: sprite + '_attack',
     };
-    if (attacks.slam) keys.slam = sprite + '_slam';
-    if (attacks.charge) keys.charge = sprite + '_charge';
+    if (attacks.melee) keys.attack = clip('melee', keys.attack);
+    else if (attacks.ranged) keys.attack = clip('ranged', keys.attack);
+    if (attacks.slam) keys.slam = clip('slam', sprite + '_slam');
+    if (attacks.charge) keys.charge = clip('charge', sprite + '_charge');
+    keys.hurt = optionalClip(sprite, 'hurt', idle);
+    keys.death = optionalClip(sprite, 'death', idle);
+    if (sprite === 'mob_goblin') keys.throw = optionalClip(sprite, 'throw', idle);
     return keys;
   }
 
@@ -373,6 +396,16 @@
     removeFromWorld(mob);
   }
 
+  function poseLife(mob, which) {
+    const idle = (mob.sheet && mob.sheet.idle) || ((mob.sprite || 'mob') + '_idle');
+    const key = mob.sheet && mob.sheet[which];
+    mob.anim = which;
+    mob.animKey = key || idle;
+    mob.animFrame = 0;
+    mob.holdFrame = 0;
+    mob.attacking = false;
+  }
+
   function takeHit(mob, dmg, info) {
     info = info || {};
     if (mob.dead) return { dead: true };
@@ -383,6 +416,8 @@
     applyKnock(mob, info.knock);
     mob.hitFlash = 0.12;
     if (mob.state !== 'return' && !mob.boss) alertPack(mob);
+    if (mob.hp <= 0) poseLife(mob, 'death');
+    else poseLife(mob, 'hurt');
     if (mob.hp <= 0) {
       mob.hp = 0;
       mob.dead = true;
@@ -396,9 +431,9 @@
 
   function decorate(mob, spec) {
     const attacks = attacksOf(spec);
-    const sprite = spec.sprite || ('mob_' + spec.id);
+    const sprite = canonSprite(spec.id, spec.sprite || ('mob_' + spec.id));
     const pack = spec.sheet || (spec.id === 'rat' || spec.id === 'goblin' ? 'mobs' : 'mobs2');
-    const keys = sheetKeysFor(sprite, attacks);
+    const keys = sheetKeysFor(sprite, attacks, spec.id);
     const atk = ai.attacks;
     const ready = atk && typeof atk.clipReady === 'function' ? atk.clipReady(pack, keys.attack) : false;
     mob.sprite = sprite;
