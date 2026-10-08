@@ -658,7 +658,7 @@ async function pageWith(browser, url, viewport) {
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));
-    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=1')) fail('link: ' + link);
+    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=6.1')) fail('link: ' + link);
     if (old.__errors.length) fail('index errors: ' + old.__errors.join(' | '));
     await old.close();
 

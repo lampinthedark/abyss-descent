@@ -11,6 +11,24 @@
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
+  // BALANCE 6.1 — one table. Revert this block to undo the mix pass.
+  // Keep the screen full. Survivability is the mix: one-hit trash and chip
+  // contact, with chargers, brutes and elites thinned before the Warden.
+  const BALANCE = {
+    chip: 3,
+    idleGrace: 8,
+    idleBiteEvery: 1.5,
+    heavyAt: 150,
+    eliteFirst: 120,
+    eliteEvery: 45,
+    hpScaleAt: 150,
+    hpScale: 48,
+    edgeAt: 45,
+    wardenHp: 1400,
+    demonHp: 2600,
+    evoSlow: 0.5,
+    evoScale: 0.3,
+  };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
   const FLOAT_LIFE = 0.55;
@@ -19,6 +37,8 @@
   const search = (typeof location !== 'undefined' && location.search) || '';
   const debug = /(?:^|[?&])debug=1(?:&|$)/.test(search);
   const bench = /(?:^|[?&])bench=1(?:&|$)/.test(search);
+  const foesMatch = /(?:^|[?&])foes=(\d+)(?:&|$)/.exec(search);
+  const benchFoes = foesMatch ? Math.max(1, Math.min(LIVE_CAP, Number(foesMatch[1]) || 300)) : 300;
   const headless = /(?:^|[?&])headless=1(?:&|$)/.test(search);
   const adsOn = /(?:^|[?&])adtest=1(?:&|$)/.test(search);
   const previewMatch = /(?:^|[?&])preview=([a-z0-9]+)/.exec(search);
@@ -131,6 +151,15 @@
   let ringAngle = 0;
   let nextEliteAt = 45;
   let stillT = 0;
+  let stillBite = 0;
+  let itemDrops = 0;
+  let rareAt = -1;
+  let epicAt = -1;
+  let legendAt = -1;
+  let legendDrops = 0;
+  let demonLegend = false;
+  let eliteN = 0;
+  let lastHit = '';
   let rareSeen = false;
   let epicSeen = false;
   let hitPause = 0;
@@ -174,6 +203,9 @@
   let secondChanceFx = 0;
   const evoQueued = {};
   let evolveFreeze = 0;
+  let evoSlow = 0;
+  let evoHold = false;
+  let evoPollAt = 1;
   let evolvePending = '';
   const evolveQueue = [];
   let spawnedThisFrame = 0;
@@ -181,6 +213,9 @@
   let regen = 0;
   let revivalLeft = 0;
   let secondChance = 0;
+  let toastText = '';
+  let casterPlant = 0;
+  let castersCleared = 0;
   let partnerPulse = 0;
   const evoLog = [];
   let simTick = 0;
@@ -372,9 +407,9 @@
     else if (id === 'charger') hp = 10;
     else if (id === 'shooter') hp = 8;
     else if (id === 'brute') hp = 12;
-    if (bossKind === 'warden') return 1400;
-    if (bossKind === 'demon') return 2600;
-    if (time > 90) hp = Math.round(hp * (1 + (time - 90) / 55));
+    if (bossKind === 'warden') return BALANCE.wardenHp;
+    if (bossKind === 'demon') return BALANCE.demonHp;
+    if (time > BALANCE.hpScaleAt) hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / BALANCE.hpScale));
     if (curse > 0) hp = Math.round(hp * 1.35);
     return Math.max(1, hp);
   }
@@ -395,12 +430,12 @@
     en.y = y;
     en.radius = type.radius || 0.32;
     en.speed = (type.speed || 1) * (bossFlag ? 0.58 : 0.5);
-    en.dmg = bossFlag ? 18 : (type.id === 'brute' ? 8 : type.id === 'charger' ? 7 : type.id === 'imp' ? 5 : type.id === 'shooter' ? 4 : 6);
+    en.dmg = bossFlag ? 18 : (type.id === 'charger' ? 6 : BALANCE.chip);
     en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
     en.boss = bossFlag;
     en.bossKind = bossKind || (bossFlag ? 'demon' : '');
-    en.sprite = bossKind === 'warden' ? 'warden' : '';
+    en.sprite = bossKind === 'warden' ? 'warden' : (bossFlag ? 'boss' : '');
     en.elite = !!(opts && opts.elite);
     if (bossFlag) en.scale = BOSS_SCALE;
     else if (en.elite) en.scale = 1.65;
@@ -429,6 +464,7 @@
     en.touchCd = 0.25;
     en.facing = x < player.x ? 1 : -1;
     en.fid = ++foeSeq;
+    en.id = en.fid;
     en.sweepGen = 0;
     if (bossFlag) {
       const tuned = bossKind === 'warden' ? (0.78 / 0.9) : 0.9;
@@ -441,23 +477,70 @@
     else en.gold *= greed;
     if (!en.elite) en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
     enemies.push(en);
+    biteIfStill(en);
     return en;
+  }
+
+  function stillRing() {
+    return stillT > BALANCE.idleGrace;
+  }
+
+  function biteIfStill(en) {
+    if (!stillRing() || !en || en.boss || en.elite) return;
+    if (en.behaviour === 'shooter' || en.behaviour === 'boss') return;
+    const dist = len2(player.x - en.x, player.y - en.y);
+    if (dist >= (en.radius || 0.32) + 0.48) return;
+    if (stillBite > 0) return;
+    stillBite = BALANCE.idleBiteEvery;
+    en.touchCd = 0.7;
+    lastHit = 'idle';
+    hurt(BALANCE.chip, false);
+  }
+
+  function tickIdleChip() {
+    if (state !== 'playing' || !stillRing() || stillBite > 0) return;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.boss || en.elite || en.life <= 0 || en.dying > 0) continue;
+      if (en.behaviour === 'shooter' || en.behaviour === 'boss') continue;
+      const dist = len2(player.x - en.x, player.y - en.y);
+      if (dist >= (en.radius || 0.32) + 0.48) continue;
+      stillBite = BALANCE.idleBiteEvery;
+      lastHit = 'idle';
+      hurt(BALANCE.chip, false);
+      return;
+    }
   }
 
   function releaseEnemy(i) {
     const en = enemies[i];
+    telegraphOff(en, i);
     const last = enemies.pop();
     if (i < enemies.length) enemies[i] = last;
     enemyPool.push(en);
   }
 
-  function dropGem(en) {
-    if (gems.length >= GEM_CAP) {
-      const old = gems.shift();
-      if (old && old.kind === 'item' && old.item) beamOff(old.item.id);
-      if (!old || old.kind !== 'item') player.xp += old ? (old.value || 0) : 0;
-      if (old) gemPool.push(old);
+  function gemCount() {
+    let n = 0;
+    for (let i = 0; i < gems.length; i++) {
+      if ((gems[i].kind || 'gem') === 'gem') n += 1;
     }
+    return n;
+  }
+
+  function evictOldestGem() {
+    for (let i = 0; i < gems.length; i++) {
+      const g = gems[i];
+      if ((g.kind || 'gem') !== 'gem') continue;
+      player.xp += g.value || 0;
+      releaseGemAt(i);
+      return true;
+    }
+    return false;
+  }
+
+  function dropGem(en) {
+    if (gemCount() >= GEM_CAP) evictOldestGem();
     const g = gemPool.pop() || {};
     g.x = en.x;
     g.y = en.y;
@@ -481,9 +564,9 @@
     let kind = '';
     if (en.bossKind === 'demon') kind = 'demon';
     else if (en.boss) kind = 'boss';
-    else if (en.elite) kind = (!rareSeen && time >= 70) ? 'rare' : 'elite';
+    else if (en.elite) kind = (!rareSeen && time >= 40) ? 'rare' : 'elite';
     else {
-      const chance = time < 90 ? 0.02 : time < 240 ? 0.035 : 0.05;
+      const chance = time < 90 ? 0.004 : time < 240 ? 0.002 : 0.0012;
       if (Math.random() >= chance) return;
       kind = 'mob';
     }
@@ -491,14 +574,23 @@
     if (!item) return;
     if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
     if (item.rarity === 'epic' || item.rarity === 'legendary') epicSeen = true;
+    itemDrops += 1;
+    if ((item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') && rareAt < 0) rareAt = time;
+    if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
+    if (item.rarity === 'legendary') {
+      if (en.bossKind === 'demon') demonLegend = true;
+      else {
+        legendDrops += 1;
+        if (legendAt < 0) legendAt = time;
+      }
+    }
     dropPickup(en, 'item', item);
   }
 
-  function dropPickup(en, kind, item) {
-    if (gems.length >= GEM_CAP) return;
+  function placePickup(x, y, kind, item) {
     const g = gemPool.pop() || {};
-    g.x = en.x + (kind === 'item' ? 0.45 : kind === 'heart' ? -0.35 : 0);
-    g.y = en.y + (kind === 'chest' ? 0.2 : 0);
+    g.x = x;
+    g.y = y;
     g.kind = kind;
     g.value = 0;
     g.item = item || null;
@@ -510,6 +602,14 @@
     g.shower = 0;
     gems.push(g);
     if (kind === 'item' && item && rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
+    return g;
+  }
+
+  function dropPickup(en, kind, item) {
+    if (kind === 'chest') return placePickup(en.x, en.y, kind, item);
+    if (kind === 'heart') return placePickup(en.x - 0.35, en.y, kind, item);
+    if (kind === 'item') return placePickup(en.x + 0.45, en.y, kind, item);
+    return placePickup(en.x, en.y, kind, item);
   }
 
   function spawnShot(kind, x, y, vx, vy, dmg, life) {
@@ -683,7 +783,13 @@
   function showToast(item) {
     const el = $('sv-toast');
     if (!el || !item) return;
-    el.textContent = item.name || 'Item';
+    let rarity = 'Common';
+    try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
+      const raw = item.rarity || 'common';
+      rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+    toastText = rarity + ': ' + (item.name || 'Item');
+    el.textContent = toastText;
     el.style.color = RARITY_FILL[item.rarity] || '#f4efe0';
     el.classList.remove('hidden');
     toastT = 1.6;
@@ -761,6 +867,7 @@
       floatText(player.x, player.y - 0.4, ntext(dmg), '#ff8060', true);
     sfx('hurt');
     if (player.life <= 0) {
+      if (revivalLeft <= 0 && secondChance <= 0 && shopRank('revival') > 0) revivalLeft = 1;
       if (revivalLeft > 0) {
         revivalLeft -= 1;
         secondChance += 1;
@@ -819,6 +926,7 @@
     if (en.life <= 0) {
       en.life = 0;
       en.dying = 0.22;
+      telegraphOff(en);
       if (en.bossKind === 'warden') wardenCleared = true;
       else if (en.boss) demonCleared = true;
       if (!(en.boss || en.elite) || time >= (en.flashAt || 0)) {
@@ -1042,13 +1150,32 @@
   function viewHalfW() { return canvas.width / (TILE * 2); }
   function viewHalfH() { return canvas.height / (TILE * 2); }
 
+  function edgePoint(ang, pad) {
+    const inside = time >= BALANCE.edgeAt && !stillRing();
+    const extra = inside ? 0 : (pad == null ? 0.85 : pad);
+    const span = inside ? 0.72 : 1;
+    const halfW = viewHalfW() * span + extra;
+    const halfH = viewHalfH() * span + extra;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const fit = 1 / Math.max(Math.abs(c) / Math.max(0.8, halfW), Math.abs(s) / Math.max(0.8, halfH));
+    spotScratch.x = player.x + c * fit;
+    spotScratch.y = player.y + s * fit;
+    return spotScratch;
+  }
+
   function spawnRing(pad) {
     spawnSerial += 1;
     const ang = ringAngle + spawnSerial * 2.399963;
     const half = Math.max(viewHalfW(), viewHalfH());
+    if (stillRing()) {
+      spotScratch.x = player.x + Math.cos(ang) * 0.58;
+      spotScratch.y = player.y + Math.sin(ang) * 0.58;
+      return spotScratch;
+    }
+    if (time >= BALANCE.edgeAt) return edgePoint(ang, 0.85 + (pad || 0));
     let ring = half + 0.9 + (pad || 0);
     if (time < 3) ring = Math.max(2.3, half * 0.7);
-    if (stillT > 0.5) ring = 1.15;
     spotScratch.x = player.x + Math.cos(ang) * ring;
     spotScratch.y = player.y + Math.sin(ang) * ring;
     return spotScratch;
@@ -1063,20 +1190,30 @@
   }
 
   function burstCasters() {
+    let n = 0;
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
-      if (en.eid === 'shooter' && en.life > 0 && en.dying <= 0) damageEnemy(en, en.life + 1);
+      if (en.eid === 'shooter' && en.life > 0 && en.dying <= 0) {
+        n += 1;
+        damageEnemy(en, en.life + 1);
+      }
     }
+    castersCleared += n;
+    return n;
+  }
+
+  function spawnWarden() {
+    burstCasters();
+    const spot = spawnBossEdge();
+    return spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
   }
 
   function spawnKind() {
     const n = spawnSerial;
-    if (time < 70) return n % 4 === 0 ? 'imp' : 'skel';
-    if (time < 100) return n % 10 === 0 ? 'charger' : n % 4 === 0 ? 'imp' : 'skel';
-    if (time >= MINI_AT && !wardenAlive() && n % 8 === 0) return 'shooter';
-    if (time > 95 && n % 6 === 0) return 'charger';
-    if (time > 55 && n % 11 === 0) return 'brute';
-    if (n % 3 === 0) return 'imp';
+    if (time >= MINI_AT && !wardenAlive() && n % 18 === 0) return 'shooter';
+    if (time >= BALANCE.heavyAt && n % 18 === 0) return 'charger';
+    if (time >= BALANCE.heavyAt && n % 14 === 0) return 'brute';
+    if (n % 4 === 0) return 'imp';
     return 'skel';
   }
 
@@ -1085,10 +1222,12 @@
     let rate = 2.2;
     if (time < 12) rate = 4;
     else if (time < 40) rate = 2.6;
-    else if (time < 90) rate = 3.4;
-    else if (time < 180) rate = 7;
-    else rate = 9;
-    if (swarm) rate *= 1.65;
+    else if (time < 70) rate = 3.4;
+    else if (time < 120) rate = 12;
+    else if (time < 180) rate = 26;
+    else if (time < 360) rate = 34;
+    else rate = 40;
+    if (swarm) rate *= 1.35;
     if (stillT > 0.7) rate *= 1.45;
     return rate;
   }
@@ -1097,24 +1236,47 @@
     if (time < 12) return 14;
     if (time < 35) return 32;
     if (time < 70) return 72;
-    if (time < 120) return 120;
-    if (time < 200) return 230;
+    if (time < 120) return 140;
+    if (time < 200) return 220;
     if (time < 360) return 320;
-    if (time < 480) return 380;
-    return LIVE_CAP;
+    return 340;
   }
 
   function spawnWave() {
     const half = Math.max(viewHalfW(), viewHalfH());
-    const rad = (stillT > 0.5 ? 1.15 : half + 0.75);
     const count = (Math.floor(time / 15) % 2 === 1) ? 16 : 10;
     const cap = Math.min(LIVE_CAP, spawnCap());
     for (let i = 0; i < count && enemies.length < cap; i++) {
       const a = ringAngle + (i / count) * Math.PI * 2;
-      spawnEnemy(spawnKind(), player.x + Math.cos(a) * rad, player.y + Math.sin(a) * rad);
+      let x;
+      let y;
+      if (stillRing()) {
+        x = player.x + Math.cos(a) * 0.58;
+        y = player.y + Math.sin(a) * 0.58;
+      } else if (time >= BALANCE.edgeAt) {
+        const spot = edgePoint(a, 0.7);
+        x = spot.x;
+        y = spot.y;
+      } else {
+        const rad = half + 0.75;
+        x = player.x + Math.cos(a) * rad;
+        y = player.y + Math.sin(a) * rad;
+      }
+      spawnEnemy(spawnKind(), x, y);
       spawnedThisFrame += 1;
     }
     ringAngle += 0.37;
+  }
+
+  function makeRoom() {
+    if (enemies.length < LIVE_CAP) return true;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const en = enemies[i];
+      if (!en || en.boss || en.elite || en.dying > 0) continue;
+      releaseEnemy(i);
+      return true;
+    }
+    return enemies.length < LIVE_CAP;
   }
 
   function director(dt) {
@@ -1137,9 +1299,7 @@
     }
     if (!eliteSpawned && time >= 150) {
       eliteSpawned = true;
-      burstCasters();
-      const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
+      spawnWarden();
     }
     if (!demonWarned && time >= MINI_AT - 2) {
       demonWarned = true;
@@ -1163,8 +1323,9 @@
       finish('won');
       return;
     }
-    if (time >= nextEliteAt && enemies.length < LIVE_CAP) {
-      nextEliteAt += 45;
+    if (time >= nextEliteAt && makeRoom()) {
+      nextEliteAt += BALANCE.eliteEvery;
+      eliteN += 1;
       const spot = spawnRing(0.2);
       spawnEnemy('brute', spot.x, spot.y, { elite: true });
     }
@@ -1179,7 +1340,7 @@
     }
     spawnAcc += spawnRate() * pressure * dt;
     let guard = 0;
-    const burst = swarm ? 10 : 6;
+    const burst = swarm ? 16 : 12;
     while (spawnAcc >= 1 && enemies.length < cap && guard++ < burst) {
       spawnAcc -= 1;
       spawnedThisFrame += 1;
@@ -1494,7 +1655,8 @@
       s.life -= dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (len2(s.x - player.x, s.y - player.y) < 0.46) {
+      if (len2(s.x - player.x, s.y - player.y) < (player.moving ? 0.14 : 0.46)) {
+        lastHit = 'shot';
         hurt(s.dmg, false);
         s.life = 0;
       }
@@ -1517,10 +1679,28 @@
 
   function touchPlayer(en, dist, dmg, dt) {
     if (en.touchCd > 0) en.touchCd -= dt;
+    if (player.moving && !en.boss && !en.elite) return;
+    if (stillRing() && !en.boss && !en.elite) return;
     if (dist < en.radius + 0.48 && en.touchCd <= 0) {
-      en.touchCd = 0.7;
+      en.touchCd = (player.moving && en.elite) ? 2.4 : 0.7;
+      lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
       hurt(dmg == null ? en.dmg : dmg, en.boss);
     }
+  }
+
+  function fxBox() {
+    return (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
+  }
+
+  function telegraph(en, index, tellMs) {
+    const box = fxBox();
+    if (box && typeof box.telegraph === 'function') box.telegraph(en.id || index, en.x, en.y, tellMs);
+  }
+
+  function telegraphOff(en, index) {
+    if (!en) return;
+    const box = fxBox();
+    if (box && typeof box.telegraphOff === 'function') box.telegraphOff(en.id || index);
   }
 
   function tickCharger(en, dt) {
@@ -1529,12 +1709,18 @@
     const dy = player.y - en.y;
     const dist = len2(dx, dy) || 1;
     if (ai.mode === 'seek') {
-      steer(en, dt, en.speed);
-      if (dist < 4.6) {
-        ai.mode = 'tell';
-        ai.t = 0.6;
-        ai.vx = dx / dist;
-        ai.vy = dy / dist;
+      if (player.moving && dist < 2.3) {
+        en.x -= (dx / dist) * en.speed * dt;
+        en.y -= (dy / dist) * en.speed * dt;
+        en.facing = dx >= 0 ? 1 : -1;
+      } else {
+        steer(en, dt, en.speed);
+        if (dist < 4.6 && dist > 2.2) {
+          ai.mode = 'tell';
+          ai.t = 0.6;
+          ai.vx = dx / dist;
+          ai.vy = dy / dist;
+        }
       }
     } else if (ai.mode === 'tell') {
       ai.t -= dt;
@@ -1549,9 +1735,11 @@
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
       const hit = len2(player.x - en.x, player.y - en.y);
-      if (hit < en.radius + 0.5 && en.touchCd <= 0) {
+      const hitR = player.moving ? en.radius + 0.12 : en.radius + 0.5;
+      if (hit < hitR && en.touchCd <= 0) {
         en.touchCd = 0.8;
-        hurt(en.dmg + 3, false);
+        lastHit = 'dash';
+        hurt(player.moving ? 4 : en.dmg + 3, false);
       }
       if (ai.t <= 0) {
         ai.mode = 'recover';
@@ -1564,7 +1752,7 @@
     if (ai.mode === 'seek') touchPlayer(en, dist, en.dmg, dt);
   }
 
-  function tickShooter(en, dt) {
+  function tickShooter(en, dt, index) {
     const ai = en.ai;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
@@ -1591,6 +1779,7 @@
     if (dist < 8.5 && dist > 2.8) {
       ai.mode = 'tell';
       ai.t = 0.7;
+      telegraph(en, index, 700);
     }
   }
 
@@ -1599,7 +1788,7 @@
     en.y -= (dy / dist) * en.speed * dt;
   }
 
-  function tickBoss(en, dt) {
+  function tickBoss(en, dt, index) {
     const ai = en.ai;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
@@ -1609,7 +1798,10 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         if (ai.kind === 'slam') {
-          if (dist < 2.15) hurt(en.dmg + 6, true);
+          if (dist < 2.15) {
+            lastHit = 'boss';
+            hurt(en.dmg + 6, true);
+          }
           ai.mode = 'recover';
           ai.t = 1.1;
         } else {
@@ -1638,6 +1830,7 @@
       ai.mode = 'tell';
       ai.kind = ai.kind === 'slam' ? 'volley' : 'slam';
       ai.t = ai.kind === 'slam' ? 0.75 : 0.55;
+      if (ai.kind === 'volley') telegraph(en, index, 550);
     }
   }
 
@@ -1660,9 +1853,9 @@
       }
       if (!en.ai) en.ai = { mode: 'seek', t: 0, vx: 1, vy: 0 };
       if (en.behaviour === 'charger') tickCharger(en, dt);
-      else if (en.behaviour === 'shooter') tickShooter(en, dt);
+      else if (en.behaviour === 'shooter') tickShooter(en, dt, i);
       else if (en.behaviour === 'boss') {
-        tickBoss(en, dt);
+        tickBoss(en, dt, i);
         leashBoss(en, dt);
       }
       else {
@@ -1674,11 +1867,20 @@
           en.ai.t = (en.ai.t || 0) + dt;
           if (en.ai.t > 2.2) en.ai.t = 0;
           if (en.ai.t < 0.45) sp *= 1.85;
+        } else if (time > 75 && enemies.length > 70 && dist < Math.max(viewHalfW(), viewHalfH())) {
+          sp *= 0.2;
         }
-        en.x += (dx / dist) * sp * dt;
-        en.y += (dy / dist) * sp * dt;
+        const stand = (en.radius || 0.32) + (en.elite ? 0.2 : 0.72);
+        if (player.moving && !en.elite && dist < stand) {
+          const push = Math.min(stand - dist, sp * dt * 4);
+          en.x -= (dx / dist) * push;
+          en.y -= (dy / dist) * push;
+        } else {
+          en.x += (dx / dist) * sp * dt;
+          en.y += (dy / dist) * sp * dt;
+        }
         en.facing = dx >= 0 ? 1 : -1;
-        touchPlayer(en, dist, en.dmg, dt);
+        touchPlayer(en, len2(player.x - en.x, player.y - en.y), en.dmg, dt);
       }
     }
   }
@@ -1764,40 +1966,44 @@
     const grab = pickupR();
     for (let i = gems.length - 1; i >= 0; i--) {
       const g = gems[i];
+      const kind = g.kind || 'gem';
+      const walked = kind === 'chest' || kind === 'item' || kind === 'heart';
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
-      if (g.shower && time < (g.showerAt || 0)) {
-        /* stagger the vacuum */
-      } else if (dist < pull || g.shower) g.fly = 1;
-      if (g.fly && dist > 0) {
-        const rush = g.shower ? Math.max(18, dist / 0.55) : (14 + (owned.magnet || 0) * 4);
-        const step = Math.min(dist, rush * dt);
-        g.x += (dx / dist) * step;
-        g.y += (dy / dist) * step;
+      if (!walked) {
+        if (g.shower && time < (g.showerAt || 0)) {
+          /* stagger the vacuum */
+        } else if (dist < pull || g.shower) g.fly = 1;
+        if (g.fly && dist > 0) {
+          const rush = g.shower ? Math.max(18, dist / 0.55) : (14 + (owned.magnet || 0) * 4);
+          const step = Math.min(dist, rush * dt);
+          g.x += (dx / dist) * step;
+          g.y += (dy / dist) * step;
+        }
       }
       const left = len2(player.x - g.x, player.y - g.y);
-      if (left <= grab || (g.fly && left < 0.08)) {
-        const kind = g.kind || 'gem';
+      const taken = walked ? left <= grab : (left <= grab || (g.fly && left < 0.08));
+      if (taken) {
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
-          grantGold(40 * vowMult());
-          chestReady = true;
+          openChest(g.x, g.y, chestItem());
         } else if (kind === 'item' && g.item) {
           try { SurvivorSave.addItem(g.item); } catch (e) {}
           showToast(g.item);
+          requestEvolution();
           const info = chainInfo;
           info.rarity = g.item.rarity;
           fxCall('pickup', g.x, g.y, 'item', info);
         } else {
           player.xp += g.value || 0;
         }
-        spark(player.x, player.y, '#ffffff', 3, 2.6);
+        if (kind !== 'chest') spark(player.x, player.y, '#ffffff', 3, 2.6);
         if (kind === 'gem') {
           chainInfo.chain = bumpGemChain();
           fxCall('pickup', g.x, g.y, 'gem', chainInfo);
-        } else if (kind !== 'item') {
+        } else if (kind !== 'item' && kind !== 'chest') {
           fxCall('pickup', g.x, g.y, kind);
         }
         releaseGemAt(i);
@@ -1859,6 +2065,7 @@
   function tryShowLevel() {
     if (bench || state !== 'playing') return;
     if (holdCards()) return;
+    if (evoSlow > 0 || evolvePending) return;
     if (hasQueuedEvo()) {
       applyQueuedEvolutions();
       return;
@@ -1993,27 +2200,20 @@
       evoWindow = false;
       return;
     }
-    if (evolveFreeze > 0) {
-      evolveFreeze = Math.max(0, evolveFreeze - dt);
-      animT += dt;
-      fxCall('update', dt);
-      if (evolveFreeze <= 0 && evolvePending) {
-        player.invuln = Math.max(player.invuln, 0.5);
-        const evolvedId = evolvePending;
-        evolvePending = '';
-        evoLog.push({ id: evolvedId, t: time, tick: simTick });
-        if (!sweepOn) beginSweep(evolvedId);
-        else if (typeof FX !== 'undefined' && typeof FX.evolve === 'function') {
-          sweepInfo.x = player.x;
-          sweepInfo.y = player.y;
-          sweepInfo.radius = sweepMax;
-          FX.evolve(evolvedId, sweepInfo);
-        }
-        if (evolveQueue.length) beginEvolve();
-      }
-      return;
+    if (state === 'playing' && (evoHold || time >= evoPollAt)) {
+      if (time >= evoPollAt) evoPollAt = time + 1;
+      evoHold = false;
+      checkEvolutions();
     }
+    let step = dt;
+    if (evoSlow > 0 && state === 'playing' && !reduceMotion) {
+      evoWindow = true;
+      step = dt * BALANCE.evoScale;
+      evoSlow = Math.max(0, evoSlow - dt);
+    }
+    dt = step;
     time += dt;
+    if (stillBite > 0) stillBite = Math.max(0, stillBite - dt);
     const minuteNow = Math.floor(time / 60);
     while (minuteMark < minuteNow && minuteMark < 10) {
       minuteMark += 1;
@@ -2049,6 +2249,7 @@
     syncVowChrome();
     movePlayer(dt);
     director(dt);
+    tickIdleChip();
     if (state !== 'playing') return;
     rebuildGrid();
     tickWeapons(dt);
@@ -2057,11 +2258,6 @@
     tickFoeShots(dt);
     if (state !== 'playing') return;
     tickGems(dt);
-    if (chestReady && state === 'playing') {
-      chestReady = false;
-      grantChest();
-      return;
-    }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.life -= dt;
@@ -2084,6 +2280,11 @@
     if (hermit.on && !hermit.used && len2(player.x - hermit.x, player.y - hermit.y) < 1.25) {
       openHermit();
       return;
+    }
+    if (evolvePending && evoSlow <= 0 && state === 'playing') {
+      const evolvedId = evolvePending;
+      evolvePending = '';
+      commitEvolve(evolvedId);
     }
     tickSweep(dt);
     if (toastT > 0) {
@@ -2124,12 +2325,16 @@
     }
     if (!steered && walkCircle) {
       const radius = pxToWorld(120);
-      const ang = time * (Math.PI * 2 / 8);
+      let omega = Math.PI * 2 / 8;
+      const need = radius * omega;
+      const cap = moveSpeed() * 0.82;
+      if (need > cap && radius > 0) omega = cap / radius;
+      const ang = time * omega;
       sx = Math.cos(ang) * radius - player.x;
       sy = Math.sin(ang) * radius - player.y;
       if (len2(sx, sy) < 0.08) {
-        player.moving = false;
-        stillT += dt;
+        player.moving = true;
+        stillT = 0;
         return;
       }
     }
@@ -2218,6 +2423,9 @@
     const queuedKeys = Object.keys(evoQueued);
     for (let qi = 0; qi < queuedKeys.length; qi++) delete evoQueued[queuedKeys[qi]];
     evolveFreeze = 0;
+    evoSlow = 0;
+    evoHold = false;
+    evoPollAt = 1;
     evolvePending = '';
     evolveQueue.length = 0;
     slowLeft = 0;
@@ -2227,12 +2435,22 @@
     pendingLevels = 0;
     hitPause = 0;
     stillT = 0;
+    stillBite = 0;
     ringAcc = 0;
-    nextEliteAt = 45;
+    nextEliteAt = BALANCE.eliteFirst;
+    itemDrops = 0;
+    rareAt = -1;
+    epicAt = -1;
+    legendAt = -1;
+    legendDrops = 0;
+    demonLegend = false;
+    eliteN = 0;
     rareSeen = false;
     epicSeen = false;
     evoWindow = false;
     toastT = 0;
+    toastText = '';
+    castersCleared = 0;
     novaQueue = 0;
     regen = 0;
     chestReady = false;
@@ -2277,7 +2495,7 @@
     hide('sv-hermit');
     show('sv-hud');
     if (bench) {
-      for (let i = 0; i < 300; i++) {
+      for (let i = 0; i < benchFoes; i++) {
         const ang = Math.random() * Math.PI * 2;
         const dist = 0.45 + Math.random() * 6.2;
         const id = i % 7 === 0 ? 'brute' : i % 3 === 0 ? 'imp' : 'skel';
@@ -2422,6 +2640,7 @@
     time = seconds;
     minuteMark = Math.floor(time / 60);
     nextVowAt = time + 80;
+    nextEliteAt = time + BALANCE.eliteEvery;
     const picks = picksForTime(seconds);
     picks.forEach((id) => {
       owned[id] = (owned[id] || 0) + 1;
@@ -2460,6 +2679,7 @@
       g.vy = 0;
       gems.push(g);
     });
+    plantPendingCasters();
     if (time >= 295) {
       eliteWarned = true;
       eliteSpawned = true;
@@ -2475,9 +2695,18 @@
       eliteSpawned = true;
       raiseBanner('Grave Warden approaches', true);
       bannerT = 2.4;
-      const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
+      spawnWarden();
     }
+  }
+
+  function plantPendingCasters() {
+    const n = casterPlant;
+    casterPlant = 0;
+    for (let i = 0; i < n; i++) {
+      const ang = (i / Math.max(1, n)) * Math.PI * 2;
+      spawnEnemy('shooter', player.x + Math.cos(ang) * 3.2, player.y + Math.sin(ang) * 3.2);
+    }
+    return n;
   }
 
   function finish(kind) {
@@ -2631,7 +2860,10 @@
   function buyUpgrade(id) {
     let res = { ok: false };
     try { res = SurvivorSave.buy(id); } catch (e) {}
-    if (res.ok) paintNextOffer();
+    if (res.ok) {
+      paintNextOffer();
+      requestEvolution();
+    }
     return res;
   }
 
@@ -2662,7 +2894,6 @@
   }
 
   function openLevel() {
-    applyQueuedEvolutions();
     state = 'levelup';
     joy.on = false;
     uiGuardUntil = nowMs() + 300;
@@ -2714,17 +2945,59 @@
     sfx('level');
   }
 
+  function evoTitle(id) {
+    const table = SurvivorData.EVOLUTIONS || {};
+    const keys = Object.keys(table);
+    for (let i = 0; i < keys.length; i++) {
+      const row = table[keys[i]];
+      if (row && row.id === id && row.name) return row.name;
+    }
+    return 'Evolved';
+  }
+
+  function commitEvolve(id) {
+    player.invuln = Math.max(player.invuln, 0.5);
+    evoLog.push({ id: id, t: time, tick: simTick });
+    raiseBanner(evoTitle(id), true);
+    if (!sweepOn) beginSweep(id);
+    else if (typeof FX !== 'undefined' && typeof FX.evolve === 'function') {
+      sweepInfo.x = player.x;
+      sweepInfo.y = player.y;
+      sweepInfo.radius = sweepMax;
+      FX.evolve(id, sweepInfo);
+    }
+    if (evolveQueue.length) beginEvolve();
+  }
+
   function beginEvolve() {
-    if (evolvePending || evolveFreeze > 0) return;
+    if (evolvePending || evoSlow > 0) return;
     const id = evolveQueue.shift();
     if (!id) return;
+    if (state !== 'playing') {
+      evolveQueue.unshift(id);
+      evoHold = true;
+      return;
+    }
+    if (reduceMotion) {
+      commitEvolve(id);
+      return;
+    }
     evolvePending = id;
-    evolveFreeze = 0.12;
+    evoSlow = BALANCE.evoSlow;
+    evoWindow = true;
+    raiseBanner(evoTitle(id), true);
   }
 
   function grantEvolve(id) {
     evolveQueue.push(id);
     beginEvolve();
+  }
+
+  function releaseEvolution() {
+    if (state !== 'playing') return;
+    if (!evoHold) return;
+    evoHold = false;
+    checkEvolutions();
   }
 
   function applyChoice(item) {
@@ -2745,7 +3018,7 @@
       player.maxLife += gain;
       player.life += gain;
     }
-    queueEvolutions();
+    requestEvolution();
   }
 
   function evoWeaponId(item) {
@@ -2776,13 +3049,21 @@
     return 'Ready';
   }
 
-  function grantChest() {
+  function chestItem() {
     const bases = ['iron-blade', 'bone-charm', 'ash-bead'];
-    try {
-      const base = bases[spawnSerial % bases.length];
-      SurvivorSave.addItem(SurvivorSave.createItem(base, 'rare'));
-    } catch (e) {}
-    checkEvolutions();
+    const base = bases[spawnSerial % bases.length];
+    try { return SurvivorSave.createItem(base, 'rare'); } catch (e) {}
+    return { id: 'chest-' + spawnSerial, base: base, name: 'Iron Blade', rarity: 'rare' };
+  }
+
+  // Single open hook. A later FX.chestOpen(x, y, rarity, onLand) roll can wrap this.
+  function openChest(x, y, item) {
+    const rarity = (item && item.rarity) || 'rare';
+    const color = RARITY_FILL[rarity] || '#4c7cff';
+    const box = (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
+    if (box && typeof box.kill === 'function') box.kill(x, y, 'chest', { elite: true, color: color });
+    grantGold(40 * vowMult());
+    if (item) placePickup(x + 0.62, y, 'item', item);
   }
 
   function queueEvolutions() {
@@ -2806,7 +3087,19 @@
     }
   }
 
+  function requestEvolution() {
+    if (state !== 'playing') {
+      evoHold = true;
+      return;
+    }
+    checkEvolutions();
+  }
+
   function checkEvolutions() {
+    if (state !== 'playing') {
+      evoHold = true;
+      return;
+    }
     const weapons = SurvivorData.WEAPONS;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
@@ -2838,6 +3131,7 @@
     }
     state = 'playing';
     sfx('ui');
+    releaseEvolution();
   }
 
   function differentOffers(prev) {
@@ -2879,6 +3173,7 @@
       en.life = Math.round(en.life * 1.5);
     }
     state = 'playing';
+    releaseEvolution();
     vowCount += 1;
     vowActive = true;
     nextVowAt = time + 150;
@@ -2923,6 +3218,7 @@
     if (hermitDeclines >= 2) nextVowAt = 1e9;
     else nextVowAt = time + 75;
     state = 'playing';
+    releaseEvolution();
   }
 
   function openPause() {
@@ -2936,11 +3232,23 @@
     if (state !== 'paused') return;
     state = 'playing';
     hide('sv-pause');
+    releaseEvolution();
   }
 
   function onHardwareBack() {
     if (state === 'paused') { resumePlay(); return; }
     if (state === 'playing') openPause();
+  }
+
+  function abandonToTitle() {
+    state = 'title';
+    joy.on = false;
+    clearBossUi();
+    syncVowChrome();
+    hide('sv-pause');
+    hide('sv-hud');
+    hide('sv-end');
+    show('sv-title');
   }
 
   function quitToTitle() {
@@ -2951,14 +3259,7 @@
     if (app && typeof app.exitApp === 'function') {
       try { app.exitApp(); return; } catch (e) {}
     }
-    state = 'title';
-    joy.on = false;
-    clearBossUi();
-    syncVowChrome();
-    hide('sv-pause');
-    hide('sv-hud');
-    hide('sv-end');
-    show('sv-title');
+    abandonToTitle();
   }
 
   function capacitorApp() {
@@ -3099,7 +3400,9 @@
     }
     const fps = $('sv-fps');
     if (fps && debug) {
-      const text = Math.round(fpsSmooth) + ' fps' + (bench ? ' · ' + enemies.length + ' foes' : '');
+      const text = bench
+        ? (Math.round(fpsSmooth) + ' fps · ' + enemies.length + ' foes')
+        : debugHudText();
       if (text !== hudFpsText) {
         hudFpsText = text;
         fps.classList.remove('hidden');
@@ -3150,6 +3453,61 @@
     foeDraw.time = animT;
     SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
     drawTell(en, x, y);
+    drawTypeLabel(en, x, y);
+  }
+
+  function foeTypeTag(en) {
+    if (!en) return 'SKEL';
+    if (en.bossKind === 'warden') return 'WARDEN';
+    if (en.bossKind === 'demon' || en.boss) return 'DEMON';
+    if (en.eid === 'shooter') return 'CASTER';
+    if (en.eid === 'charger') return 'CHARGER';
+    if (en.eid === 'brute') return 'BRUTE';
+    if (en.eid === 'imp') return 'IMP';
+    return 'SKEL';
+  }
+
+  function drawTypeLabel(en, x, y) {
+    if (!debug || bench || !en || en.life <= 0 || en.dying > 0) return;
+    const text = foeTypeTag(en);
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#140e0c';
+    ctx.strokeText(text, x, y - 20);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, x, y - 20);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function liveTypeCounts() {
+    const c = { skel: 0, imp: 0, charger: 0, caster: 0, brute: 0, warden: 0, demon: 0 };
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.life <= 0 || en.dying > 0) continue;
+      if (en.bossKind === 'warden') c.warden += 1;
+      else if (en.bossKind === 'demon' || en.boss) c.demon += 1;
+      else if (en.eid === 'shooter') c.caster += 1;
+      else if (en.eid === 'charger') c.charger += 1;
+      else if (en.eid === 'brute') c.brute += 1;
+      else if (en.eid === 'imp') c.imp += 1;
+      else c.skel += 1;
+    }
+    return c;
+  }
+
+  function debugHudText() {
+    const c = liveTypeCounts();
+    return Math.round(fpsSmooth) + ' fps'
+      + ' skel ' + c.skel
+      + ' imp ' + c.imp
+      + ' charger ' + c.charger
+      + ' caster ' + c.caster
+      + ' brute ' + c.brute
+      + ' warden ' + c.warden
+      + ' demon ' + c.demon
+      + ' revival ' + revivalLeft;
   }
 
   function drawTell(en, x, y) {
@@ -3507,6 +3865,39 @@
     return target && target.closest && target.closest('button, a, .sv-card, .panel, #adtest-panel, #adtest-prompt');
   }
 
+  function restoreDouble() {
+    if (doubled) return;
+    doubleLocked = false;
+    const btn = $('sv-double');
+    if (!btn) return;
+    const offer = !!(adsOn && (state === 'dead' || state === 'won'));
+    btn.disabled = !offer;
+    btn.classList.toggle('hidden', !offer);
+  }
+
+  function handleAd(kind, reason) {
+    if (kind === 'gold' && reason !== 'accept') {
+      restoreDouble();
+      return;
+    }
+    if (reason !== 'accept') return;
+    if (kind === 'reroll' && state === 'levelup') rerollOffers();
+    if (kind === 'revive' && state === 'dead' && !revived) revivePlayer();
+    if (kind === 'gold' && (state === 'dead' || state === 'won')) applyDoubleGold();
+  }
+
+  function pressDouble() {
+    if (doubleLocked || doubled) return 'locked';
+    if (state !== 'dead' && state !== 'won') return 'closed';
+    doubleLocked = true;
+    const btn = $('sv-double');
+    if (btn) btn.disabled = true;
+    let offered = 'unavailable';
+    try { offered = Ads.offerDoubleGold(); } catch (e) { offered = 'error'; }
+    if (offered !== 'shown' && offered !== 'held' && offered !== 'queued') restoreDouble();
+    return offered;
+  }
+
   function applyDoubleGold() {
     if (doubled) return false;
     if (state !== 'dead' && state !== 'won') return false;
@@ -3566,13 +3957,8 @@
       try { Ads.offerRevive(); } catch (e) {}
     });
     $('sv-double').addEventListener('click', () => {
-      if (tapBlocked() || doubleLocked || doubled) return;
-      if (state !== 'dead' && state !== 'won') return;
-      const btn = $('sv-double');
-      if (btn && btn.disabled) return;
-      doubleLocked = true;
-      if (btn) btn.disabled = true;
-      try { Ads.offerDoubleGold(); } catch (e) {}
+      if (tapBlocked()) return;
+      pressDouble();
     });
     $('sv-reroll').addEventListener('click', () => {
       if (tapBlocked()) return;
@@ -3663,12 +4049,7 @@
         if (kind === 'gold') return state === 'dead' || state === 'won';
         return false;
       });
-      Ads.onResult((kind, reason) => {
-        if (reason !== 'accept') return;
-        if (kind === 'reroll' && state === 'levelup') rerollOffers();
-        if (kind === 'revive' && state === 'dead' && !revived) revivePlayer();
-        if (kind === 'gold' && (state === 'dead' || state === 'won')) applyDoubleGold();
-      });
+      Ads.onResult((kind, reason) => handleAd(kind, reason));
     } catch (e) {}
     syncReducedMotion();
     if (reduceQuery && typeof reduceQuery.addEventListener === 'function') {
@@ -3974,7 +4355,22 @@
       evolved: Object.keys(evolved),
       sweepKills: sweepKills,
       pending: pendingLevels,
+      drops: itemDrops,
+      rareAt: rareAt,
+      epicAt: epicAt,
+      legendAt: legendAt,
+      legendDrops: legendDrops,
+      demonLegend: demonLegend,
+      elites: eliteN,
+      lastHit: lastHit,
       secondChance: secondChance,
+      revivalLeft: revivalLeft,
+      toast: toastText,
+      doubleLocked: doubleLocked,
+      evoHold: evoHold,
+      evoSlow: evoSlow,
+      evolving: evolvePending || '',
+      castersCleared: castersCleared,
       banner: banner,
       novas: shots.filter((s) => s.kind === 'nova').length,
       owned: Object.assign({}, owned),
@@ -4050,6 +4446,52 @@
       }
       return n;
     };
+    window.__svBands = () => {
+      const bands = [0, 0, 0, 0];
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (en.life <= 0 || en.dying > 0) continue;
+        const d = len2(en.x - player.x, en.y - player.y);
+        if (d < 3) bands[0] += 1;
+        else if (d < 8) bands[1] += 1;
+        else if (d < 16) bands[2] += 1;
+        else bands[3] += 1;
+      }
+      return bands;
+    };
+    window.__svSeedItem = (rarity) => {
+      let item = null;
+      try { item = SurvivorSave.createItem('iron-blade', rarity || 'common'); } catch (e) { item = null; }
+      if (!item) item = { id: 'item-' + gems.length, rarity: rarity || 'common', name: rarity || 'common' };
+      const g = gemPool.pop() || {};
+      g.x = player.x;
+      g.y = player.y;
+      g.kind = 'item';
+      g.item = item;
+      g.value = 0;
+      g.vx = 0;
+      g.vy = 0;
+      g.fly = 0;
+      g.age = 0;
+      g.big = false;
+      g.shower = 0;
+      gems.push(g);
+      if (rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
+      return item.id;
+    };
+    window.__svGround = () => {
+      const out = [];
+      for (let i = 0; i < gems.length; i++) {
+        const g = gems[i];
+        if (g.kind !== 'item' || !g.item) continue;
+        out.push({ id: g.item.id, rarity: g.item.rarity, name: g.item.name || '', age: g.age || 0, x: g.x, y: g.y });
+      }
+      return out;
+    };
+    window.__svMaintain = (dt) => {
+      maintainGround(dt || 0);
+      return window.__svGround();
+    };
     window.__svIdleStep = (dt) => {
       if (state === 'hermit') declineHermit();
       if (state === 'levelup') {
@@ -4110,8 +4552,36 @@
         pickLeft = 0;
         pendingLevels = 0;
         state = 'playing';
+        releaseEvolution();
       }
       if (state === 'hermit') declineHermit();
+      return snapRun();
+    };
+    window.__svPause = () => { openPause(); return snapRun(); };
+    window.__svResume = () => { resumePlay(); return snapRun(); };
+    window.__svReduce = (on) => { reduceMotion = !!on; syncReducedMotion(!!on); return snapRun(); };
+    window.__svAd = (kind, reason) => { handleAd(kind, reason || 'dismiss'); return snapRun(); };
+    window.__svPressDouble = () => pressDouble();
+    window.__svRestart = () => { startRun(); return snapRun(); };
+    window.__svMenu = () => { abandonToTitle(); return snapRun(); };
+    window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
+    window.__svSetTime = (t) => { time = t; return snapRun(); };
+    window.__svDebugLine = () => debugHudText();
+    window.__svTags = () => {
+      const out = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (!en || en.life <= 0 || en.dying > 0) continue;
+        out.push(foeTypeTag(en));
+      }
+      return out;
+    };
+    window.__svSlay = (kind) => {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const en = enemies[i];
+        if (kind && en.bossKind !== kind && en.eid !== kind) continue;
+        damageEnemy(en, (en.life || 1) + 8, true);
+      }
       return snapRun();
     };
     window.__svForceEvos = () => {
@@ -4135,6 +4605,10 @@
         else if (!en.boss && !en.elite && !trash) trash = en;
       }
       if (!boss || !trash) return { bossFlashes: -1, trashFlashes: -1 };
+      if (trash.life < 30) {
+        trash.maxLife = 40;
+        trash.life = 40;
+      }
       let bossFlashes = 0;
       let trashFlashes = 0;
       for (let n = 0; n < 20; n++) {

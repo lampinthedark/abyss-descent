@@ -129,7 +129,7 @@ if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file sho
 if (!html.includes('survivor-sprites.js?v=6.1')) fail('sprite module');
 if (!html.includes('survivor-items.js?v=6.1')) fail('items module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
+if (!index.includes('survivor.html?v=6.1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
 
 const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');

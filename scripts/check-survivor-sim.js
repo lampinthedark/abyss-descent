@@ -109,27 +109,74 @@ function boot(seed0, search, storage) {
   files.forEach((name) => {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
   });
-  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave;', context);
+  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof FX !== "undefined") this.FX = FX;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
   return context;
 }
 
 function idleDeath() {
-  const game = boot();
-  game.__svStart();
-  let deadAt = null;
-  for (let t = 0; t < 190; t += 0.05) {
-    const snap = game.__svIdleStep(0.05);
-    if (snap.state === 'dead') {
-      deadAt = snap.time;
-      break;
+  const times = [];
+  for (let seed = 1; seed <= 8; seed++) {
+    const game = boot(seed);
+    game.__svStart();
+    let deadAt = null;
+    for (let t = 0; t < 190; t += 0.05) {
+      const snap = game.__svIdleStep(0.05);
+      if (snap.state === 'dead') {
+        deadAt = snap.time;
+        break;
+      }
     }
+    if (deadAt == null) fail('seed ' + seed + ' idle hero was still alive at 3:00');
+    if (deadAt < 45 || deadAt >= 60) fail('seed ' + seed + ' idle death ' + deadAt.toFixed(1) + 's (want 45–60)');
+    times.push(deadAt.toFixed(1));
   }
-  if (deadAt == null) fail('idle hero was still alive at 3:00');
-  if (deadAt < 105) fail('idle hero died too early at ' + deadAt.toFixed(1) + 's');
-  if (deadAt > 180) fail('idle hero died after 3:00 at ' + deadAt.toFixed(1) + 's');
-  console.log('idle death ' + deadAt.toFixed(1) + 's');
-  return deadAt;
+  console.log('idle death ' + times.join(' '));
+  return times;
+}
+
+function groundCap() {
+  const game = boot(3);
+  const fx = game.FX;
+  const live = new Set();
+  const beam = fx.beam.bind(fx);
+  const off = fx.beamOff.bind(fx);
+  const reset = fx.reset.bind(fx);
+  fx.beam = (id, x, y, rarity) => { live.add(String(id)); beam(id, x, y, rarity); };
+  fx.beamOff = (id) => { live.delete(String(id)); off(id); };
+  fx.reset = () => { live.clear(); reset(); };
+  game.__svStart();
+  live.clear();
+  const planted = { common: 50, uncommon: 15, rare: 8, epic: 3, legendary: 2 };
+  Object.keys(planted).forEach((rarity) => {
+    for (let i = 0; i < planted[rarity]; i++) game.__svSeedItem(rarity);
+  });
+  let ground = game.__svGround();
+  if (ground.length !== 78) fail('planted ' + ground.length + ' items');
+  let guard = 0;
+  while (guard++ < 8 && ground.length > 60) ground = game.__svMaintain(0.05);
+  const rares = ground.filter((g) => g.rarity === 'rare' || g.rarity === 'epic' || g.rarity === 'legendary');
+  if (rares.length !== 13) fail('cap ate rare+ ' + rares.length);
+  if (ground.length > 60) fail('ground cap left ' + ground.length);
+  rares.forEach((g) => {
+    if (!live.has(String(g.id))) fail('rare+ missing a beam ' + g.rarity);
+  });
+  if (live.size !== rares.length) fail('beams ' + live.size + ' vs rare+ ' + rares.length);
+  ground = game.__svMaintain(31);
+  const left = ground.filter((g) => g.rarity === 'common' || g.rarity === 'uncommon');
+  const kept = ground.filter((g) => g.rarity === 'rare' || g.rarity === 'epic' || g.rarity === 'legendary');
+  if (left.length) fail('common/uncommon still on the ground after 30s: ' + left.length);
+  if (kept.length !== 13) fail('aged rare+ ' + kept.length);
+  if (live.size !== kept.length) fail('beams after age ' + live.size);
+  const pile = boot(4);
+  pile.__svStart();
+  for (let i = 0; i < 65; i++) pile.__svSeedItem('rare');
+  const stuck = pile.__svMaintain(31);
+  if (stuck.length !== 65) fail('rare+ vanished under the cap: ' + stuck.length);
+  game.__svStart();
+  if (live.size !== 0) fail('restart left ' + live.size + ' beams');
+  if (game.__svGround().length !== 0) fail('restart left ground items');
+  console.log('ground cap keeps rare+ and clears beams on restart');
 }
 
 function vows() {
@@ -226,12 +273,20 @@ function levelTimeline(seed) {
   }
   const early = times.filter((stamp) => stamp <= 120);
   console.log('level-ups', times.join(', ') || 'none', end ? ('ended ' + end.state + ' ' + end.time.toFixed(1)) : 'still going');
-  if (early.length < 5 || early.length > 7) fail('expected 5 to 7 level-ups in 2 minutes, got ' + early.length);
+  // 6.1 one-hit trash feeds XP faster than the old 5–7 curve. The band
+  // still fails a starved run and a runaway one.
+  if (early.length < 9 || early.length > 14) fail('expected 9 to 14 level-ups in 2 minutes, got ' + early.length);
+  if (times[0] > 15) fail('first level-up at ' + times[0] + 's');
+  let late = 0;
+  let worst = 0;
   for (let i = 1; i < times.length; i++) {
     if (times[i] <= 120) continue;
+    late += 1;
     const gap = times[i] - times[i - 1];
-    if (gap < 18 || gap > 40) fail('late level gap ' + gap.toFixed(1) + 's at ' + times[i]);
+    if (gap > worst) worst = gap;
   }
+  if (late < 6) fail('expected the climb to keep going after 2:00, got ' + late);
+  if (worst > 40) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
   return times;
 }
 
@@ -285,12 +340,57 @@ function twoEvos() {
   game.__svStart();
   const armed = game.__svForceEvos();
   if (armed.evolved.length < 2) fail('both evolutions should queue, got ' + armed.evolved.join(','));
-  for (let i = 0; i < 16; i++) game.__svStep(0.05);
+  for (let i = 0; i < 70; i++) game.__svStep(0.05);
   const log = game.__svEvoLog();
   const ids = log.map((row) => row.id).sort();
   if (ids.join(',') !== 'halo,storm') fail('evolution log ' + JSON.stringify(log));
   if (log.length < 2 || log[0].tick === log[1].tick) fail('evolutions landed on the same step ' + JSON.stringify(log));
   console.log('evolutions', JSON.stringify(log));
+}
+
+function secondChanceThreeRuns() {
+  const game = boot(4, '?headless=1&debug=1&adtest=1');
+  game.__svBank(500);
+  const buy = game.__svBuy('revival');
+  if (!buy.ok) fail('revival buy ' + JSON.stringify(buy));
+  function prove(label) {
+    const armed = game.__svSnap();
+    if (armed.state !== 'playing') fail(label + ' state ' + armed.state);
+    if (armed.revivalLeft !== 1) fail(label + ' revivalLeft ' + armed.revivalLeft);
+    if (armed.secondChance !== 0) fail(label + ' secondChance carried ' + armed.secondChance);
+    const line = game.__svDebugLine();
+    if (line.indexOf('revival 1') < 0) fail(label + ' overlay ' + line);
+    const saved = game.__svHurt(9999);
+    if (saved.state !== 'playing') fail(label + ' did not save ' + saved.state);
+    if (saved.banner !== 'Second Chance!') fail(label + ' banner ' + saved.banner);
+    if (saved.secondChance !== 1) fail(label + ' count ' + saved.secondChance);
+    if (saved.secondChanceFx !== 1) fail(label + ' fx ' + saved.secondChanceFx);
+    if (saved.revivalLeft !== 0) fail(label + ' stayed armed');
+    const expect = Math.round(saved.maxLife * 0.3);
+    if (Math.abs(saved.life - expect) > 1) fail(label + ' life ' + saved.life + ' want ~' + expect);
+    const dead = game.__svHurt(9999);
+    if (dead.state !== 'dead') fail(label + ' second hit ' + dead.state);
+    if (dead.secondChanceFx !== 1) fail(label + ' fx fired twice');
+    return dead;
+  }
+  game.__svStart();
+  prove('run1');
+  const restarted = game.__svRestart();
+  if (restarted.state !== 'playing') fail('restart state ' + restarted.state);
+  if (restarted.revivalLeft !== 1) fail('restart revivalLeft ' + restarted.revivalLeft);
+  prove('restart');
+  const revived = game.__svRevive();
+  if (revived.state !== 'playing') fail('revive state ' + revived.state);
+  if (revived.revivalLeft !== 0) fail('revive re-armed revivalLeft');
+  if (revived.secondChance !== 1) fail('revive reset secondChance ' + revived.secondChance);
+  const afterRevive = game.__svHurt(9999);
+  if (afterRevive.state !== 'dead') fail('revive path lived through a lethal hit ' + afterRevive.state);
+  if (afterRevive.secondChanceFx !== 1) fail('revive path fired Second Chance again');
+  game.__svMenu();
+  const third = game.__svStart();
+  if (third.revivalLeft !== 1) fail('menu return revivalLeft ' + third.revivalLeft);
+  prove('menu');
+  console.log('second chance on three runs: restart, revive, menu');
 }
 
 function secondChance() {
@@ -363,7 +463,7 @@ function bossDuel(label, search, name, seed) {
       diedAt = snap.time;
       break;
     }
-    if (snap.state === 'dead') fail(label + ' hero died at ' + snap.time.toFixed(1) + ' boss ' + snap.bossLife);
+    if (snap.state === 'dead') fail(label + ' hero died at ' + snap.time.toFixed(1) + ' boss ' + snap.bossLife + ' hit ' + snap.lastHit + ' hp ' + snap.life);
   }
   if (diedAt == null) fail(label + ' still up after 55s, hp ' + snap.bossLife + '/' + startHp);
   const fight = diedAt - start;
@@ -378,16 +478,19 @@ function bossDuel(label, search, name, seed) {
     if (!at) fail('chest has no position');
     game.__svPan(at.x + 40, at.y);
     if (!game.__svChestArrow()) fail('off-screen chest drew no edge arrow');
-    game.__svPan(at.x, at.y);
-    let got = false;
+    const held = game.__svChestAt();
+    game.__svMove(0, 0);
+    game.__svPan(held.x, held.y);
+    let opened = null;
     for (let n = 0; n < 20; n++) {
       const picked = game.__svStep(0.05);
-      if (!picked.chest) { got = true; break; }
+      if (picked.state === 'levelup' || picked.state === 'hermit') game.__svDismiss();
+      if (!picked.chest) { opened = picked; break; }
     }
-    if (!got) fail('hero could not collect the chest');
-    const bag = game.__svBag();
-    if (!bag.some((item) => item.rarity === 'rare')) fail('chest did not grant a rare: ' + bag.map((item) => item.rarity).join(','));
-    console.log('chest arrow and pickup, ' + bag.map((item) => item.rarity).join(','));
+    if (!opened) fail('hero could not open the chest');
+    const rares = game.__svGround().filter((g) => g.rarity === 'rare');
+    if (rares.length < 1) fail('chest did not drop a rare on the ground');
+    console.log('chest stayed put, then dropped ' + rares.length + ' rare');
   }
   return fight;
 }
@@ -492,6 +595,7 @@ function vowsCompletedOnly() {
   }
   snap = lived.__svAccept();
   if (!snap.vowBadge) fail('badge missing during the vow');
+  lived.__svMove(1, 0);
   let cleared = false;
   for (let i = 0; i < 1600; i++) {
     snap = lived.__svStep(0.05);
@@ -886,16 +990,438 @@ function bossLook() {
   console.log('boss outline, scale, and warning');
 }
 
+function rexMetrics() {
+  const rows = [];
+  for (let seed = 1; seed <= 8; seed++) {
+    const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+    game.__svStart();
+    const view = game.__svView(390, 844, 3);
+    const marks = {};
+    let snap = game.__svSnap();
+    const want = [8, 60, 90, 180, 240, 300, 480];
+    let wi = 0;
+    for (let n = 0; n < 20000 && wi < want.length; n++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'hermit') snap = game.__svDecline();
+      if (snap.state === 'levelup') {
+        const ids = game.__svOffers();
+        const owned = snap.owned || {};
+        const order = [];
+        if ((owned.orbit || 0) >= 5 && !(owned.tempo > 0)) order.push('tempo');
+        else if ((owned.orbit || 0) >= 3 && !(owned.tempo > 0)) order.push('tempo');
+        if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+        if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
+        if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
+        order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'vitality', 'might', 'pierce', 'haste', 'area');
+        if (snap.life < snap.maxLife * 0.55) order.unshift('heal', 'vitality');
+        else if (snap.life < snap.maxLife * 0.8) order.unshift('vitality');
+        let pick = 0;
+        for (let p = 0; p < order.length; p++) {
+          const at = ids.indexOf(order[p]);
+          if (at >= 0) { pick = at; break; }
+        }
+        snap = game.__svChoose(pick);
+      }
+      if (snap.state === 'dead' || snap.state === 'won') break;
+      while (wi < want.length && snap.time >= want[wi]) {
+        marks[want[wi]] = {
+          t: Number(snap.time.toFixed(1)),
+          ups: snap.levelUps,
+          on: game.__svOnScreen(),
+          n: snap.enemies,
+          kills: snap.kills,
+          drops: snap.drops,
+          rareAt: snap.rareAt < 0 ? null : Number(snap.rareAt.toFixed(1)),
+          epicAt: snap.epicAt < 0 ? null : Number(snap.epicAt.toFixed(1)),
+          legendAt: snap.legendAt < 0 ? null : Number(snap.legendAt.toFixed(1)),
+          legends: snap.legendDrops,
+          elites: snap.elites,
+          hp: Math.round(snap.life),
+          max: snap.maxLife,
+          state: snap.state,
+          demon: snap.demonLegend,
+          boss: snap.boss,
+          bands: game.__svBands(),
+        };
+        wi += 1;
+      }
+    }
+    let demonMint = '';
+    try { demonMint = game.SurvivorSave.mintDrop('demon').rarity; } catch (e) { demonMint = 'err'; }
+    rows.push({ seed: seed, view: view, end: snap.state, endT: Number(snap.time.toFixed(1)), demonMint: demonMint, marks: marks });
+    console.log('seed', seed, snap.state, snap.time.toFixed(1), snap.lastHit, 'hp', Math.round(snap.life));
+  }
+  const line = (label, pick) => label + ' ' + rows.map(pick).join(' ');
+  console.log(line('lv1', (r) => (r.marks[8] && r.marks[8].ups >= 1 ? 'Y' : 'N')));
+  console.log(line('ups60', (r) => (r.marks[60] ? r.marks[60].ups : '-')));
+  console.log(line('on60', (r) => (r.marks[60] ? r.marks[60].on : '-')));
+  console.log(line('on180', (r) => (r.marks[180] ? r.marks[180].on : '-')));
+  console.log(line('on480', (r) => (r.marks[480] ? r.marks[480].on : '-')));
+  console.log(line('n180', (r) => (r.marks[180] ? r.marks[180].n : '-')));
+  console.log(line('n480', (r) => (r.marks[480] ? r.marks[480].n : '-')));
+  console.log(line('k180', (r) => (r.marks[180] ? r.marks[180].kills : '-')));
+  console.log(line('drops', (r) => (r.marks[480] ? r.marks[480].drops : '-')));
+  console.log(line('rare', (r) => (r.marks[480] ? r.marks[480].rareAt : '-')));
+  console.log(line('epic', (r) => (r.marks[480] ? r.marks[480].epicAt : '-')));
+  console.log(line('leg', (r) => (r.marks[480] ? r.marks[480].legends + '@' + r.marks[480].legendAt : '-')));
+  console.log(line('elites', (r) => (r.marks[480] ? r.marks[480].elites : '-')));
+  console.log(line('end', (r) => r.end + r.endT));
+  console.log(line('mint', (r) => r.demonMint));
+}
+
+function chestAtCap() {
+  const game = boot(3, '?headless=1&debug=1');
+  const fx = game.FX;
+  const live = new Set();
+  const kills = [];
+  const beam = fx.beam.bind(fx);
+  const off = fx.beamOff.bind(fx);
+  const kill = fx.kill.bind(fx);
+  fx.beam = (id, x, y, rarity) => { live.add(String(id)); return beam(id, x, y, rarity); };
+  fx.beamOff = (id) => { live.delete(String(id)); return off(id); };
+  fx.kill = (x, y, type, opts) => { kills.push({ type: type, color: opts && opts.color, elite: opts && opts.elite }); return kill(x, y, type, opts); };
+  game.__svStart();
+  game.__svSeedGems(180, 12);
+  game.__svSpawn('brute', 4, 0, 'warden');
+  const slain = game.__svSlay('warden');
+  if (!slain.chest) fail('chest missing at gem cap, gems ' + slain.gems);
+  const at = game.__svChestAt();
+  const gx = at.x;
+  const gy = at.y;
+  game.__svPan(gx + 2.4, gy);
+  for (let n = 0; n < 60; n++) {
+    const step = game.__svStep(0.05);
+    if (step.state === 'levelup' || step.state === 'hermit') game.__svDismiss();
+  }
+  const held = game.__svChestAt();
+  if (!held) fail('chest vacuumed inside magnet range');
+  if (Math.abs(held.x - gx) > 0.05 || Math.abs(held.y - gy) > 0.05) fail('chest moved');
+  game.__svPan(held.x, held.y);
+  let opened = false;
+  for (let n = 0; n < 8; n++) {
+    const snap = game.__svStep(0.05);
+    if (!snap.chest) { opened = true; break; }
+  }
+  if (!opened) fail('chest did not open on contact');
+  const chestKills = kills.filter((k) => k.type === 'chest');
+  if (chestKills.length !== 1 || chestKills[0].elite !== true || chestKills[0].color !== '#4c7cff') {
+    fail('FX.kill chest ' + JSON.stringify(chestKills));
+  }
+  const rares = game.__svGround().filter((g) => g.rarity === 'rare');
+  if (rares.length !== 1) fail('rare entities ' + rares.length);
+  if (!live.has(String(rares[0].id))) fail('rare has no beam');
+  game.__svPan(rares[0].x, rares[0].y);
+  let toast = '';
+  for (let n = 0; n < 8; n++) {
+    const snap = game.__svStep(0.05);
+    if (snap.toast) toast = snap.toast;
+    if (!game.__svGround().some((g) => g.id === rares[0].id)) break;
+  }
+  if (live.has(String(rares[0].id))) fail('beamOff did not run on pickup');
+  if (toast.indexOf('Rare:') !== 0) fail('toast ' + toast);
+  const bag = game.__svBag();
+  if (!bag.some((item) => item.rarity === 'rare')) fail('pickup did not enter the bag');
+  console.log('chest at 180 gems, ' + toast);
+}
+
+function doubleGoldCancel() {
+  const game = boot(2, '?headless=1&adtest=1');
+  game.__svStart();
+  game.__svGoldProbe(100, 1);
+  let snap = game.__svHurt(9999);
+  if (snap.state !== 'dead') fail('double-gold cancel setup ' + snap.state);
+  const offered = game.__svPressDouble();
+  if (offered !== 'shown') fail('double offer ' + offered);
+  snap = game.__svAd('gold', 'dismiss');
+  if (snap.doubleLocked) fail('cancel left doubleLocked set');
+  if (!snap.doubleOffered) fail('cancel did not restore the button');
+  if (snap.gold !== 100) fail('cancel paid gold ' + snap.gold);
+  snap = game.__svAd('gold', 'accept');
+  if (snap.gold !== 200) fail('completed ad paid ' + snap.gold);
+  snap = game.__svAd('gold', 'accept');
+  if (snap.gold !== 200) fail('second complete paid again ' + snap.gold);
+  if (snap.doubleOffered) fail('button stayed up after paying');
+  const again = boot(4, '?headless=1&adtest=1');
+  again.__svStart();
+  again.__svGoldProbe(80, 1);
+  again.__svHurt(9999);
+  again.__svPressDouble();
+  let back = again.__svAd('gold', 'dismiss');
+  if (back.doubleLocked || !back.doubleOffered) fail('dismiss before revive ' + JSON.stringify({ locked: back.doubleLocked, offered: back.doubleOffered }));
+  back = again.__svRevive();
+  if (back.state !== 'playing') fail('revive ' + back.state);
+  back = again.__svHurt(9999);
+  if (back.state !== 'dead') fail('death after revive ' + back.state);
+  if (back.doubleLocked) fail('revive left the button locked');
+  if (!back.doubleOffered) fail('revive hid double gold');
+  const paid = again.__svAd('gold', 'accept');
+  if (paid.gold !== 160) fail('revive-path pay ' + paid.gold);
+  if (paid.doubleOffered) fail('revive-path paid twice');
+  console.log('double gold cancel then pay once, revive keeps the button');
+}
+
+function evoModalGate() {
+  const game = boot(6, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svOpenLevel();
+  game.__svGive('orbit', 5);
+  game.__svGive('tempo', 1);
+  let snap = game.__svForceEvos();
+  if (snap.evolved.length || snap.evolving || snap.evoSlow > 0) fail('evolution fired on the card screen');
+  snap = game.__svDismiss();
+  if (!snap.evolving && snap.evolved.length === 0 && !(snap.evoSlow > 0)) fail('evolution did not start when cards closed');
+  const hermit = boot(6, '?headless=1&debug=1');
+  hermit.__svStart();
+  hermit.__svOpenHermit();
+  hermit.__svGive('nova', 5);
+  hermit.__svGive('cinder', 1);
+  snap = hermit.__svForceEvos();
+  if (snap.evolved.length || snap.evolving) fail('evolution fired while the hermit was open');
+  snap = hermit.__svDecline();
+  if (!snap.evolving && snap.evolved.length === 0) fail('evolution did not start when the hermit closed');
+  const paused = boot(6, '?headless=1&debug=1');
+  paused.__svStart();
+  paused.__svPause();
+  paused.__svGive('orbit', 5);
+  paused.__svGive('tempo', 1);
+  snap = paused.__svForceEvos();
+  if (snap.state !== 'paused') fail('pause state ' + snap.state);
+  if (snap.evolved.length || snap.evolving) fail('evolution fired while paused');
+  snap = paused.__svResume();
+  if (!snap.evolving && snap.evolved.length === 0) fail('evolution did not start on resume');
+  const dead = boot(6, '?headless=1&debug=1');
+  dead.__svStart();
+  dead.__svHurt(9999);
+  dead.__svGive('orbit', 5);
+  dead.__svGive('tempo', 1);
+  snap = dead.__svForceEvos();
+  if (snap.evolved.length || snap.evolving) fail('evolution fired on the death screen');
+  const slow = boot(8, '?headless=1&debug=1');
+  slow.__svStart();
+  slow.__svGive('orbit', 5);
+  slow.__svGive('tempo', 1);
+  snap = slow.__svForceEvos();
+  if (slow.__svEvoLog().length) fail('evolution committed before the slow-mo');
+  if (!(snap.evoSlow > 0)) fail('slow-mo did not start');
+  const t0 = snap.time;
+  for (let n = 0; n < 4; n++) snap = slow.__svStep(0.05);
+  const moved = snap.time - t0;
+  if (moved > 0.07 || moved < 0.04) fail('slow-mo scale ' + moved.toFixed(3) + ' over 0.2s');
+  for (let n = 0; n < 12 && !snap.evolved.length; n++) snap = slow.__svStep(0.05);
+  if (!snap.evolved.length) fail('evolution did not commit after 0.5s');
+  const quiet = boot(8, '?headless=1&debug=1');
+  quiet.__svStart();
+  quiet.__svReduce(true);
+  quiet.__svGive('orbit', 5);
+  quiet.__svGive('tempo', 1);
+  snap = quiet.__svForceEvos();
+  if (!snap.evolved.length) fail('reduced motion did not evolve immediately');
+  if (snap.evoSlow > 0) fail('reduced motion slowed the clock');
+  if (!snap.banner) fail('reduced motion had no banner');
+  console.log('evolution waits for play, then 0.5s at 30%');
+}
+
+function casterClearPaths() {
+  const clock = boot(1, '?headless=1&debug=1&t=140');
+  clock.__svStart();
+  if (clock.__svSnap().boss) fail('clock path spawned the warden early');
+  for (let i = 0; i < 5; i++) clock.__svSpawn('shooter', 2.4, (i - 2) * 0.35);
+  if (clock.__svCount('shooter') !== 5) fail('clock plant ' + clock.__svCount('shooter'));
+  clock.__svSetTime(149.96);
+  let snap = clock.__svSnap();
+  for (let n = 0; n < 6 && snap.boss !== 'Grave Warden'; n++) {
+    snap = clock.__svStep(0.05);
+    if (snap.state === 'levelup' || snap.state === 'hermit') snap = clock.__svDismiss();
+  }
+  if (snap.boss !== 'Grave Warden') fail('clock warden ' + snap.boss);
+  if (clock.__svCount('shooter') !== 0) fail('clock casters left ' + clock.__svCount('shooter'));
+  clock.__svSetTime(320);
+  for (let n = 0; n < 30; n++) {
+    snap = clock.__svStep(0.05);
+    if (snap.state !== 'playing') snap = clock.__svDismiss();
+  }
+  if (clock.__svCount('shooter') !== 0) fail('caster spawned during the warden');
+  const jump = boot(2, '?headless=1&debug=1&t=148');
+  jump.__svPlantCasters(5);
+  jump.__svStart();
+  if (jump.__svSnap().boss !== 'Grave Warden') fail('jump warden missing');
+  if (jump.__svCount('shooter') !== 0) fail('jump casters left ' + jump.__svCount('shooter'));
+  if (jump.__svSnap().castersCleared < 5) fail('jump cleared ' + jump.__svSnap().castersCleared);
+  console.log('warden clears casters on the clock and the t=148 jump');
+}
+
+function bossOutlinePixels() {
+  const game = boot(1, '?headless=1&debug=1');
+  const sprites = game.SurvivorSprites;
+  if (sprites.BOSS_OUTLINE_COLOR !== '#ff5ad6' || sprites.BOSS_OUTLINE_PX !== 2) {
+    fail('outline spec ' + sprites.BOSS_OUTLINE_COLOR + ' ' + sprites.BOSS_OUTLINE_PX);
+  }
+  const src = new Uint8ClampedArray(4 * 4 * 4);
+  src[0] = 20; src[1] = 20; src[2] = 20; src[3] = 255;
+  const grown = sprites.bakePixels(src, 4, 4, { outline: true });
+  if (grown.w !== 8 || grown.h !== 8) fail('outline grow ' + grown.w + 'x' + grown.h);
+  const corner = grown.data;
+  if (corner[0] !== 0xff || corner[1] !== 0x5a || corner[2] !== 0xd6 || corner[3] !== 255) {
+    fail('outline color ' + corner[0] + ',' + corner[1] + ',' + corner[2]);
+  }
+  game.__svStart();
+  game.__svSpawn('brute', 2, 0, 'warden');
+  game.__svSpawn('brute', -2, 0, 'demon');
+  const tags = game.__svTags();
+  if (tags.indexOf('WARDEN') < 0 || tags.indexOf('DEMON') < 0) fail('debug tags ' + tags.join(','));
+  const line = game.__svDebugLine();
+  if (line.indexOf('warden 1') < 0 || line.indexOf('demon 1') < 0 || line.indexOf('revival ') < 0) {
+    fail('debug line ' + line);
+  }
+  console.log('boss outline 2px #ff5ad6, labels ' + tags.join(' '));
+}
+
+function telegraphHook() {
+  const game = boot(3, '?headless=1&debug=1&t=140');
+  const calls = [];
+  const offs = [];
+  game.FX.telegraph = (id, x, y, ms) => { calls.push({ id: id, x: x, y: y, ms: ms }); };
+  game.FX.telegraphOff = (id) => { offs.push(id); };
+  game.__svStart();
+  game.__svSpawn('shooter', 4, 0);
+  let told = false;
+  for (let n = 0; n < 40 && !told; n++) {
+    game.__svStep(0.05);
+    if (calls.some((c) => c.ms === 700)) told = true;
+  }
+  if (!told) fail('shooter tell did not telegraph');
+  const id = calls[0].id;
+  game.__svSlay('shooter');
+  if (offs.indexOf(id) < 0) fail('telegraphOff missed ' + id + ' offs ' + offs.join(','));
+  console.log('telegraph 700ms and telegraphOff on death');
+}
+
+function pickCard(game, snap) {
+  const ids = game.__svOffers();
+  const owned = snap.owned || {};
+  const order = [];
+  if ((owned.orbit || 0) >= 5 && !(owned.tempo > 0)) order.push('tempo');
+  else if ((owned.orbit || 0) >= 3 && !(owned.tempo > 0)) order.push('tempo');
+  if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+  if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
+  if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
+  order.push('orbit', 'tempo', 'nova', 'cinder', 'bolt', 'vitality', 'might', 'pierce', 'haste', 'area');
+  if (snap.life < snap.maxLife * 0.55) order.unshift('heal', 'vitality');
+  else if (snap.life < snap.maxLife * 0.8) order.unshift('vitality');
+  let pick = 0;
+  for (let p = 0; p < order.length; p++) {
+    const at = ids.indexOf(order[p]);
+    if (at >= 0) { pick = at; break; }
+  }
+  return game.__svChoose(pick);
+}
+
+function balanceTable() {
+  const idle = [];
+  for (let seed = 1; seed <= 8; seed++) {
+    const game = boot(seed);
+    game.__svStart();
+    let deadAt = null;
+    let snap = game.__svSnap();
+    for (let i = 0; i < 1600; i++) {
+      snap = game.__svIdleStep(0.05);
+      if (snap.state === 'dead') { deadAt = snap.time; break; }
+    }
+    idle.push(deadAt == null ? 'alive' : deadAt.toFixed(1));
+  }
+  const rows = [];
+  for (let seed = 1; seed <= 8; seed++) {
+    const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+    game.__svStart();
+    game.__svView(390, 844, 3);
+    let snap = game.__svSnap();
+    let evo = null;
+    let wardenSpawn = null;
+    let wardenKill = null;
+    let sawWarden = false;
+    let onSum = 0;
+    let onN = 0;
+    let on60 = null;
+    let death = null;
+    let lastHit = '';
+    for (let n = 0; n < 12000; n++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'hermit') snap = game.__svDecline();
+      if (snap.state === 'levelup') {
+        if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
+        snap = pickCard(game, snap);
+      }
+      if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
+      if (!sawWarden && snap.boss === 'Grave Warden') {
+        sawWarden = true;
+        wardenSpawn = snap.time;
+      }
+      if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden') wardenKill = snap.time;
+      if (snap.time >= 45 && snap.time <= 75) {
+        onSum += game.__svOnScreen();
+        onN += 1;
+        if (on60 == null && snap.time >= 60) on60 = game.__svOnScreen();
+      }
+      if (snap.state === 'dead' || snap.state === 'won') {
+        death = snap.time;
+        lastHit = snap.lastHit;
+        break;
+      }
+      if (snap.time > 360) break;
+    }
+    const after = (evo != null && death != null) ? (death - evo) : (evo != null ? (snap.time - evo) : null);
+    const row = {
+      seed: seed,
+      idle: idle[seed - 1],
+      circle: death == null ? ('alive@' + snap.time.toFixed(1)) : death.toFixed(1),
+      hit: lastHit,
+      evo: evo == null ? '-' : evo.toFixed(1),
+      wardenAt: wardenSpawn == null ? '-' : wardenSpawn.toFixed(1),
+      wardenKill: wardenKill == null ? '-' : wardenKill.toFixed(1),
+      wardenTtk: (wardenSpawn != null && wardenKill != null) ? (wardenKill - wardenSpawn).toFixed(1) : '-',
+      afterEvo: after == null ? '-' : after.toFixed(1),
+      avgOn: onN ? (onSum / onN).toFixed(1) : '-',
+      on60: on60 == null ? '-' : String(on60),
+      state: snap.state,
+    };
+    rows.push(row);
+    console.log(JSON.stringify(row));
+  }
+  console.log('idle ' + idle.join(' '));
+  console.log('seed idle circle hit evo wardenSpawn wardenKill ttk afterEvo avgOn45-75 on60');
+  rows.forEach((r) => {
+    console.log([r.seed, r.idle, r.circle, r.hit, r.evo, r.wardenAt, r.wardenKill, r.wardenTtk, r.afterEvo, r.avgOn, r.on60].join(' '));
+  });
+}
+
+if (process.env.METRICS === '1') {
+  rexMetrics();
+  process.exit(0);
+}
+
+if (process.env.BALANCE === '1') {
+  balanceTable();
+  process.exit(0);
+}
+
 tapGuards();
 evoNeeds();
 freshAndFlags();
 bossLook();
 idleDeath();
+groundCap();
+chestAtCap();
+doubleGoldCancel();
+evoModalGate();
+casterClearPaths();
+bossOutlinePixels();
+telegraphHook();
 vows();
 hermitTwice();
 vowRevive();
 twoEvos();
 secondChance();
+secondChanceThreeRuns();
 boughtSecondChance();
 strideRefresh();
 doubleGoldOnce();
