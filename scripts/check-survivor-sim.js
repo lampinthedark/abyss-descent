@@ -1577,6 +1577,67 @@ function telegraphHook() {
   console.log('telegraph 700ms and telegraphOff on death');
 }
 
+function telegraphShapes() {
+  const armed = boot(3, '?headless=1&debug=1');
+  const lines = [];
+  const rings = [];
+  const offs = [];
+  armed.FX.telegraphLine = (id, x, y, toX, toY, ms, opts) => {
+    lines.push({ id: id, x: x, y: y, toX: toX, toY: toY, ms: ms, width: opts && opts.width });
+  };
+  armed.FX.telegraph = (id, x, y, ms, opts) => {
+    rings.push({ id: id, x: x, y: y, ms: ms, radius: opts && opts.radius });
+  };
+  armed.FX.telegraphOff = (id) => { offs.push(id); };
+  armed.__svStart();
+  armed.__svInvuln(30);
+  armed.__svGive('bolt', 0);
+  armed.__svSpawn('charger', 3.2, 0);
+  for (let n = 0; n < 20 && !lines.length; n++) armed.__svStep(0.05);
+  if (!lines.length) fail('charger did not telegraphLine');
+  const line = lines[0];
+  const span = Math.hypot(line.toX - line.x, line.toY - line.y);
+  if (!(span > 2.5 && span < 3.6)) fail('dash line length ' + span.toFixed(2));
+  if (!(line.width > 0)) fail('dash line width ' + line.width);
+  if (!(line.ms > 0)) fail('dash line ms ' + line.ms);
+  for (let n = 0; n < 6; n++) armed.__svStep(0.05);
+  if (!lines.some((call, i) => i > 0 && call.id === line.id)) fail('telegraphLine did not re-aim ' + line.id);
+  for (let n = 0; n < 40 && offs.indexOf(line.id) < 0; n++) armed.__svStep(0.05);
+  if (offs.indexOf(line.id) < 0) fail('telegraphOff missed dash ' + line.id);
+  armed.__svSpawn('brute', 3.4, 0.2, 'warden');
+  for (let n = 0; n < 80 && !rings.some((call) => call.ms === 550 && call.radius > 2); n++) armed.__svStep(0.05);
+  const slam = rings.filter((call) => call.ms === 550 && call.radius > 2).pop();
+  if (!slam) fail('slam telegraph missing');
+  if (!(Math.abs(slam.radius - 2.15) < 1e-6)) fail('slam radius ' + slam.radius);
+  for (let n = 0; n < 30 && offs.indexOf(slam.id) < 0; n++) armed.__svStep(0.05);
+  if (offs.indexOf(slam.id) < 0) fail('telegraphOff missed slam ' + slam.id);
+  console.log('telegraphLine re-aims, slam ring 2.15, both clear on the beat');
+
+  const plain = boot(4, '?headless=1&debug=1');
+  plain.__svStart();
+  plain.__svInvuln(20);
+  plain.__svGive('bolt', 0);
+  plain.__svSpawn('charger', 3.2, 0);
+  let fallback = [];
+  for (let n = 0; n < 20 && !fallback.length; n++) {
+    plain.__svStep(0.05);
+    fallback = plain.__svTells().filter((tell) => tell.kind === 'line');
+  }
+  if (!fallback.length) fail('dash fallback line missing');
+  plain.__svDraw();
+  plain.__svSpawn('brute', 3.4, 0.2, 'warden');
+  let ring = null;
+  for (let n = 0; n < 80 && !ring; n++) {
+    plain.__svStep(0.05);
+    ring = plain.__svTells().filter((tell) => tell.kind === 'ring' && tell.r > 2)[0];
+  }
+  if (!ring) fail('slam fallback ring missing');
+  plain.__svDraw();
+  for (let n = 0; n < 30 && plain.__svTells().some((tell) => tell.id === ring.id); n++) plain.__svStep(0.05);
+  if (plain.__svTells().some((tell) => tell.id === ring.id)) fail('slam fallback stayed up');
+  console.log('fallback dash line and slam ring draw after the hero');
+}
+
 function pickCard(game, snap) {
   const ids = game.__svOffers();
   const owned = snap.owned || {};
@@ -1749,6 +1810,7 @@ evoModalGate();
 casterClearPaths();
 bossOutlinePixels();
 telegraphHook();
+telegraphShapes();
 vows();
 forcedVow();
 hermitTwice();

@@ -1972,6 +1972,19 @@
     return (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
   }
 
+  const localTells = [];
+
+  function clearLocalTell(id) {
+    for (let i = localTells.length - 1; i >= 0; i--) {
+      if (localTells[i].id === id) localTells.splice(i, 1);
+    }
+  }
+
+  function putLocalTell(tell) {
+    clearLocalTell(tell.id);
+    localTells.push(tell);
+  }
+
   function telegraph(en, index, tellMs) {
     const box = fxBox();
     if (box && typeof box.telegraph === 'function') box.telegraph(en.id || index, en.x, en.y, tellMs);
@@ -1979,8 +1992,39 @@
 
   function telegraphOff(en, index) {
     if (!en) return;
+    const id = en.id != null ? en.id : index;
+    clearLocalTell(id);
+    fxCall('telegraphOff', id);
+  }
+
+  function telegraphSlam(en) {
+    const slamR = 2.15;
+    const ms = 550;
     const box = fxBox();
-    if (box && typeof box.telegraphOff === 'function') box.telegraphOff(en.id || index);
+    if (box && typeof box.telegraph === 'function') {
+      fxCall('telegraph', en.id, en.x, en.y, ms, { radius: slamR });
+      clearLocalTell(en.id);
+      return;
+    }
+    putLocalTell({ kind: 'ring', id: en.id, x: en.x, y: en.y, r: slamR, until: time + ms / 1000 });
+  }
+
+  function telegraphDash(en) {
+    const ai = en.ai || {};
+    const dist = 0.38 * 8.2;
+    const toX = en.x + (ai.vx || 0) * dist;
+    const toY = en.y + (ai.vy || 0) * dist;
+    const ms = Math.max(50, Math.round((ai.t || 0) * 1000));
+    const width = 0.62;
+    const box = fxBox();
+    if (box && typeof box.telegraphLine === 'function') {
+      fxCall('telegraphLine', en.id, en.x, en.y, toX, toY, ms, { width: width });
+      clearLocalTell(en.id);
+      return;
+    }
+    putLocalTell({
+      kind: 'line', id: en.id, x: en.x, y: en.y, x2: toX, y2: toY, w: width, until: time + ms / 1000,
+    });
   }
 
   function fxSpawn(x, y) {
@@ -2155,6 +2199,7 @@
       ai.t -= dt;
       en.facing = dx >= 0 ? 1 : -1;
       if (ai.t <= 0) {
+        telegraphOff(en);
         const look = 0.28;
         const px = player.x + velX * look;
         const py = player.y + velY * look;
@@ -2165,7 +2210,7 @@
         ai.vy = ly / ld;
         ai.mode = 'dash';
         ai.t = 0.38;
-      }
+      } else telegraphDash(en);
     } else if (ai.mode === 'dash') {
       ai.t -= dt;
       const x0 = en.x;
@@ -2239,6 +2284,7 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         if (ai.kind === 'slam') {
+          telegraphOff(en);
           if (dist < 2.15) {
             lastHit = 'boss';
             hurt(en.dmg + 6, true);
@@ -2272,7 +2318,8 @@
       ai.mode = 'tell';
       ai.kind = ai.kind === 'slam' ? 'volley' : 'slam';
       ai.t = ai.kind === 'slam' ? 0.75 : 0.55;
-      if (ai.kind === 'volley') telegraph(en, index, 550);
+      if (ai.kind === 'slam') telegraphSlam(en);
+      else telegraph(en, index, 550);
     }
   }
 
@@ -2950,6 +2997,7 @@
     toastT = 0;
     toastText = '';
     toastQueue.length = 0;
+    localTells.length = 0;
     chatLog.length = 0;
     const chatHost = $('sv-chat');
     if (chatHost) chatHost.textContent = '';
@@ -4408,6 +4456,31 @@
     drawHeroBody();
   }
 
+  function drawLocalTells() {
+    if (!localTells.length) return;
+    ctx.save();
+    ctx.strokeStyle = '#ffb45a';
+    ctx.globalAlpha = 0.9;
+    for (let i = localTells.length - 1; i >= 0; i--) {
+      const tell = localTells[i];
+      if (tell.until <= time) {
+        localTells.splice(i, 1);
+        continue;
+      }
+      ctx.beginPath();
+      if (tell.kind === 'ring') {
+        ctx.lineWidth = 3;
+        ctx.arc(sxOf(tell.x), syOf(tell.y), Math.max(4, tell.r * TILE), 0, Math.PI * 2);
+      } else {
+        ctx.lineWidth = Math.max(3, (tell.w || 0.4) * TILE * 0.45);
+        ctx.moveTo(sxOf(tell.x), syOf(tell.y));
+        ctx.lineTo(sxOf(tell.x2), syOf(tell.y2));
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawFloats() {
     ctx.textAlign = 'center';
     ctx.lineJoin = 'round';
@@ -4515,6 +4588,7 @@
     fxCall('drawUnder', ctx, camInfo);
     ctx.restore();
     drawHeroActor();
+    drawLocalTells();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       const px = sxOf(p.x);
@@ -5126,6 +5200,16 @@
       draw();
       return { w: canvas.width, h: canvas.height, zoom: zoom, tile: TILE, camX: camX, camY: camY };
     };
+    window.__svTells = () => localTells.map((tell) => ({
+      kind: tell.kind,
+      id: tell.id,
+      r: tell.r || 0,
+      w: tell.w || 0,
+      x: tell.x,
+      y: tell.y,
+      x2: tell.x2 || 0,
+      y2: tell.y2 || 0,
+    }));
     window.__svStep = (dt) => {
       if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));
@@ -5257,6 +5341,7 @@
     window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
     window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
+    window.__svInvuln = (seconds) => { player.invuln = seconds == null ? 30 : seconds; return player.invuln; };
     window.__svRevive = () => { revivePlayer(); return snapRun(); };
     window.__svDismiss = () => {
       if (state === 'levelup') {
