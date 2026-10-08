@@ -43,6 +43,8 @@
     foodChance: 0.3,
     foodLife: 30,
     wardenReach: 3.05,
+    wardenHit: 0.7,
+    wardenHitFloor: 0.15,
     minSpawn: 3,
     idleClose: 2.4,
     idleReach: 3.6,
@@ -535,7 +537,7 @@
     en.radius = type.radius || 0.32;
     en.speed = (type.speed || 1) * (bossFlag ? 0.58 : 0.5);
     en.dmg = bossFlag ? 18 : (type.id === 'charger' ? 6 : BALANCE.chip);
-    if (bossKind === 'warden') en.dmg = Math.max(1, Math.round(en.dmg * 0.7));
+    if (bossKind === 'warden') en.dmg = wardenContactDmg();
     en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
     en.boss = bossFlag;
@@ -584,6 +586,16 @@
     enemies.push(en);
     biteIfStill(en);
     return en;
+  }
+
+  function wardenContactDmg() {
+    const cut = 18 * BALANCE.wardenHit;
+    const floor = (hero.base.life || 90) * BALANCE.wardenHitFloor;
+    return Math.max(cut, floor);
+  }
+
+  function wardenShotDmg() {
+    return Math.max(1, Math.round(7 * BALANCE.wardenHit));
   }
 
   function stillRing() {
@@ -2211,7 +2223,7 @@
           ai.t = 1.1;
         } else {
           const base = Math.atan2(dy, dx);
-          const volley = en.bossKind === 'warden' ? 5 : 7;
+          const volley = en.bossKind === 'warden' ? wardenShotDmg() : 7;
           for (let i = -1; i <= 1; i++) {
             const ang = base + i * 0.32;
             spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
@@ -4992,6 +5004,14 @@
     window.__svDouble = () => applyDoubleGold();
     window.__svOfferDouble = () => doubleOffered();
     window.__svAddGold = (n) => { grantGold(n || 0); return snapRun(); };
+    window.__svWardenHit = () => {
+      let dmg = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        if (enemies[i].bossKind === 'warden') dmg = enemies[i].dmg;
+      }
+      const base = hero.base.life || 90;
+      return { dmg: dmg, base: base, pct: base ? dmg / base : 0, shot: wardenShotDmg() };
+    };
     window.__svSpawn = (id, x, y, kind) => {
       const opts = kind ? { bossKind: kind, name: kind === 'warden' ? 'Grave Warden' : 'Risen Demon' } : null;
       spawnEnemy(id || 'skel', x || player.x + 2, y || player.y, opts);

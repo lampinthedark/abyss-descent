@@ -152,6 +152,17 @@ function saveOnQuit() {
   console.log('save on quit keeps ' + dead.prev);
 }
 
+function wardenHitFloor() {
+  const game = boot(1);
+  game.__svStart();
+  game.__svSpawn('brute', 8, 0, 'warden');
+  const hit = game.__svWardenHit();
+  if (!(hit.pct >= 0.15 - 1e-9)) fail('warden contact ' + (hit.pct * 100).toFixed(2) + '%');
+  if (hit.dmg + 1e-9 < hit.base * 0.15) fail('warden contact damage ' + hit.dmg);
+  if (hit.shot !== 5) fail('warden volley ' + hit.shot);
+  console.log('warden contact ' + (hit.pct * 100).toFixed(1) + '% of base ' + hit.base + ' (' + hit.dmg + '), volley ' + hit.shot);
+}
+
 function earlyCrowd() {
   for (let seed = 1; seed <= 8; seed++) {
     const game = boot(seed);
@@ -1589,6 +1600,7 @@ evoNeeds();
 freshAndFlags();
 bossLook();
 saveOnQuit();
+wardenHitFloor();
 earlyCrowd();
 lootCadence();
 idleDeath();
