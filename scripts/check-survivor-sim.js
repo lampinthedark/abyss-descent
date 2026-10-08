@@ -2663,7 +2663,44 @@ function watchRun(game, limit, opts) {
     rareAt: rareAt,
     rarePickupAt: rarePickupAt,
     lootStale: lootStale,
+    gemDrops: snap.gemDrops || 0,
+    gemPickups: snap.gemPickups || 0,
+    gemEvicts: snap.gemEvicts || 0,
+    gemXp: snap.gemXp || 0,
+    xp: snap.xp || 0,
+    level: snap.level,
   };
+}
+
+function pickupTable() {
+  const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
+  const fps = 1 / 60;
+  console.log('seed bot end min xp xpMin drops picks evicts pickPct');
+  want.forEach((seed) => {
+    ['circle', 'kite'].forEach((bot) => {
+      const search = '?headless=1&debug=1&walk=' + bot + '&seed=' + seed;
+      const run = watchRun(boot(seed, search), 610, { dt: fps, kite: bot === 'kite' });
+      const minutes = Math.max(0.01, (typeof run.end === 'number' ? run.end : 600) / 60);
+      const pct = run.gemDrops > 0 ? Math.round(100 * run.gemPickups / run.gemDrops) : 0;
+      const row = {
+        seed: seed,
+        bot: bot,
+        end: run.end,
+        state: run.state,
+        minutes: Number(minutes.toFixed(2)),
+        xp: Math.round(run.xp),
+        xpMin: Math.round(run.xp / minutes),
+        drops: run.gemDrops,
+        picks: run.gemPickups,
+        evicts: run.gemEvicts,
+        gemXp: Math.round(run.gemXp),
+        pickPct: pct,
+        level: run.level,
+      };
+      console.log(JSON.stringify(row));
+      console.log([seed, bot, run.end, minutes.toFixed(1), row.xp, row.xpMin, row.drops, row.picks, row.evicts, pct + '%'].join(' '));
+    });
+  });
 }
 
 function balanceTable() {
@@ -2750,6 +2787,11 @@ if (process.env.CIRCLE === '1') {
 
 if (process.env.BALANCE === '1') {
   balanceTable();
+  process.exit(0);
+}
+
+if (process.env.PICKUP === '1') {
+  pickupTable();
   process.exit(0);
 }
 

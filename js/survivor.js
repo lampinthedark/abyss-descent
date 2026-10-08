@@ -224,6 +224,10 @@
   const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
+  let gemDrops = 0;
+  let gemPickups = 0;
+  let gemEvicts = 0;
+  let gemXp = 0;
   let rareAt = -1;
   let rarePickupAt = -1;
   let rareDue = false;
@@ -701,6 +705,8 @@
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
       if ((g.kind || 'gem') !== 'gem') continue;
+      gemEvicts += 1;
+      gemXp += g.value || 0;
       grantXp(g.value || 0);
       releaseGemAt(i);
       return true;
@@ -709,6 +715,7 @@
   }
 
   function dropGem(en) {
+    gemDrops += 1;
     if (gemCount() >= GEM_CAP) evictOldestGem();
     const g = gemPool.pop() || {};
     g.x = en.x;
@@ -2943,6 +2950,10 @@
           }
           continue;
         } else {
+          if (kind === 'gem') {
+            gemPickups += 1;
+            gemXp += g.value || 0;
+          }
           grantXp(g.value || 0);
         }
         if (kind !== 'chest' && kind !== 'food') spark(player.x, player.y, '#ffffff', 3, 2.6);
@@ -3425,6 +3436,10 @@
     ringAcc = 0;
     nextEliteAt = BALANCE.eliteFirst;
     itemDrops = 0;
+    gemDrops = 0;
+    gemPickups = 0;
+    gemEvicts = 0;
+    gemXp = 0;
     nextDropAt = 15 + Math.random() * 10;
     rareAt = -1;
     rarePickupAt = -1;
@@ -5587,6 +5602,11 @@
       pending: pendingLevels,
       prev: prevLabel,
       drops: itemDrops,
+      gemDrops: gemDrops,
+      gemPickups: gemPickups,
+      gemEvicts: gemEvicts,
+      gemXp: gemXp,
+      xp: player.xp,
       chat: chatLog.map((line) => line.text).join('\n'),
       toastQueued: toastQueue.length,
       rareAt: rareAt,
