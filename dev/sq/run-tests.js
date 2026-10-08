@@ -113,6 +113,7 @@ async function playQ1(seed) {
   ok(sword, 'sword made (quest recipe picked without a menu)');
   eq(RPG.quests.active().step, 3);
   eq(RPG.quests.wantEquip(), 'rustbound_sword', 'wantEquip names the Q1 sword');
+  eq(RPG.quests.wantKill(), null, 'wantKill is null off a kill step');
   s.tick(4);                                                  // player opens the bag
   ok(w.Equipment.equip(sword.uid).ok); s.tick(0.3); // no bus 'equip' event: core D1 never emits one; runtime polls Equipment
   eq(RPG.quests.active().step, 4, 'wield step');
@@ -175,6 +176,7 @@ async function playQ1(seed) {
         eq(RPG.quests.active().step, 2, 'cooked 2 (burnt counts)');
         const z = C.ZONES.goblin_field.anchor; s.walkTo(z.x, z.y); s.tick(0.6);
         eq(RPG.quests.active().step, 3, 'area enter detected');
+        eq(RPG.quests.wantKill(), 'goblin', 'wantKill names the Q2 target');
         for (let i = 0; i < 4; i++) RPG.bus.emit('kill', { monsterId: i % 2 ? 'goblin' : 'rat' });
         eq(RPG.quests.active().n, 2, 'only goblins count');
         ok(!RPG.quests.completesOnKill('goblin'), '3rd goblin does not finish');

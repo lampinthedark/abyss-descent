@@ -48,6 +48,7 @@ D&B: `Loot.rollDrop(id, rng, x, y, { questFinish: !!(RPG.quests && RPG.quests.co
 
 ## Wield prompt
 `RPG.quests.wantEquip()` returns the item base the current step wants worn (Q1: `'rustbound_sword'`), else null.
+`RPG.quests.wantKill()` returns the monsterId the current kill step counts (Q2: `'goblin'`), else null. Core's tap picker can use it to break ties between overlapping mobs.
 Equip steps also poll `Equipment` every 0.25 s, so they complete with or without a bus `equip` event.
 
 ## Kill-step arrow
