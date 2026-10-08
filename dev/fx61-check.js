@@ -15,7 +15,7 @@ src = src.replace(
 );
 src = src.replace(
   'LEVELUP_RADIUS: LEVELUP_RADIUS,',
-  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },'
+  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
 );
 
 function makeCtx() {
@@ -452,6 +452,65 @@ try {
 calls.length = 0;
 FX.draw(ctx, cam);
 check('bogus, null and 42 give r=0 with no throw', !rarityThrew && tallOf('#4c7cff', 20) === 0 && tallOf('#b48cff', 20) === 0 && tallOf('#ffb43c', 20) === 0 && tallOf('#5ed37a', 20) === 0);
+
+FX.reset();
+FX.beam('cross', 0, 0, 'uncommon');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('uncommon still draws and keeps a slot', FX._beams() === 1 && fills('#5ed37a') > 0);
+
+FX.reset();
+let slotThrew = false;
+try {
+  for (let i = 0; i < 100; i++) FX.beam('common-' + i, i * 0.2, 0, 'common');
+  FX.beam('junk-a', 0, 0, 'bogus');
+  FX.beam('junk-b', 1, 0, null);
+  FX.beam('junk-c', 2, 0, 42);
+  FX.beam('junk-d', 3, 0, '');
+  FX.beam('junk-e', 4, 0, {});
+  FX.beam('junk-f', 5, 0, NaN);
+} catch (e) {
+  slotThrew = true;
+}
+check('commons and junk use no beam slots', !slotThrew && FX._beams() === 0);
+FX.beam('slot-rare', 0, 0, 'rare');
+FX.beam('slot-leg', 1.2, 0, 'Legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('rare and Legendary both get a slot and draw', FX._beams() === 2 && tallOf('#4c7cff', 140) === 1 && tallOf('#ffb43c', 280) === 2);
+FX.beam('slot-rare', 0, 0, 'common');
+check('a later common clears that beam slot', FX._beams() === 1);
+
+FX.reset();
+FX.beam('under', 0, 0, 'rare');
+FX.update(0.016);
+calls.length = 0;
+FX.drawUnder(ctx, cam);
+const underOnce = tallOf('#4c7cff', 140);
+FX.draw(ctx, cam);
+check('drawUnder then draw paints beams once', underOnce === 1 && tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('draw only paints beams', tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+calls.length = 0;
+FX.drawUnder(ctx, cam);
+check('drawUnder on this frame paints the column', tallOf('#4c7cff', 140) === 1);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('draw on the next frame still paints beams', tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+FX.drawUnder(ctx, cam);
+FX.reset();
+FX.beam('under', 0, 0, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('restart still paints beams', tallOf('#4c7cff', 140) === 1);
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));
