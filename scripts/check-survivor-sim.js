@@ -892,12 +892,13 @@ function levelGap() {
   game.__svInvuln(30);
   let snap = game.__svQueueLevels(2);
   if (snap.state !== 'levelup') fail('queued level did not open, ' + snap.state);
+  const t0 = snap.time;
   snap = game.__svChoose(0);
   if (snap.state !== 'playing') fail('next level opened immediately, ' + snap.state);
-  snap = game.__svStep(0.5);
-  if (snap.state === 'levelup') fail('level card opened before 0.6s');
-  snap = game.__svStep(0.2);
-  if (snap.state !== 'levelup') fail('level card stayed shut after 0.7s, ' + snap.state);
+  for (let i = 0; i < 11; i++) snap = game.__svStep(0.05);
+  if (snap.state === 'levelup') fail('level card opened before 0.6s at ' + (snap.time - t0).toFixed(2));
+  for (let i = 0; i < 4; i++) snap = game.__svStep(0.05);
+  if (snap.state !== 'levelup') fail('level card stayed shut after ' + (snap.time - t0).toFixed(2) + 's, ' + snap.state);
   console.log('level-ups wait 0.6s');
 }
 
