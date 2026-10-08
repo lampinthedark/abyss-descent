@@ -191,6 +191,7 @@
   let ended = false;
   let minuteMark = 0;
   let spawnAcc = 0;
+  let backlogWave = 0;
   let ringAcc = 0;
   let ringAngle = 0;
   let nextEliteAt = 45;
@@ -1843,7 +1844,13 @@
     spawnAcc += spawnRate() * pressure * dt;
     let guard = 0;
     const burst = swarm ? 16 : 12;
-    while (spawnAcc >= 1 && enemies.length < cap && guard++ < burst) {
+    if (spawnAcc >= 64) backlogWave = Math.max(backlogWave, spawnAcc);
+    let room = burst;
+    if (backlogWave > 0) {
+      room = Math.min(burst, Math.max(1, Math.round(backlogWave / 2.5 * dt)));
+      if (spawnAcc <= room) backlogWave = 0;
+    }
+    while (spawnAcc >= 1 && enemies.length < cap && guard++ < room) {
       spawnAcc -= 1;
       spawnedThisFrame += 1;
       const spot = spawnRing(0);
@@ -3352,6 +3359,7 @@
     ended = false;
     minuteMark = 0;
     spawnAcc = 0;
+    backlogWave = 0;
     threatMark = 0;
     threatGap = 0;
     orbitClip = 0;
@@ -5967,6 +5975,7 @@
       return snapRun();
     };
     window.__svThreatGap = () => threatGap;
+    window.__svBacklog = (n) => { spawnAcc = n; return spawnAcc; };
     window.__svNear = (tiles) => {
       const limit = tiles == null ? RELIEF_NEAR : tiles;
       let n = 0;

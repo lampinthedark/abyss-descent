@@ -801,6 +801,32 @@ function levelTimeline(seed) {
   return times;
 }
 
+function burstStagger() {
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svApplyBuild({ bolt: 0, orbit: 0, nova: 0, pierce: 0 });
+  game.__svInvuln(40);
+  game.__svSetTime(330);
+  game.__svSkipBosses();
+  game.__svWipe();
+  game.__svBacklog(147);
+  let prev = game.__svCount();
+  const spawned = [];
+  for (let i = 0; i < 70; i++) {
+    const snap = game.__svStep(0.05);
+    if (snap.state !== 'playing') game.__svDismiss();
+    const now = game.__svCount();
+    spawned.push(Math.max(0, now - prev));
+    prev = now;
+  }
+  if (spawned[0] > 8) fail('first frame dumped ' + spawned[0] + ' of a 147 backlog');
+  const early = spawned.slice(0, 6).reduce((a, b) => a + b, 0);
+  const total = spawned.reduce((a, b) => a + b, 0);
+  if (early > 40) fail('burst front-loaded ' + early + ' in 0.3s');
+  if (total < 70) fail('staggered burst only delivered ' + total);
+  console.log('147 backlog arrives as a wave, first frame ' + spawned[0] + ', 0.3s ' + early + ', 3.5s ' + total);
+}
+
 function demonShield() {
   const game = boot(4, '?headless=1&debug=1');
   game.FX.shield = undefined;
@@ -2525,6 +2551,7 @@ partnerRanks();
 idleIgnoresArmor();
 eliteTtk();
 retiredAfterEvo();
+burstStagger();
 demonShield();
 deadStretch();
 hermitTwice();
