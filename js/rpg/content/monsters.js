@@ -9,7 +9,9 @@
  *   A dodge cancels the hit outright; armour still reduces a landed hit.
  * - xp = 1 x hp: the style-stat XP a full kill pays under GD's per-damage rule
  *   (plus 0.33 x hp to Hitpoints). Informational; GD awards per damage.
- * - Every windupMs >= 400; boss attacks >= 600. 'charge' draws telegraphLine
+ * - srcName on every attack = the monster's display name (derived below), so
+ *   core can pass it straight into the death recap's lastHits.
+ * - Every windupMs >= 400; boss attacks >= 600; elite (brute) telegraphs >= 600. 'charge' draws telegraphLine
  *   (length = range), 'slam' draws telegraph (ring radius = radius, or range).
  * - cooldownMs is per attack, counted from the hit; balance-sim also rests a
  *   mob 500 ms between any two attacks (REST_MS).
@@ -28,6 +30,7 @@
   C.REST_MS = 500;
   C.MIN_WINDUP_MS = 400;
   C.MIN_BOSS_WINDUP_MS = 600;
+  C.MIN_ELITE_TELEGRAPH_MS = 600;   // brute slam / charge (death-recap readability)
 
   /**
    * Approved combat rules this data is tuned against (core owns the real
@@ -92,7 +95,10 @@
       enrage: { belowHpPct: 30, cooldownMult: 0.75 },
     },
   };
-  Object.keys(M).forEach(function (k) { M[k].xp = Math.round(M[k].hp * C.COMBAT_RULES.xpPerDamage); });
+  Object.keys(M).forEach(function (k) {
+    M[k].xp = Math.round(M[k].hp * C.COMBAT_RULES.xpPerDamage);
+    M[k].attacks.forEach(function (a) { a.srcName = M[k].name; });   // death recap: lastHits srcName
+  });
 
   C.MONSTERS = M;
   C.MONSTER_IDS = Object.keys(M);

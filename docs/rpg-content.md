@@ -12,7 +12,7 @@ Data for the week-1 slice, behind one small API (`RPGContent`). There is no stat
 | file | what |
 |---|---|
 | `js/rpg/content/content-core.js` | namespace, `NPCS`, `ZONES`, `TOWN_POINTS`, `FIELD_SPAWNS`, `advance()`, `tracker()`, `trackerCount()`, `quest()`, `monster()` |
-| `js/rpg/content/monsters.js` | `MONSTERS` (GD's shape + `def` + `atk`), `COMBAT_RULES`, `MIN_WINDUP_MS`, `MIN_BOSS_WINDUP_MS`, `REST_MS`, `TELEGRAPH` |
+| `js/rpg/content/monsters.js` | `MONSTERS` (GD's shape + `def` + `atk`; `srcName` on every attack), `COMBAT_RULES`, `MIN_WINDUP_MS`, `MIN_BOSS_WINDUP_MS`, `MIN_ELITE_TELEGRAPH_MS`, `REST_MS`, `TELEGRAPH` |
 | `js/rpg/content/quest-data.js` | `QUESTS`, `QUEST_IDS`, `WEEK1_QUESTS`, `giverMarker()`, `offerable()` |
 | `js/rpg/content/dungeon.js` | `Dungeon` / `DUNGEONS.ash_stair`: grid, legend, props, spawns, entry, exits, rooms, helpers |
 | `js/rpg/content/index.js` | Node entry (`require` returns `RPGContent`) |
@@ -62,7 +62,8 @@ GD's shape, plus `def` (needed by GD's player hit formula), `atk` (**required**:
   zone, sprite, elite?, boss?, enrage? }
 ```
 
-- **Windups:** every `windupMs` is at least 400, and every boss attack is at least 600 (tested).
+- **Windups:** every `windupMs` is at least 400, every boss attack is at least 600, and the brute's telegraphs (slam 800, charge 700) are at least 600 (`MIN_ELITE_TELEGRAPH_MS`; tested).
+- **`srcName`:** every attack carries its monster's display name (`'Grave Brute'`, `'Ashmaw the Wyrmling'`, ...), filled in from `name` at load, so core can pass `attack.srcName` straight into the death recap's `lastHits`. Ashmaw's optional `name` (Cinder Ring, Ash Rush, Claw) is the attack's own label (tested).
 - **Telegraphs:** `charge` draws with `telegraphLine` (length = `range`); `slam` draws with `telegraph` (ring radius = `radius`).
 - **Cooldowns:** `cooldownMs` is per attack and counts from the hit. The sim also rests a mob `REST_MS` (500 ms) between any two attacks. Mobs try attacks in listed order and use the first one that is ready, so specials come first.
 - **`atk`:** integer, on every monster (tested). Mob hit chance = `clamp(0.75 + 0.015*(atk − player Defence − gear.def), 0.40, 0.97)`, rolled for every attack that is not dodged. A dodge (roll or side-step) cancels the hit outright; armour still reduces a landed hit.
@@ -128,7 +129,7 @@ step  { text, arrowTo: npcId | nodeKey | zone | propKey, done:{ type, target, co
 - **Follow-up rumour** (`dialogue.rumour`, shown after hand-in and as the giver's idle line afterwards):
   - "Miners swear a beast called Ashmaw nests under the Ash Stair. / They say it guards Wyrmfang, a blade cut from a wyrm's tooth. / The stair is at the end of the south path. Go geared."
   - `showDrops:'ashmaw'` tells GD to render `Loot.preview('ashmaw')` under the lines. `arrowTo:'ash_stair_gate'`.
-- Q2 puts the player on the near-town packs (about 7-10 kills including rats), so first-Rare pity starts counting there. Pity counts every kill: the ramp starts at kill 10 and a Rare is guaranteed by kill 40. With the slower XP rate the player now grinds the field to Attack 5 / Defence 5 for Cinderiron (about 47-64 goblins), so the first Rare lands on the goblin field before the dungeon (tested).
+- Q2 puts the player on the near-town packs (about 7-10 kills including rats), so first-Rare pity starts counting there. Pity counts every kill: the ramp starts at kill 10 and a Rare is guaranteed by kill 40. After Q2 the player grinds the field to Attack 3 / Defence 3 for Cinderiron (about 26 goblins for a typical player), so about 33 near-town kills happen before the dungeon: 87% of typical players get the first Rare on the field (tested ≥ 80%), 68% with an even A/S/D rotation and 42% all-on-Attack. The rest get it from the guarantee (kill 40) in the first Ash Stair hall.
 - **Estimate:** about 1.8 min (×2.5 = 4.5 min). The fights are with the sword only, at about 28% HP per goblin pack (rolling telegraphs; 34% if the player never dodges). Regen (2 HP/s after 4 s) refills between packs.
 - **Q1 + Q2 combined:** 2.8 min, or 7.1 min with ×2.5 slack (under 10, tested).
 
@@ -237,7 +238,7 @@ GD's core is unchanged; rows marked **approved** are the four approved changes t
   | tidesteel | 25 | 25 |
   | sunforged | 35 | 35 |
 
-  Under the new XP rate these are consistent with the XP table below: the Rustbound player is A1→7 / D1→5 while grinding the field; a typical (Attack-led) Cinderiron player enters the Ash Stair at A7/S5/D5 and reaches about A16/S11/D11 by Ashmaw, so A8/S8/D8 is a mid-clear figure. Sensitivity: Ashmaw in Cinderiron takes about 98 s at entry levels (A7/S5/D5/H12) and about 80 s at boss-time levels (A16/S11/D11/H16).
+  These are fixed reference points. Cinderiron is now worn from Attack/Defence 3 (PM-approved, was 5; Mining/Smithing 5 to make it are unchanged), so a typical (Attack-led) player enters the Ash Stair at about A4/S3/D3/H11 and reaches about A14/S10/D10/H15 by Ashmaw. A8/S8/D8 is a mid-clear figure. The "real levels" rows below start at the entry levels and grow them with damage dealt. Ashmaw at Cinderiron takes about 120 s at entry levels (only if the player skipped the trash) and about 81 s at boss-time levels.
 - **Gear stats** are real Normal RPGItems sets (sword, shield, helm, cuirass, greaves, gauntlets, sabatons):
 
   | set | aim | power | armour | def |
@@ -329,35 +330,42 @@ hits to kill = landed hits on a single target; pack values are averaged over eve
 | verdite | good dodger | 268 | 398 | 0 | 27 | 11.6 min | 0.1 / 1 / 2 | 85 | 0.00 |
 | verdite | rolls telegraphs only | 265 | 400 | 0 | 27 | 11.5 min | 1.0 / 2 / 3 | 113 | 0.00 |
 | verdite (repeat clear) | good dodger | 268 | 398 | 0 | 18 | 11.4 min | 0.1 / 1 / 2 | 85 | 0.00 |
+| cinderiron (real levels: enter at the req, grow through the clear) | good dodger | 437 | 400 | 3 | 27 | 14.4 min | 1.3 / 4 / 7 | 177 | 0.00 |
+| cinderiron (real levels: enter at the req, grow through the clear) | rolls telegraphs only | 430 | 401 | 3 | 27 | 14.4 min | 4.9 / 7 / 9 | 241 | 0.00 |
 
+Per spawn type (Cinderiron real levels, good dodger): skeleton 204 s / 0.00 stews / 0.00 deaths; imp 125 s / 0.00 stews / 0.00 deaths; brute 27 s / 0.12 stews / 0.00 deaths; ashmaw 80 s / 1.20 stews / 0.00 deaths.
 Per spawn type (Cinderiron, good dodger): skeleton 194 s / 0.00 stews; imp 121 s / 0.00 stews; brute 30 s / 0.44 stews; ashmaw 90 s / 2.67 stews.
 Overheads: {"approachS":5,"impChaseS":3,"lootPerMobS":1.5,"eatS":0.6,"recoverS":8,"exploreFactor":1.5,"deathPenaltyS":75}; rest before pull: {"trashPct":70,"bigPct":100}; food bag 10 stews, eaten only below 35% HP mid-fight. Repeat clears skip the 1.5x explore walk.
 Shortest walk entry -> boss: 16.7 s (GD metric, 80 px/s).
 
 ### Combat levels (1 XP per damage to the style stat, 0.33 to Hitpoints)
 
-Wearing Cinderiron needs Attack 5 and Defence 5, so after Q2 the player grinds goblin packs until both are 5 (Rustbound set).
+Wearing Cinderiron needs Attack 3 and Defence 3 (RPGItems), so after Q2 the player grinds goblin packs until both are met (Rustbound set). Mining/Smithing 5 to make the set are unchanged and not modelled here.
 
 | style | stage | damage dealt | Attack | Strength | Defence | Hitpoints |
 |---|---|---|---|---|---|---|
 | Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | after_Q1 | 0 | 1 | 1 | 1 | 10 |
 | Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | after_Q2 | 135 | 1 | 1 | 1 | 10 |
-| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | cinderiron_ready | 1552 | 7 | 5 | 5 | 12 |
-| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | after_first_clear | 6541 | 17 | 12 | 12 | 17 |
+| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | cinderiron_ready | 696 | 4 | 3 | 3 | 11 |
+| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | after_first_clear | 5685 | 16 | 11 | 11 | 16 |
 | A/S/D rotated evenly | after_Q1 | 0 | 1 | 1 | 1 | 10 |
 | A/S/D rotated evenly | after_Q2 | 135 | 1 | 1 | 1 | 10 |
-| A/S/D rotated evenly | cinderiron_ready | 1164 | 5 | 5 | 5 | 11 |
-| A/S/D rotated evenly | after_first_clear | 6153 | 13 | 13 | 13 | 17 |
-| all on Attack (after Defence 5) | after_Q1 | 0 | 1 | 1 | 1 | 10 |
-| all on Attack (after Defence 5) | after_Q2 | 135 | 1 | 1 | 2 | 10 |
-| all on Attack (after Defence 5) | cinderiron_ready | 776 | 5 | 1 | 5 | 11 |
-| all on Attack (after Defence 5) | after_first_clear | 5765 | 21 | 1 | 5 | 16 |
+| A/S/D rotated evenly | cinderiron_ready | 522 | 3 | 3 | 3 | 10 |
+| A/S/D rotated evenly | after_first_clear | 5511 | 13 | 13 | 13 | 16 |
+| all on Attack (after the Defence req) | after_Q1 | 0 | 1 | 1 | 1 | 10 |
+| all on Attack (after the Defence req) | after_Q2 | 135 | 1 | 1 | 2 | 10 |
+| all on Attack (after the Defence req) | cinderiron_ready | 348 | 3 | 1 | 3 | 10 |
+| all on Attack (after the Defence req) | after_first_clear | 5337 | 21 | 1 | 3 | 16 |
 
 | style | field grind to Cinderiron | clears after the first to Attack 40 | hours (repeat Verdite pace - first-clear Cinderiron pace) |
 |---|---|---|---|
-| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | 1417 dmg (~64 goblins, ~10 min) | 13.6 | 2.6-3.3 h |
-| A/S/D rotated evenly | 1029 dmg (~47 goblins, ~7 min) | 21.2 | 4.0-5.1 h |
-| all on Attack (after Defence 5) | 641 dmg (~29 goblins, ~4 min) | 6.4 | 1.2-1.5 h |
+| Attack-led rotation (1/2 A, 1/4 S, 1/4 D) | 561 dmg (~26 goblins, ~4 min) | 13.8 | 2.6-3.3 h |
+| A/S/D rotated evenly | 387 dmg (~18 goblins, ~3 min) | 21.3 | 4.1-5.1 h |
+| all on Attack (after the Defence req) | 213 dmg (~10 goblins, ~1 min) | 6.4 | 1.2-1.5 h |
+
+Field grind minutes are raw (Rustbound set, rolling telegraphs, 10 s to find each pack); x2.5 new-player slack: typical ~9.6 min.
+
+Ashmaw at Cinderiron with the typical player's real levels (good dodger, 6 stews): entry A4/S3/D3/H11 120 s, 3% deaths, 3.7 stews (never-dodger dies 100%); boss A14/S10/D10/H15 81 s, 0% deaths, 1.3 stews (never-dodger dies 100%).
 
 Attack 40 = 37224 XP. One Ash Stair clear pays 4989 style XP (+1646 Hitpoints). Clear pace: repeat at Verdite 11.4 min, first clear at Cinderiron 14.4 min.
 Wyrmfang at 1/150: median 104 Ashmaw kills (~20 h of repeat clears).
@@ -406,20 +414,22 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
 |---|---|
 | Rustbound player kills a rat in ~2.5 hits | 2.4 landed hits (p10-p90: 2-3) ✔ |
 | Rustbound player kills a goblin in ~5 hits | 5.1 (4-6) ✔; sword only 5.1 (4-6) ✔ |
+| Cinderiron reachable soon after Q2 (Attack/Defence 3) | typical grind 561 dmg ≈ 26 goblins ≈ 3.8 min raw (9.6 min at ×2.5 cold-player slack); even split 2.6 min, all-on-Attack 1.5 min ✔ |
 | goblin pack 20-35% HP, never dodging | 23% at Rustbound (D3, 83% mob hit); 34% sword-only Q2 player (D1, 86%) ✔ |
-| brute needs dodging | at Cinderiron a never-dodger dies 100% without food (27% even with 6 stews); a dodger loses about 68% HP, 6% deaths without food, 0% with food ✔ |
-| Ashmaw ~90 s Cinderiron / ~60 s Verdite | 89.7 s / 56.5 s ✔ (lethal to a never-dodger at both, even with 6 stews ✔) |
+| brute needs dodging | at Cinderiron a never-dodger dies 100% without food (27% even with 6 stews); a dodger loses about 68% HP, 6% deaths without food, 0% with food ✔. Brute charge windup 700 ms, slam 800 ms (≥ 600) ✔ |
+| Ashmaw ~90 s Cinderiron / ~60 s Verdite | 89.7 s / 56.5 s at the reference loadouts ✔; 81 s at a typical player's real boss-time levels in Cinderiron (≤ 100 s, no hp change) ✔. Lethal to a never-dodger every time, even with 6 stews ✔ |
 | Q1 ~2-3 min, Q1+Q2 ~7 min (< 10) | Q1 2.6 min, Q1+Q2 7.1 min with ×2.5 slack (1.0 / 2.8 min raw) ✔. Q1 step 1 is still exactly "Mine Rustbound ore" ✔ |
-| first-Rare pity on the goblin field | Q2 + the field grind to Cinderiron is about 55-70 near-town kills, past the 40-kill guarantee ✔ |
-| first clear ~15 min, small food use | 14.4 min at Cinderiron (good dodger and telegraph-only roller). Stews: 3.1 mean / 6 p90 (good dodger; ~2.7 of them at Ashmaw), 7.2 mean for a telegraph-only roller ✔ |
-| Attack 15-20 after the first clear | 17 for the typical Attack-led rotation; 13 if A/S/D are rotated evenly, 21 if everything goes on Attack ✔ (typical) |
-| Attack 40 is multi-day casual play | 13.6 more clears ≈ 2.6-3.3 h of clears (typical), 4.0-5.1 h (even split); an all-Attack player needs only 1.2-1.5 h ⚠ (see open questions) |
+| first-Rare pity on the goblin field | about 33 near-town kills before the dungeon (typical): 87% get the first Rare on the field, the rest by kill 40 in the first hall ≈ ✔ |
+| first clear ~15 min, small food use | 14.4 min at Cinderiron. Real (growing) levels: 1.3 stews mean / 4 p90 (good dodger), 4.9 for a telegraph-only roller. Fixed A8 reference: 3.1 / 6 and 7.2 ✔ |
+| Attack 15-20 after the first clear | 16 for the typical Attack-led rotation; 13 if A/S/D are rotated evenly, 21 if everything goes on Attack ✔ (typical) |
+| Attack 40 is multi-day casual play | 13.8 more clears ≈ 2.6-3.3 h of clears (typical), 4.1-5.1 h (even split); an all-Attack player needs only 1.2-1.5 h ⚠ (see open questions) |
 | walk entry → boss < 60 s | 16.7 s ✔ |
 
 ## Integration (GD)
 
 1. **Load:** add the four `<script>` tags after RPGItems. Nothing runs at load; it only defines `window.RPGContent`.
 2. **`def` and `atk` on monsters:** take `RPGContent.MONSTERS[id]` as-is. Your player hit formula reads `target.def`; the mirrored mob hit formula reads `mob.atk` (present on every monster). `hp`, `speed`, `aggro`, `leash`, `pack` and `attacks` are your shapes; `xp` is informational.
+   - Death recap: pass `attack.srcName` (the monster's display name, on every attack) into `lastHits`.
    - Roll mob hits only when the player is not dodging; a dodge cancels the hit outright. Regen is 2 HP/s after 4 s without damage. Combat XP is 1/damage to the style stat + 0.33/damage to Hitpoints (`COMBAT_RULES` has the constants).
 3. **Telegraphs:** `charge` → `telegraphLine(len = range)`, `slam` → `telegraph(radius)`. Windups are already at the minimums or above. `name` on Ashmaw's attacks is optional floating text.
 4. **Field spawns:** your D1 `MOB_SPAWNS` matches `FIELD_SPAWNS[0..2]`. `[3]` is an optional second goblin pack at (13,37).
@@ -438,7 +448,7 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
 
 ## Tests and tools
 
-- `npm run test:content`: monster shape, `def` and the required `atk`, `COMBAT_RULES` vs the sim, the mob hit formula and its in-sim rate (dodges never land, armour on landed hits), regen (in and out of fights), the XP rate and XP pace (Attack 15-20 after the first clear, Attack 40 multi-hour), first-Rare pity on the field, Q1 and Q1+Q2 times, windups, boss slam + charge, quest targets and arrows, the Q1 GD-build check (exact text, arrow, Accept), Q1 played end-to-end in an RPGItems world, dungeon keys, BFS, spawns, walk time, balance targets via the GD formula, Q1 under 10 min, the first-clear band, the icon set, and banned names over all content files and display strings. `--quick` uses fewer sims.
+- `npm run test:content`: monster shape, `def` and the required `atk`, `srcName` on every attack, brute telegraphs ≥ 600 ms, the Cinderiron Attack/Defence 3 requirement and grind time, Ashmaw at real boss-time levels, the first clear at growing levels, `COMBAT_RULES` vs the sim, the mob hit formula and its in-sim rate (dodges never land, armour on landed hits), regen (in and out of fights), the XP rate and XP pace (Attack 15-20 after the first clear, Attack 40 multi-hour), first-Rare pity on the field, Q1 and Q1+Q2 times, windups, boss slam + charge, quest targets and arrows, the Q1 GD-build check (exact text, arrow, Accept), Q1 played end-to-end in an RPGItems world, dungeon keys, BFS, spawns, walk time, balance targets via the GD formula, Q1 under 10 min, the first-clear band, the icon set, and banned names over all content files and display strings. `--quick` uses fewer sims.
 - `node dev/content/balance-sim.js [--n 300] [--json]`: the tables in this doc.
 - `node dev/content/quest-times.js [--json]`: the per-quest legs.
 - `python3 dev/content/dungeon-preview.py [--art out.png]`: the preview.
@@ -457,10 +467,10 @@ Q1 under 10 min (UAT gate 2): YES (1.0 min)
    - Is there crit? The sim uses ×1.5 when gear has crit.
    - "Style stat": the XP table shows an Attack-led rotation (typical), an even A/S/D rotation and all-on-Attack.
 2. **Food:** with regen the trash costs no food; a Cinderiron first clear eats about 3 stews (p90 6), almost all at Ashmaw, and about 7 for a player who only rolls telegraphs. Q2 gives 2 stews and Q3 (stub) 3, so a first-time player should buy or cook a few more before the boss.
-3. **Level pace vs. gear:** at 1 XP per damage one Ash Stair clear pays about 5k style XP. A typical (Attack-led) player is about A17/S12/D12 after the first clear and needs about 13.6 more clears (2.6-3.3 h of clears) for Attack 40 (Wyrmfang).
+3. **Level pace vs. gear:** at 1 XP per damage one Ash Stair clear pays about 5k style XP. A typical (Attack-led) player is about A16/S11/D11 after the first clear and needs about 13.8 more clears (2.6-3.3 h of clears) for Attack 40 (Wyrmfang, unchanged).
    - A player who puts every point on Attack gets there in about 6.4 clears (1.2-1.5 h). The 15-20 Attack-after-first-clear target and a multi-day Attack 40 cannot both hold for an all-Attack player under the approved rate: if that path should also be multi-day, raise Wyrmfang's requirement (e.g. Attack 45-50) or lower the style rate further.
    - The drop itself (1/150) still needs a median of about 104 kills (about 20 h of repeat clears).
-   - The Cinderiron gear requirement (Attack 5 / Defence 5) now needs a field grind after Q2: about 47-64 goblins (7-10 min) depending on style.
-4. **Ashmaw band:** anchored at about 90 s in Cinderiron at the A8/S8/D8 loadout (Verdite 57 s). At real entry levels (A7/S5/D5) it is about 98 s; at boss-time levels of a typical first clear (A16/S11/D11) about 80 s.
+   - Cinderiron is worn from Attack/Defence 3 (PM-approved, was 5): the field grind after Q2 is about 10-26 goblins (1.5-3.8 min raw) depending on style. Making the set still needs Mining 5 and Smithing 5-9 (unchanged, not modelled). The legendary Emberheart Pendant / Tinker's Oath keep their own Defence 5 / Attack 5.
+4. **Ashmaw band:** anchored at about 90 s in Cinderiron at the A8/S8/D8 loadout (Verdite 57 s). A typical player reaches it at about A14/S10/D10 and kills it in about 81 s; a player who skips the trash and pulls it at entry levels (A4/S3/D3) needs about 120 s (3% deaths with 6 stews).
 5. **Mob sprites:** `mob_skeleton`, `mob_imp`, `mob_brute` and `mob_ashmaw` are not drawn yet (only rat and goblin).
 6. **Town sheet:** it changed since the items work (85 keys, sha `5c967511…`). All keys used here are present.

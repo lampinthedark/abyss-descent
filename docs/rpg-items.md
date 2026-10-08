@@ -16,13 +16,14 @@ Owner: Senior Game Dev (items). Code: `js/rpg/items/`. Tests: `npm run test:item
 | Tier | Level | Sword aim/power | Cuirass armour | Tint | Source |
 |---|---|---|---|---|---|
 | Rustbound | 1 | 4/4 | 5 | `#9b6a48` | smith |
-| Cinderiron | 5 | 6/6 | 8 | `#7a5a5a` | smith |
+| Cinderiron | 5 (wear: Attack/Defence 3) | 6/6 | 8 | `#7a5a5a` | smith |
 | Verdite | 10 | 9/9 | 12 | `#4f9a6a` | smith |
 | Tidesteel | 20 | 13/13 | 16 | `#4a86a8` | smith |
 | Sunforged | 30 | 18/18 | 22 | `#d8a83a` | smith |
 | Wyrmscale (dragon) | 40 | **Wyrmfang** 26/30 | 30 | `#b8323a` | drop only |
 
 - Requirements use GD's skills: weapons need Attack, armour needs Defence, pickaxes need Mining, hatchets need Woodcutting. Rings need Attack and amulets need Defence.
+- `level` gates Mining/Smithing and tools; `combatLevel` is the Attack/Defence wear requirement and defaults to `level`. Cinderiron's is 3 (PM-approved, was 5) so it is reachable soon after Q2; its Mining 5 / Smithing 5+ are unchanged. Legendaries keep their own `req`.
 - Ores and bars: `<tier>_ore` → `<tier>_bar` at the furnace, using 1/1/2/2/3 ore. There is no separate fuel ore in week 1. Ore ids match the town sheet nodes `node_ore_<tier>`.
 - Logs: Pine and Ashwood (`node_tree_pine` / `node_tree_ash`). Fish: Mudminnow and Brookfin from `node_fish_0`, plus Charred Fish when cooking burns.
 

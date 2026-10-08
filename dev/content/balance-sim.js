@@ -100,17 +100,27 @@ function dungeonEstimate(loadId, n, policy, o) {
   policy = policy || 'good';
   n = n || 200;
   o = o || {};
-  const D = C.Dungeon, l = byId(loadId), p = player(l);
-  const maxHp = M.playerHp(l.hitpoints, l.gear.maxHp);
+  const D = C.Dungeon, l = byId(loadId);
+  let p = player(l);
+  let maxHp = M.playerHp(l.hitpoints, l.gear.maxHp);
   const rnd = M.rng32(o.seed || 77);
+  // o.progress = { style, startDmg }: levels start at the real entry levels and grow with damage dealt
+  const levelsAt = dmg => { const x = styleXp(o.progress.style, dmg); return { attack: M.levelFor(x.a), strength: M.levelFor(x.s), defence: M.levelFor(x.d),
+    hitpoints: M.levelFor(M.XP_TABLE[10] + M.XP_RATE.hitpoints * dmg) }; };
   const explore = o.repeat ? 1.0 : OVERHEAD.exploreFactor;
   let fightS = 0, overS = 0, restS = 0, food = 0, dmg = 0, regen = 0, deaths = 0, xpDmg = 0, maxFood = 0;
   const ate = [];
   const per = {};
   for (let run = 0; run < n; run++) {
+    let cum = o.progress ? o.progress.startDmg : 0;
+    if (o.progress) { p = Object.assign(player(l), levelsAt(cum)); maxHp = M.playerHp(p.hitpoints, l.gear.maxHp); }
     let hp = maxHp, since = 99, bag = CLEAR_FOOD.count, ateRun = 0;
     for (const s of D.spawns) {
       const d = C.MONSTERS[s.monsterId];
+      if (o.progress) {
+        const nl = levelsAt(cum), nmax = M.playerHp(nl.hitpoints, l.gear.maxHp);
+        hp += nmax - maxHp; maxHp = nmax; p = Object.assign(player(l), nl);
+      }
       const k = d.pack[0] + Math.floor(rnd() * (d.pack[1] - d.pack[0] + 1));
       const over = OVERHEAD.approachS + OVERHEAD.recoverS + k * OVERHEAD.lootPerMobS + (s.monsterId === 'imp' ? k * OVERHEAD.impChaseS : 0);
       // regen while walking up / looting / reading the room
@@ -132,7 +142,7 @@ function dungeonEstimate(loadId, n, policy, o) {
         if (!r.dead || ++tries > 4) { hp = Math.max(1, r.hpLeft); since = r.sinceHit; break; }
         deaths++; per[key].deaths++; overS += OVERHEAD.deathPenaltyS; hp = maxHp; since = 99;
       }
-      overS += over; xpDmg += k * d.hp;
+      overS += over; xpDmg += k * d.hp; cum += k * d.hp;
     }
     maxFood = Math.max(maxFood, ateRun); ate.push(ateRun);
   }
@@ -140,14 +150,14 @@ function dungeonEstimate(loadId, n, policy, o) {
   const f = v => v / n;
   const total = f(fightS + overS + restS) + walk;
   const parts = Object.keys(per).map(k => ({ id: k, fightS: f(per[k].t), taken: f(per[k].taken), eaten: f(per[k].eaten), deaths: f(per[k].deaths) }));
-  return { loadout: loadId, policy, repeat: !!o.repeat, fightS: f(fightS), overS: f(overS), restS: f(restS), walkS: walk, totalS: total,
+  return { loadout: loadId, policy, repeat: !!o.repeat, progress: !!o.progress, fightS: f(fightS), overS: f(overS), restS: f(restS), walkS: walk, totalS: total,
     foodStews: f(food), foodMax: maxFood, foodP90: ate.sort((a, b) => a - b)[Math.min(n - 1, Math.floor(0.9 * n))], dmgTaken: f(dmg), regenHp: f(regen), expDeaths: f(deaths), xpDamage: f(xpDmg), maxHp, parts };
 }
 
 /**
  * Combat XP model (approved: 1 per damage to the style stat, 0.33 per damage to Hitpoints).
- * Stages from a fresh save. Wearing Cinderiron needs Attack 5 (sword) and Defence 5 (armour),
- * so after Q2 the player grinds the field until both reach 5 under their style split.
+ * Stages from a fresh save. Wearing Cinderiron needs Attack and Defence GEAR_LEVEL (3, from RPGItems),
+ * so after Q2 the player grinds the field until both reach it under their style split.
  * Styles (share of style XP per stat):
  *   typical - Attack-led rotation: 1/2 Attack, 1/4 Strength, 1/4 Defence (Defence now cuts mob hit chance and gates armour)
  *   even    - Attack / Strength / Defence rotated evenly
@@ -156,9 +166,12 @@ function dungeonEstimate(loadId, n, policy, o) {
 const STYLES = {
   typical: { a: 1 / 2, s: 1 / 4, d: 1 / 4, label: 'Attack-led rotation (1/2 A, 1/4 S, 1/4 D)' },
   even: { a: 1 / 3, s: 1 / 3, d: 1 / 3, label: 'A/S/D rotated evenly' },
-  attack: { a: 1, s: 0, d: 0, defenceFirst: true, label: 'all on Attack (after Defence 5)' },
+  attack: { a: 1, s: 0, d: 0, defenceFirst: true, label: 'all on Attack (after the Defence req)' },
 };
-const GEAR_LEVEL = 5;   // Cinderiron tier level in items-db (sword: Attack, armour: Defence)
+const RI = require(path.join(__dirname, '../../js/rpg/items/index.js'));
+// Cinderiron wear requirement, read from RPGItems (sword: Attack, cuirass: Defence; PM-approved 3, was 5)
+const GEAR_REQ = { attack: RI.ItemsDb.getBase('cinderiron_sword').req.attack, defence: RI.ItemsDb.getBase('cinderiron_cuirass').req.defence };
+const GEAR_LEVEL = Math.max(GEAR_REQ.attack, GEAR_REQ.defence);
 function q2Damage() { return 5 * C.MONSTERS.goblin.hp + 2.5 * C.MONSTERS.rat.hp; }   // 4 goblins = 2 packs (~5) + one rat pack on the way
 function styleXp(st, dmg) {
   const x = M.XP_RATE.style * dmg;
@@ -207,6 +220,24 @@ function fieldGrindMinutes(dmg, loadId) {
   return dmg / (mobs * d.hp) * perPack / 60;
 }
 
+/**
+ * Ashmaw at Cinderiron with the typical player's real levels: at dungeon entry
+ * (just met the gear req) and at the boss (entry + the clear's trash and brute).
+ */
+function ashmawAtRealLevels(clearDamage, n) {
+  const st = STYLES.typical, l = byId('cinderiron');
+  const entryDmg = q2Damage() + grindDamage(st);
+  const bossDmg = entryDmg + clearDamage - C.MONSTERS.ashmaw.hp;
+  const lv = dmg => { const x = styleXp(st, dmg); return { attack: M.levelFor(x.a), strength: M.levelFor(x.s), defence: M.levelFor(x.d),
+    hitpoints: M.levelFor(M.XP_TABLE[10] + M.XP_RATE.hitpoints * dmg) }; };
+  return [['entry', entryDmg], ['boss', bossDmg]].map(([id, dmg]) => {
+    const L = lv(dmg), p = Object.assign({ gear: l.gear }, L);
+    const r = M.simulate(p, [C.MONSTERS.ashmaw], { policy: 'good', food: STEW }, n || 300, 41);
+    const nv = M.simulate(p, [C.MONSTERS.ashmaw], { policy: 'never', food: STEW }, n || 300, 41);
+    return { at: id, levels: L, ttk: r.ttkWon || r.ttk, dieFood: r.pDeath, eaten: r.eaten, neverDies: nv.pDeath };
+  });
+}
+
 /** Mob danger: each monster's hit chance vs each loadout (Defence level + gear.def). */
 function dangerTable() {
   return C.MONSTER_IDS.map(id => {
@@ -222,10 +253,13 @@ function main() {
   const rows = table(N);
   const dEst = [['cinderiron', 'good'], ['cinderiron', 'telegraphs'], ['verdite', 'good'], ['verdite', 'telegraphs']].map(a => dungeonEstimate(a[0], 150, a[1]));
   const repeat = dungeonEstimate('verdite', 150, 'good', { repeat: true });
+  const entryDmg = q2Damage() + grindDamage(STYLES.typical);
+  const prog = ['good', 'telegraphs'].map(pol => dungeonEstimate('cinderiron', 150, pol, { progress: { style: STYLES.typical, startDmg: entryDmg } }));
   const xp = xpModel(dEst[0].xpDamage, { firstClearCinderiron: dEst[0].totalS, repeatVerdite: repeat.totalS });
   const danger = dangerTable();
+  const sens = ashmawAtRealLevels(dEst[0].xpDamage);
   const wyrmfangMedianKills = Math.log(2) / -Math.log(1 - 1 / 150);
-  if (json) { console.log(JSON.stringify({ rows, dungeon: dEst, repeat, xp, danger }, null, 1)); return; }
+  if (json) { console.log(JSON.stringify({ rows, dungeon: dEst, repeat, progress: prog, xp, danger, ashmawAtRealLevels: sens }, null, 1)); return; }
   const out = [];
   const pc = v => (v * 100).toFixed(0) + '%';
   out.push('## Mob danger (approved mirrored formula: clamp(0.75 + 0.015*(atk - Defence - gear.def), 0.40, 0.97))\n');
@@ -242,12 +276,13 @@ function main() {
   out.push('## Ash Stair clear (estimate, ' + 150 + ' sequential runs each)\n');
   out.push('| gear | player | fights s | overhead s | rest s | walk s | total | stews eaten (mean / p90 / worst run) | HP regenerated | expected deaths |');
   out.push('|---|---|---|---|---|---|---|---|---|---|');
-  dEst.concat([repeat]).forEach(e => out.push('| ' + [e.loadout + (e.repeat ? ' (repeat clear)' : ''), e.policy === 'good' ? 'good dodger' : 'rolls telegraphs only', e.fightS.toFixed(0), e.overS.toFixed(0), e.restS.toFixed(0), e.walkS.toFixed(0), (e.totalS / 60).toFixed(1) + ' min', e.foodStews.toFixed(1) + ' / ' + e.foodP90 + ' / ' + e.foodMax, e.regenHp.toFixed(0), e.expDeaths.toFixed(2)].join(' | ') + ' |'));
-  out.push('\nPer spawn type (Cinderiron, good dodger): ' + dEst[0].parts.map(q => q.id + ' ' + q.fightS.toFixed(0) + ' s / ' + q.eaten.toFixed(2) + ' stews').join('; ') + '.');
+  dEst.concat([repeat], prog).forEach(e => out.push('| ' + [e.loadout + (e.repeat ? ' (repeat clear)' : '') + (e.progress ? ' (real levels: enter at the req, grow through the clear)' : ''), e.policy === 'good' ? 'good dodger' : 'rolls telegraphs only', e.fightS.toFixed(0), e.overS.toFixed(0), e.restS.toFixed(0), e.walkS.toFixed(0), (e.totalS / 60).toFixed(1) + ' min', e.foodStews.toFixed(1) + ' / ' + e.foodP90 + ' / ' + e.foodMax, e.regenHp.toFixed(0), e.expDeaths.toFixed(2)].join(' | ') + ' |'));
+  out.push('\nPer spawn type (Cinderiron real levels, good dodger): ' + prog[0].parts.map(q => q.id + ' ' + q.fightS.toFixed(0) + ' s / ' + q.eaten.toFixed(2) + ' stews / ' + q.deaths.toFixed(2) + ' deaths').join('; ') + '.');
+  out.push('Per spawn type (Cinderiron, good dodger): ' + dEst[0].parts.map(q => q.id + ' ' + q.fightS.toFixed(0) + ' s / ' + q.eaten.toFixed(2) + ' stews').join('; ') + '.');
   out.push('Overheads: ' + JSON.stringify(OVERHEAD) + '; rest before pull: ' + JSON.stringify(REST) + '; food bag ' + CLEAR_FOOD.count + ' stews, eaten only below 35% HP mid-fight. Repeat clears skip the 1.5x explore walk.');
   out.push('Shortest walk entry -> boss: ' + C.Dungeon.walkSeconds(C.Dungeon.entry, { x: 11, y: 67 }).toFixed(1) + ' s (GD metric, 80 px/s).\n');
   out.push('## Combat levels (1 XP per damage to the style stat, 0.33 to Hitpoints)\n');
-  out.push('Wearing Cinderiron needs Attack 5 and Defence 5, so after Q2 the player grinds goblin packs until both are 5 (Rustbound set).\n');
+  out.push('Wearing Cinderiron needs Attack ' + GEAR_REQ.attack + ' and Defence ' + GEAR_REQ.defence + ' (RPGItems), so after Q2 the player grinds goblin packs until both are met (Rustbound set). Mining/Smithing 5 to make the set are unchanged and not modelled here.\n');
   out.push('| style | stage | damage dealt | Attack | Strength | Defence | Hitpoints |');
   out.push('|---|---|---|---|---|---|---|');
   for (const k in xp.styles) xp.styles[k].stages.forEach(s => out.push('| ' + [xp.styles[k].label, s.stage, s.damage, s.attack, s.strength, s.defence, s.hitpoints].join(' | ') + ' |'));
@@ -258,10 +293,12 @@ function main() {
     out.push('| ' + [S.label, Math.round(S.grindDamage) + ' dmg (~' + Math.round(S.grindDamage / C.MONSTERS.goblin.hp) + ' goblins, ~' + fieldGrindMinutes(S.grindDamage, 'rustbound').toFixed(0) + ' min)',
       S.toA40.clears.toFixed(1), S.toA40.hours.repeatVerdite.toFixed(1) + '-' + S.toA40.hours.firstClearCinderiron.toFixed(1) + ' h'].join(' | ') + ' |');
   }
+  out.push('\nField grind minutes are raw (Rustbound set, rolling telegraphs, 10 s to find each pack); x' + 2.5 + ' new-player slack: typical ~' + (fieldGrindMinutes(xp.styles.typical.grindDamage, 'rustbound') * 2.5).toFixed(1) + ' min.');
+  out.push('\nAshmaw at Cinderiron with the typical player\'s real levels (good dodger, 6 stews): ' + sens.map(x => x.at + ' A' + x.levels.attack + '/S' + x.levels.strength + '/D' + x.levels.defence + '/H' + x.levels.hitpoints + ' ' + x.ttk.toFixed(0) + ' s, ' + (x.dieFood * 100).toFixed(0) + '% deaths, ' + x.eaten.toFixed(1) + ' stews (never-dodger dies ' + (x.neverDies * 100).toFixed(0) + '%)').join('; ') + '.');
   out.push('\nAttack 40 = ' + xp.attack40Xp + ' XP. One Ash Stair clear pays ' + Math.round(xp.perClearStatXp) + ' style XP (+' + Math.round(xp.perClearStatXp * M.XP_RATE.hitpoints) + ' Hitpoints). Clear pace: repeat at Verdite ' + (repeat.totalS / 60).toFixed(1) + ' min, first clear at Cinderiron ' + (dEst[0].totalS / 60).toFixed(1) + ' min.');
   out.push('Wyrmfang at 1/150: median ' + wyrmfangMedianKills.toFixed(0) + ' Ashmaw kills (~' + (wyrmfangMedianKills * repeat.totalS / 3600).toFixed(0) + ' h of repeat clears).');
   console.log(out.join('\n'));
 }
 
 if (require.main === module) main();
-module.exports = { row, table, dungeonEstimate, xpModel, dangerTable, q2Damage, styleXp, grindDamage, fieldGrindMinutes, GEAR_LEVEL, STEW, OVERHEAD, REST, CLEAR_FOOD, STYLES, packSizes };
+module.exports = { row, table, dungeonEstimate, xpModel, dangerTable, ashmawAtRealLevels, q2Damage, styleXp, grindDamage, fieldGrindMinutes, GEAR_LEVEL, GEAR_REQ, STEW, OVERHEAD, REST, CLEAR_FOOD, STYLES, packSizes };

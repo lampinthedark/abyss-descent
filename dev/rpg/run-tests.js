@@ -554,6 +554,20 @@ test('gathering: tool + level gates; yields stack', () => {
 });
 
 console.log('# equipment');
+test('Cinderiron combat requirement is Attack/Defence 3; Mining/Smithing for Cinderiron unchanged', () => {
+  const Db = R.ItemsDb, CR = R.Modules.crafting;
+  for (const k of ['sword', 'dirk', 'greataxe']) deq(Db.getBase('cinderiron_' + k).req, { attack: 3 });
+  for (const k of ['shield', 'helm', 'cuirass', 'greaves', 'gauntlets', 'sabatons']) deq(Db.getBase('cinderiron_' + k).req, { defence: 3 });
+  deq(Db.getBase('cinderiron_pickaxe').req, { mining: 5 });
+  eq(CR.NODES.node_ore_cinderiron.level, 5); eq(CR.RECIPES.smelt_cinderiron.level, 5); eq(CR.RECIPES.smith_cinderiron_sword.level, 5);
+  deq(Db.getBase('verdite_sword').req, { attack: 10 });
+  const w = mkWorld({ levels: { attack: 3, defence: 3 } });
+  give(w, 'cinderiron_sword'); give(w, 'cinderiron_cuirass');
+  ok(w.Equipment.equip(0).ok, 'sword at Attack 3'); ok(w.Equipment.equip(1).ok, 'cuirass at Defence 3');
+  const w2 = mkWorld({ levels: { attack: 2, defence: 2 } });
+  give(w2, 'cinderiron_sword');
+  eq(w2.Equipment.equip(0).reason, 'level_too_low');
+});
 test('level requirements, swap into the vacated slot, getStats totals', () => {
   const w = mkWorld({ levels: { attack: 5, defence: 1 } });
   give(w, 'verdite_sword'); give(w, 'cinderiron_sword', 1, 'rare'); give(w, 'rustbound_helm');

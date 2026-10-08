@@ -78,6 +78,18 @@ test('windups: every attack >= 400 ms, boss attacks >= 600 ms', () => {
     if (C.MONSTERS[id].boss) ok(a.windupMs >= C.MIN_BOSS_WINDUP_MS, 'boss ' + a.kind + ' ' + a.windupMs);
   }
 });
+test('lastHits recap: every attack carries the monster display name as srcName (brute + Ashmaw included)', () => {
+  for (const id of C.MONSTER_IDS) for (const a of C.MONSTERS[id].attacks) eq(a.srcName, C.MONSTERS[id].name, id + ' ' + a.kind);
+  eq(C.MONSTERS.brute.attacks.length, 3); eq(C.MONSTERS.ashmaw.attacks.length, 3);
+  ok(C.MONSTERS.brute.attacks.every(a => a.srcName === 'Grave Brute'));
+  ok(C.MONSTERS.ashmaw.attacks.every(a => a.srcName === 'Ashmaw the Wyrmling'));
+});
+test('brute telegraphs (charge + slam) wind up >= 600 ms; charge is 700 ms', () => {
+  const b = C.MONSTERS.brute;
+  eq(C.MIN_ELITE_TELEGRAPH_MS, 600);
+  for (const a of b.attacks) if (a.kind === 'charge' || a.kind === 'slam') ok(a.windupMs >= C.MIN_ELITE_TELEGRAPH_MS, a.kind + ' ' + a.windupMs);
+  eq(b.attacks.find(a => a.kind === 'charge').windupMs, 700);
+});
 test('ids rat goblin skeleton imp brute ashmaw; ashmaw has a ring slam and a charge', () => {
   deq(C.MONSTER_IDS.slice().sort(), ['ashmaw', 'brute', 'goblin', 'imp', 'rat', 'skeleton']);
   const k = C.MONSTERS.ashmaw.attacks.map(a => a.kind);
@@ -346,7 +358,7 @@ test('XP pace: Attack 15-20 after the first clear (typical), Attack 40 is multi-
   const xp = B.xpModel(e.xpDamage, { first: e.totalS, repeat: rep.totalS });
   const T = xp.styles.typical, end = T.stages[T.stages.length - 1];
   ok(end.attack >= 15 && end.attack <= 20, 'typical Attack after first clear ' + end.attack);
-  ok(T.stages[2].attack >= 5 && T.stages[2].defence >= 5, 'grind reaches Cinderiron reqs');
+  ok(T.stages[2].attack >= B.GEAR_LEVEL && T.stages[2].defence >= B.GEAR_LEVEL, 'grind reaches Cinderiron reqs');
   ok(T.toA40.hours.repeat >= 2.5, 'typical hours to Attack 40 ' + T.toA40.hours.repeat.toFixed(2));
   ok(xp.styles.even.toA40.hours.repeat > T.toA40.hours.repeat);
 });
@@ -387,13 +399,42 @@ test('Q1 estimate < 10 min (gate 2)', () => {
   ok(Q[0].totalS < 600, Q[0].totalS);
   ok(Q[0].totalS * 2.5 < 600, 'even at 2.5x new-player slack');
 });
-test('first-Rare pity still fires on the goblin field: Q2 + the Cinderiron field grind pass the guarantee on near-town mobs', () => {
+test('first-Rare pity: Q2 + the Cinderiron grind put a typical player past the ramp; >= 80% get the first Rare on the field', () => {
   const FR = R.Loot.FIRST_RARE;
   ok(R.Loot.MONSTERS.goblin.nearTown && R.Loot.MONSTERS.rat.nearTown);
-  const q2Kills = 5 + 2.5;                                     // Q2 (as in balance-sim q2Damage): ~5 goblins (2 packs) + one rat pack
-  const grind = B.grindDamage(B.STYLES.typical) / C.MONSTERS.goblin.hp;
-  ok(q2Kills + grind >= FR.GUARANTEE, 'field kills before the dungeon ' + (q2Kills + grind).toFixed(0));
   for (const s of C.FIELD_SPAWNS) ok(R.Loot.MONSTERS[s.monsterId].nearTown, s.monsterId);
+  const kills = Math.round(5 + 2.5 + B.grindDamage(B.STYLES.typical) / C.MONSTERS.goblin.hp);   // Q2 (~5 goblins + a rat pack) + grind
+  ok(kills >= FR.RAMP_START + 10, 'field kills ' + kills);
+  let got = 0; const N = 600;
+  for (let i = 0; i < N; i++) {
+    const rng = M.rng32(9000 + i); let fr = { done: false, kills: 0 };
+    for (let k = 0; k < kills && !fr.done; k++) fr = R.Loot.rollDrop(k % 4 === 3 ? 'rat' : 'goblin', rng, { firstRare: fr }).firstRare;
+    if (fr.done) got++;
+  }
+  ok(got / N >= 0.8, 'P(first Rare on the field) ' + (got / N).toFixed(2));
+});
+test('Cinderiron wear requirement is Attack 3 / Defence 3 (PM-approved); grind after Q2 is short; Wyrmfang stays Attack 40', () => {
+  deq(B.GEAR_REQ, { attack: 3, defence: 3 });
+  eq(Db.getBase('wyrmfang').req.attack, 40);
+  const st = B.STYLES.typical, g = B.grindDamage(st);
+  const mins = B.fieldGrindMinutes(g, 'rustbound');
+  ok(mins < 5, 'typical grind ' + mins.toFixed(2) + ' min');
+  ok(mins * require('./quest-times.js').NEW_PLAYER_SLACK < 10, 'cold player (x slack) ' + (mins * 2.5).toFixed(2));
+  const x = B.styleXp(st, B.q2Damage() + g);
+  ok(M.levelFor(x.a) >= 3 && M.levelFor(x.d) >= 3, 'reqs met after the grind');
+});
+test('Ashmaw at the typical player\'s real boss-time levels in Cinderiron stays <= 100 s and still needs dodging', () => {
+  const e = B.dungeonEstimate('cinderiron', 40, 'good');
+  const r = B.ashmawAtRealLevels(e.xpDamage, QUICK ? 120 : 200);
+  const boss = r.find(x => x.at === 'boss');
+  ok(boss.ttk >= 70 && boss.ttk <= 100, 'boss-time ttk ' + boss.ttk.toFixed(1));
+  ok(boss.neverDies >= 0.95 && boss.dieFood <= 0.05);
+});
+test('first clear at real levels (enter at the req, levels grow): ~15 min, a handful of stews', () => {
+  const st = B.STYLES.typical;
+  const e = B.dungeonEstimate('cinderiron', QUICK ? 50 : 100, 'good', { progress: { style: st, startDmg: B.q2Damage() + B.grindDamage(st) } });
+  ok(e.totalS / 60 >= 13.5 && e.totalS / 60 <= 18, (e.totalS / 60).toFixed(1));
+  ok(e.foodStews <= 5 && e.expDeaths < 0.1, e.foodStews.toFixed(2) + ' stews, ' + e.expDeaths + ' deaths');
 });
 test('Q1 ~2-3 min and Q1+Q2 ~7 min (< 10) with new-player slack; Q1 text unchanged', () => {
   const QT = require('./quest-times.js'), Q = QT.estimates(), k = QT.NEW_PLAYER_SLACK;

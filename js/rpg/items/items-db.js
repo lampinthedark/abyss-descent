@@ -16,16 +16,20 @@
 
   /* ------------------------------------------------------------------ tiers */
   // 6-step metal ladder. `wyrm` is the dragon tier: drop-only, not smithable.
+  // `level` gates gathering/smithing (and tool use); `combatLevel` is the Attack /
+  // Defence requirement to wear the tier's weapons, armour and jewellery (defaults
+  // to `level`). Cinderiron is 3 (PM-approved, was 5) so a cold player reaches it
+  // soon after Q2; Mining/Smithing stay at 5.
   var TIERS = [
     { id: 'rustbound',  idx: 0, name: 'Rustbound',  level: 1,  mult: 1.0, value: 8,    color: '#9b6a48', smith: true },
-    { id: 'cinderiron', idx: 1, name: 'Cinderiron', level: 5,  mult: 1.6, value: 30,   color: '#7a5a5a', smith: true },
+    { id: 'cinderiron', idx: 1, name: 'Cinderiron', level: 5,  combatLevel: 3, mult: 1.6, value: 30,   color: '#7a5a5a', smith: true },
     { id: 'verdite',    idx: 2, name: 'Verdite',    level: 10, mult: 2.3, value: 90,   color: '#4f9a6a', smith: true },
     { id: 'tidesteel',  idx: 3, name: 'Tidesteel',  level: 20, mult: 3.2, value: 240,  color: '#4a86a8', smith: true },
     { id: 'sunforged',  idx: 4, name: 'Sunforged',  level: 30, mult: 4.4, value: 620,  color: '#d8a83a', smith: true },
     { id: 'wyrm',       idx: 5, name: 'Wyrmscale',  level: 40, mult: 6.0, value: 2400, color: '#b8323a', smith: false },
   ];
   var TIER_BY_ID = {};
-  TIERS.forEach(function (t) { TIER_BY_ID[t.id] = t; });
+  TIERS.forEach(function (t) { TIER_BY_ID[t.id] = t; if (t.combatLevel == null) t.combatLevel = t.level; });
 
   /* --------------------------------------------------------------- rarities */
   // `beam` is what the renderer draws over a ground drop (null = no beam).
@@ -103,7 +107,7 @@
       });
       if (k.tool) stats.gather = 5 * t.idx;                         // better tools gather faster
       var req = {};
-      req[k.skill] = t.level;
+      req[k.skill] = (k.skill === 'attack' || k.skill === 'defence') ? t.combatLevel : t.level;
       def({
         id: t.id + '_' + k.kind, name: t.name + ' ' + k.name, cat: k.group === 'tool' ? 'tool' : 'gear',
         kind: k.kind, slot: k.slot, group: k.group, tier: t.id, req: req, stats: stats,
@@ -124,7 +128,7 @@
   ].forEach(function (j) {
     // Skills are GD's stats.js set; rings gate on Attack, amulets on Defence.
     var jreq = {};
-    jreq[j.slot === 'ring' ? 'attack' : 'defence'] = TIER_BY_ID[j.tier].level;
+    jreq[j.slot === 'ring' ? 'attack' : 'defence'] = TIER_BY_ID[j.tier].combatLevel;
     def({ id: j.id, name: j.name, cat: 'gear', kind: j.slot, slot: j.slot, group: j.slot, tier: j.tier,
       req: jreq, stats: j.stats, value: j.value });
   });
