@@ -205,7 +205,17 @@
   Renderer.prototype.drawHero = function (ctx, x, y, hero, t) {
     const s = this.s;
     const Sheet = root.Sheet;
-    const key = hero.moving ? 'hero_rustbound_walk' : 'hero_rustbound_idle';
+    // Bare hands until a weapon is equipped (Equipment.getStats().weapon),
+    // then the Rustbound frames. Checked at most every 250 ms.
+    if (!this._armAt || t - this._armAt > 250 || t < this._armAt) {
+      this._armAt = t;
+      let armed = false;
+      try { const st = root.Equipment && root.Equipment.getStats && root.Equipment.getStats(); armed = !!(st && st.weapon); } catch (e) { armed = false; }
+      this._armed = armed;
+    }
+    const set = (!this._armed && Sheet.has('hero_bare_idle')) ? 'hero_bare' : 'hero_rustbound';
+    hero.spriteSet = set;
+    const key = set + (hero.moving ? '_walk' : '_idle');
     if (Sheet.has(key)) {
       const fr = hero.moving
         ? Math.floor((hero.dist || 0) / 7) // one walk frame per 7 art px moved
