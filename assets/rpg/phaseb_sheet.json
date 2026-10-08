@@ -1,0 +1,605 @@
+{
+ "meta": {
+  "image": "sheet.png",
+  "art_px": 1,
+  "device_px_per_art_px": 6,
+  "tile_w": 32,
+  "tile_h": 18,
+  "stage": "scene proof: world only (tiles, edges, props, drops); hero/mob animation frames pending",
+  "footY": "row of the ground-contact line inside the frame (null for tiles/edges); *_top = rows 0..h of the same frame for 6.2 depth sorting"
+ },
+ "frames": {
+  "tile_grass_0": {
+   "x": 0,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_grass_1": {
+   "x": 34,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_grass_2": {
+   "x": 68,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_grass_3": {
+   "x": 102,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_dirt_0": {
+   "x": 136,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_dirt_1": {
+   "x": 170,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_dirt_2": {
+   "x": 204,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_stone_0": {
+   "x": 238,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "tile_stone_1": {
+   "x": 272,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_n": {
+   "x": 306,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_s": {
+   "x": 340,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_e": {
+   "x": 374,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_w": {
+   "x": 408,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_ne": {
+   "x": 442,
+   "y": 0,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_nw": {
+   "x": 0,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_se": {
+   "x": 34,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_sw": {
+   "x": 68,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_inner_ne": {
+   "x": 102,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_inner_nw": {
+   "x": 136,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_inner_se": {
+   "x": 170,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_dirt_inner_sw": {
+   "x": 204,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_n": {
+   "x": 238,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_s": {
+   "x": 272,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_e": {
+   "x": 306,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_w": {
+   "x": 340,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_ne": {
+   "x": 374,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_nw": {
+   "x": 408,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_se": {
+   "x": 442,
+   "y": 20,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_sw": {
+   "x": 0,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_inner_ne": {
+   "x": 34,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_inner_nw": {
+   "x": 68,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_inner_se": {
+   "x": 102,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "edge_grass_stone_inner_sw": {
+   "x": 136,
+   "y": 40,
+   "w": 32,
+   "h": 18,
+   "frames": 1,
+   "footY": null
+  },
+  "prop_tree_dead_0": {
+   "x": 170,
+   "y": 40,
+   "w": 32,
+   "h": 48,
+   "frames": 1,
+   "footY": 46
+  },
+  "prop_tree_dead_0_top": {
+   "x": 170,
+   "y": 40,
+   "w": 32,
+   "h": 37,
+   "frames": 1,
+   "footY": 46
+  },
+  "prop_tree_dead_1": {
+   "x": 204,
+   "y": 40,
+   "w": 26,
+   "h": 36,
+   "frames": 1,
+   "footY": 34
+  },
+  "prop_tree_dead_1_top": {
+   "x": 204,
+   "y": 40,
+   "w": 26,
+   "h": 25,
+   "frames": 1,
+   "footY": 34
+  },
+  "prop_tree_live_0": {
+   "x": 232,
+   "y": 40,
+   "w": 40,
+   "h": 52,
+   "frames": 1,
+   "footY": 50
+  },
+  "prop_tree_live_0_top": {
+   "x": 232,
+   "y": 40,
+   "w": 40,
+   "h": 41,
+   "frames": 1,
+   "footY": 50
+  },
+  "prop_tree_live_1": {
+   "x": 274,
+   "y": 40,
+   "w": 28,
+   "h": 50,
+   "frames": 1,
+   "footY": 48
+  },
+  "prop_tree_live_1_top": {
+   "x": 274,
+   "y": 40,
+   "w": 28,
+   "h": 39,
+   "frames": 1,
+   "footY": 48
+  },
+  "prop_rock_0": {
+   "x": 304,
+   "y": 40,
+   "w": 12,
+   "h": 7,
+   "frames": 1,
+   "footY": 6
+  },
+  "prop_rock_1": {
+   "x": 318,
+   "y": 40,
+   "w": 9,
+   "h": 6,
+   "frames": 1,
+   "footY": 5
+  },
+  "prop_rock_2": {
+   "x": 329,
+   "y": 40,
+   "w": 16,
+   "h": 8,
+   "frames": 1,
+   "footY": 7
+  },
+  "prop_fence_broken_0": {
+   "x": 347,
+   "y": 40,
+   "w": 30,
+   "h": 14,
+   "frames": 1,
+   "footY": 13
+  },
+  "prop_fence_broken_1": {
+   "x": 379,
+   "y": 40,
+   "w": 20,
+   "h": 12,
+   "frames": 1,
+   "footY": 11
+  },
+  "prop_bones_0": {
+   "x": 401,
+   "y": 40,
+   "w": 14,
+   "h": 6,
+   "frames": 1,
+   "footY": 5
+  },
+  "prop_bones_1": {
+   "x": 417,
+   "y": 40,
+   "w": 12,
+   "h": 5,
+   "frames": 1,
+   "footY": 4
+  },
+  "prop_tuft_0": {
+   "x": 431,
+   "y": 40,
+   "w": 7,
+   "h": 5,
+   "frames": 1,
+   "footY": 4
+  },
+  "prop_tuft_1": {
+   "x": 440,
+   "y": 40,
+   "w": 9,
+   "h": 6,
+   "frames": 1,
+   "footY": 5
+  },
+  "prop_tuft_2": {
+   "x": 451,
+   "y": 40,
+   "w": 5,
+   "h": 4,
+   "frames": 1,
+   "footY": 3
+  },
+  "prop_signpost_0": {
+   "x": 458,
+   "y": 40,
+   "w": 20,
+   "h": 29,
+   "frames": 1,
+   "footY": 27
+  },
+  "prop_signpost_0_top": {
+   "x": 458,
+   "y": 40,
+   "w": 20,
+   "h": 18,
+   "frames": 1,
+   "footY": 27
+  },
+  "prop_well_0": {
+   "x": 0,
+   "y": 94,
+   "w": 32,
+   "h": 36,
+   "frames": 1,
+   "footY": 32
+  },
+  "prop_well_0_top": {
+   "x": 0,
+   "y": 94,
+   "w": 32,
+   "h": 23,
+   "frames": 1,
+   "footY": 32
+  },
+  "prop_ruin_slab_0": {
+   "x": 34,
+   "y": 94,
+   "w": 36,
+   "h": 31,
+   "frames": 1,
+   "footY": 29
+  },
+  "prop_ruin_slab_0_top": {
+   "x": 34,
+   "y": 94,
+   "w": 36,
+   "h": 20,
+   "frames": 1,
+   "footY": 29
+  },
+  "prop_ruin_slab_1": {
+   "x": 72,
+   "y": 94,
+   "w": 36,
+   "h": 31,
+   "frames": 1,
+   "footY": 29
+  },
+  "prop_ruin_slab_1_top": {
+   "x": 72,
+   "y": 94,
+   "w": 36,
+   "h": 20,
+   "frames": 1,
+   "footY": 29
+  },
+  "prop_wall_low_0": {
+   "x": 110,
+   "y": 94,
+   "w": 36,
+   "h": 19,
+   "frames": 1,
+   "footY": 17
+  },
+  "prop_wall_low_0_top": {
+   "x": 110,
+   "y": 94,
+   "w": 36,
+   "h": 8,
+   "frames": 1,
+   "footY": 17
+  },
+  "prop_wall_low_1": {
+   "x": 148,
+   "y": 94,
+   "w": 36,
+   "h": 19,
+   "frames": 1,
+   "footY": 17
+  },
+  "prop_wall_low_1_top": {
+   "x": 148,
+   "y": 94,
+   "w": 36,
+   "h": 8,
+   "frames": 1,
+   "footY": 17
+  },
+  "prop_stairs_0": {
+   "x": 186,
+   "y": 94,
+   "w": 36,
+   "h": 29,
+   "frames": 1,
+   "footY": 27
+  },
+  "prop_pillar_broken_0": {
+   "x": 224,
+   "y": 94,
+   "w": 16,
+   "h": 36,
+   "frames": 1,
+   "footY": 34
+  },
+  "prop_pillar_broken_0_top": {
+   "x": 224,
+   "y": 94,
+   "w": 16,
+   "h": 25,
+   "frames": 1,
+   "footY": 34
+  },
+  "prop_arch_0": {
+   "x": 242,
+   "y": 94,
+   "w": 74,
+   "h": 64,
+   "frames": 1,
+   "footY": 62
+  },
+  "prop_arch_0_top": {
+   "x": 242,
+   "y": 94,
+   "w": 74,
+   "h": 53,
+   "frames": 1,
+   "footY": 62
+  },
+  "prop_brazier_0": {
+   "x": 318,
+   "y": 94,
+   "w": 20,
+   "h": 34,
+   "frames": 3,
+   "footY": 32
+  },
+  "prop_brazier_0_top": {
+   "x": 318,
+   "y": 94,
+   "w": 20,
+   "h": 23,
+   "frames": 3,
+   "footY": 32
+  },
+  "drop_gem_green": {
+   "x": 380,
+   "y": 94,
+   "w": 9,
+   "h": 11,
+   "frames": 1,
+   "footY": 10
+  },
+  "drop_gem_blue": {
+   "x": 391,
+   "y": 94,
+   "w": 9,
+   "h": 11,
+   "frames": 1,
+   "footY": 10
+  },
+  "drop_gem_violet": {
+   "x": 402,
+   "y": 94,
+   "w": 9,
+   "h": 11,
+   "frames": 1,
+   "footY": 10
+  },
+  "drop_ring_rare": {
+   "x": 413,
+   "y": 94,
+   "w": 13,
+   "h": 11,
+   "frames": 1,
+   "footY": 10
+  }
+ }
+}

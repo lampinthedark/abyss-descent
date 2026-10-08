@@ -1,0 +1,100 @@
+{
+ "meta": {
+  "image": "sheet.png",
+  "image_3x": "sheet_3x.png",
+  "art_px": 1,
+  "tile_w": 32,
+  "tile_h": 18,
+  "facing": "rat side view faces the viewer's LEFT; goblin front view with the club in the viewer's-left hand. Mirror horizontally for the other side",
+  "anchor": "draw at (feetX - footX, feetY - footY); frames side by side (frame i at x + i*w)",
+  "attack": "rat: rear-back / bite (hit_frame 1) / recover; goblin: club up / strike (hit_frame 1) / recover"
+ },
+ "frames": {
+  "mob_rat_idle": {
+   "x": 0,
+   "y": 0,
+   "w": 34,
+   "h": 15,
+   "frames": 2,
+   "footY": 13,
+   "footX": 15,
+   "ms": [
+    400,
+    400
+   ]
+  },
+  "mob_rat_walk": {
+   "x": 0,
+   "y": 15,
+   "w": 34,
+   "h": 15,
+   "frames": 4,
+   "footY": 13,
+   "footX": 15,
+   "ms": [
+    110,
+    110,
+    110,
+    110
+   ]
+  },
+  "mob_rat_attack": {
+   "x": 0,
+   "y": 30,
+   "w": 34,
+   "h": 15,
+   "frames": 3,
+   "footY": 13,
+   "footX": 15,
+   "ms": [
+    160,
+    80,
+    140
+   ],
+   "hit_frame": 1
+  },
+  "mob_goblin_idle": {
+   "x": 0,
+   "y": 45,
+   "w": 32,
+   "h": 36,
+   "frames": 2,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    400,
+    400
+   ]
+  },
+  "mob_goblin_walk": {
+   "x": 0,
+   "y": 81,
+   "w": 32,
+   "h": 36,
+   "frames": 4,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    110,
+    110,
+    110,
+    110
+   ]
+  },
+  "mob_goblin_attack": {
+   "x": 0,
+   "y": 117,
+   "w": 32,
+   "h": 36,
+   "frames": 3,
+   "footY": 32,
+   "footX": 17,
+   "ms": [
+    160,
+    80,
+    140
+   ],
+   "hit_frame": 1
+  }
+ }
+}
