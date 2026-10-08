@@ -12,8 +12,11 @@ const SurvivorSprites = (() => {
   let scaled = null;
   let floorPattern = null;
   let floorPatternZoom = 0;
+  let floorPatternVow = 0;
+  let floorVow = 0;
   const FLOOR_CHUNK = 16;
   let scratch = null;
+  let decalScratch = null;
   const clips = {};
 
   function clamp(n) { return n < 0 ? 0 : n > 255 ? 255 : n | 0; }
@@ -486,11 +489,12 @@ const SurvivorSprites = (() => {
     blit(ctx, fr, dx, dy, faceRight, o.flash, fade, scale);
   }
 
-  function drawGem(ctx, x, y) {
-    if (!ready) return drawGemFallback(ctx, x, y);
+  function drawGem(ctx, x, y, scale) {
+    const k = scale || 1;
+    if (!ready) return drawGemFallback(ctx, x, y, k);
     const fr = frameAt('gem', 0);
     if (!fr) return;
-    blit(ctx, fr, Math.round(x - (fr.w * zoom) / 2), Math.round(y - (fr.h * zoom) / 2), false, false, 1);
+    blit(ctx, fr, Math.round(x - (fr.w * zoom * k) / 2), Math.round(y - (fr.h * zoom * k) / 2), false, false, 1, k);
   }
 
   function drawBolt(ctx, x, y, angle) {
@@ -523,8 +527,59 @@ const SurvivorSprites = (() => {
     return ((n % m) + m) % m;
   }
 
+  function setFloorVow(count) {
+    const next = Math.max(0, Math.min(3, count | 0));
+    if (next === floorVow) return;
+    floorVow = next;
+    floorPattern = null;
+  }
+
+  function stampDecal(g, fr, dx, dy, px) {
+    if (!decalScratch) decalScratch = document.createElement('canvas');
+    if (decalScratch.width < px || decalScratch.height < px) {
+      decalScratch.width = Math.max(decalScratch.width, px);
+      decalScratch.height = Math.max(decalScratch.height, px);
+    }
+    const s = decalScratch.getContext('2d');
+    s.imageSmoothingEnabled = false;
+    s.clearRect(0, 0, px, px);
+    s.drawImage(scaled, fr.x * zoom, fr.y * zoom, fr.w * zoom, fr.h * zoom, 0, 0, px, px);
+    const img = s.getImageData(0, 0, px, px);
+    const data = img.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 8) continue;
+      const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const dull = 54 + (lum - 128) * 0.1;
+      data[i] = clamp(dull * 1.02);
+      data[i + 1] = clamp(dull * 0.86);
+      data[i + 2] = clamp(dull * 0.8);
+      data[i + 3] = Math.round(data[i + 3] * 0.42);
+    }
+    s.putImageData(img, 0, 0);
+    g.drawImage(decalScratch, 0, 0, px, px, dx, dy, px, px);
+  }
+
+  function tintFloor(g, canvas) {
+    if (floorVow <= 0) return;
+    const img = g.getImageData(0, 0, canvas.width, canvas.height);
+    const data = img.data;
+    const t = floorVow / 3;
+    const cap = 72;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 8) continue;
+      let r = data[i] * (1 - t) + 32 * t;
+      let gv = data[i + 1] * (1 - t) + 40 * t;
+      let b = data[i + 2] * (1 - t) + 58 * t;
+      r *= 1 - 0.12 * t;
+      data[i] = Math.min(cap - 10, r);
+      data[i + 1] = Math.min(cap - 6, gv);
+      data[i + 2] = Math.min(cap, b);
+    }
+    g.putImageData(img, 0, 0);
+  }
+
   function ensureFloorPattern() {
-    if (floorPattern && floorPatternZoom === zoom) return floorPattern;
+    if (floorPattern && floorPatternZoom === zoom && floorPatternVow === floorVow) return floorPattern;
     const px = FRAME * zoom;
     const c = document.createElement('canvas');
     c.width = FLOOR_CHUNK * px;
@@ -540,20 +595,18 @@ const SurvivorSprites = (() => {
         const dx = tx * px;
         const dy = ty * px;
         g.drawImage(scaled, fr.x * zoom, fr.y * zoom, fr.w * zoom, fr.h * zoom, dx, dy, px, px);
-        if (h % 37 === 0) {
+        // About a third of the old skull/bone stamps, and those that remain
+        // sit close to the floor colour so they don't read as skeletons.
+        if (h % 111 === 0) {
           const skull = frameAt('skull', 0);
-          if (skull) {
-            g.drawImage(
-              scaled,
-              skull.x * zoom, skull.y * zoom, skull.w * zoom, skull.h * zoom,
-              dx, dy, px, px
-            );
-          }
+          if (skull) stampDecal(g, skull, dx, dy, px);
         }
       }
     }
+    tintFloor(g, c);
     floorPattern = c;
     floorPatternZoom = zoom;
+    floorPatternVow = floorVow;
     return c;
   }
 
@@ -605,12 +658,13 @@ const SurvivorSprites = (() => {
     ctx.fill();
   }
 
-  function drawGemFallback(ctx, x, y) {
+  function drawGemFallback(ctx, x, y, scale) {
+    const k = scale || 1;
     ctx.beginPath();
-    ctx.moveTo(x, y - 8);
-    ctx.lineTo(x + 6, y);
-    ctx.lineTo(x, y + 7);
-    ctx.lineTo(x - 6, y);
+    ctx.moveTo(x, y - 8 * k);
+    ctx.lineTo(x + 6 * k, y);
+    ctx.lineTo(x, y + 7 * k);
+    ctx.lineTo(x - 6 * k, y);
     ctx.closePath();
     ctx.fillStyle = '#5fd8ff';
     ctx.fill();
@@ -653,6 +707,7 @@ const SurvivorSprites = (() => {
     drawBolt,
     drawHermit,
     drawGround,
+    setFloorVow,
   };
 })();
 

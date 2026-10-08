@@ -136,13 +136,52 @@ const SurvivorSave = (() => {
   function saveInventory(data) { data.version = SCHEMA; write(KEYS.inventory, data); }
   function saveProgress(data) { data.version = SCHEMA; write(KEYS.progress, data); }
 
+  // Derived stats stay in memory. Rank, gold, and item bonuses are read
+  // every frame; they must not touch localStorage again until a purchase,
+  // a drop, or a migration changes the save.
+  let derived = null;
+
+  function bonusFrom(list) {
+    let might = 0;
+    let life = 0;
+    let greed = 0;
+    (list || []).forEach((it) => {
+      const stats = it && it.stats ? it.stats : {};
+      might += Number(stats.might) || 0;
+      life += Number(stats.life) || 0;
+      greed += Number(stats.greed) || 0;
+    });
+    return {
+      might: Math.min(0.2, might),
+      life: Math.min(30, life),
+      greed: Math.min(0.4, greed),
+    };
+  }
+
+  function refreshDerived() {
+    const progress = loadProgress();
+    const bag = loadInventory();
+    const bonus = bonusFrom(bag.items);
+    derived = {
+      gold: progress.gold,
+      upgrades: Object.assign({}, progress.upgrades || {}),
+      might: bonus.might,
+      life: bonus.life,
+      greed: bonus.greed,
+    };
+    return derived;
+  }
+
+  function view() {
+    return derived || refreshDerived();
+  }
+
   function rank(id) {
-    const p = loadProgress();
-    return Math.max(0, Number(p.upgrades[id]) || 0);
+    return Math.max(0, Number(view().upgrades[id]) || 0);
   }
 
   function gold() {
-    return loadProgress().gold;
+    return view().gold;
   }
 
   function bankGold(amount) {
@@ -150,6 +189,7 @@ const SurvivorSave = (() => {
     const p = loadProgress();
     p.gold += n;
     saveProgress(p);
+    refreshDerived();
     return p.gold;
   }
 
@@ -159,9 +199,9 @@ const SurvivorSave = (() => {
   }
 
   function shopList() {
-    const p = loadProgress();
+    const d = view();
     return SHOP.map((u) => {
-      const have = Math.max(0, Number(p.upgrades[u.id]) || 0);
+      const have = Math.max(0, Number(d.upgrades[u.id]) || 0);
       const soldOut = have >= u.max;
       const cost = soldOut ? 0 : u.cost(have);
       return {
@@ -201,6 +241,7 @@ const SurvivorSave = (() => {
     p.gold -= cost;
     p.upgrades[id] = have + 1;
     saveProgress(p);
+    refreshDerived();
     return { ok: true, gold: p.gold, rank: have + 1 };
   }
 
@@ -250,6 +291,7 @@ const SurvivorSave = (() => {
     bag.items.push(item);
     if (bag.items.length > 80) bag.items.splice(0, bag.items.length - 80);
     saveInventory(bag);
+    refreshDerived();
     return item;
   }
 
@@ -258,14 +300,8 @@ const SurvivorSave = (() => {
   }
 
   function itemBonus() {
-    let might = 0;
-    let life = 0;
-    items().forEach((it) => {
-      const stats = it.stats || {};
-      might += Number(stats.might) || 0;
-      life += Number(stats.life) || 0;
-    });
-    return { might: Math.min(0.2, might), life: Math.min(30, life) };
+    const d = view();
+    return { might: d.might, life: d.life, greed: d.greed };
   }
 
   function recordRun(stats) {
@@ -277,6 +313,7 @@ const SurvivorSave = (() => {
     if (isBest) p.bestTime = time;
     if (kills > (p.bestKills || 0)) p.bestKills = kills;
     saveProgress(p);
+    refreshDerived();
     return {
       isBest: isBest,
       previous: previous,
