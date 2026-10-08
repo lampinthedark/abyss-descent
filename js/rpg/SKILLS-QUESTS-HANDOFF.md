@@ -42,3 +42,6 @@ Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests`
 (Q2: the 4th goblin). It reads the count from before this kill, so it gives the same answer whether quests or drops
 hears the `kill` event first. Pass the bus payload as `ev` for an exact match when two kills land in one frame.
 D&B: `Loot.rollDrop(id, rng, x, y, { questFinish: !!(RPG.quests && RPG.quests.completesOnKill(id, ev)) })`.
+
+## Ash Stair gate
+`RPG.quests.isDone('q2')` (or the full id `'q2_field'`) is true once Q2 is handed in. D&B's `RPG.dungeon.canEnter()` reads it.

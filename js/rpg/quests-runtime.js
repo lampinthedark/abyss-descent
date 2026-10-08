@@ -199,6 +199,14 @@
       lastKill = { id: d.monsterId, frame: frame, v: v };
       feed({ type: 'kill', target: d.monsterId });
     }
+    /** isDone('q2') or isDone('q2_field'): short ids match the quest whose id starts with 'q2_'. */
+    function questId(id) {
+      var qs = C().QUESTS || [];
+      for (var i = 0; i < qs.length; i++) if (qs[i].id === id) return id;
+      for (var j = 0; j < qs.length; j++) if (qs[j].id.indexOf(id + '_') === 0) return qs[j].id;
+      return id;
+    }
+    function isDone(id) { var d = state().done || {}; return !!(id && d[questId(id)]); }
     function update(dt) {
       frame++;
       checkArea();
@@ -222,7 +230,7 @@
     RPG.registerSystem({ id: 'sq-quests', update: update, draw: function () {} });
 
     RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh,
-      marker: marker, wantRecipe: wantRecipe, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, _accept: accept };
+      marker: marker, wantRecipe: wantRecipe, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, isDone: isDone, _accept: accept };
     refresh();
     return RPG.quests;
   };

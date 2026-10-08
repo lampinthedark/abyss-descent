@@ -187,9 +187,12 @@ async function playQ1(seed) {
         ok(RPG.quests.completesOnKill('goblin'), 'quests-first: same frame, no payload, still true');
         s.tick(0.05); ok(!RPG.quests.completesOnKill('goblin'), 'later kills read false');
         s.log.dialog.length = 0;
+        ok(!RPG.quests.isDone('q2'), 'Q2 not done before hand-in (gate stays shut)');
         const def0 = s.xp.defence;
         await s.talk('questgiver');
         ok(RPG.quests.state().done.q2_field, 'Q2 done');
+        ok(RPG.quests.isDone('q2') && RPG.quests.isDone('q2_field') && RPG.quests.isDone('q1'), 'isDone short and full ids');
+        ok(!RPG.quests.isDone('q3') && !RPG.quests.isDone(''), 'isDone false for unfinished/blank');
         eq(s.xp.defence - def0, C.quest('q2_field').rewards.xp.defence, 'Q2 Defence XP from data');
         eq(s.xp.defence - def0, 55, 'Q2 pays +55 Defence');
         ok(s.log.float.some(f => /\+55 Defence/.test(f)), 'floats +55 Defence');
