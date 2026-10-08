@@ -592,7 +592,7 @@ async function pageWith(browser, url, viewport) {
         kind: img && img.complete && img.naturalWidth > 0 ? 'img' : (canvas ? 'canvas' : 'none'),
       };
     });
-    if (vowBadge.hidden || vowBadge.w !== 12 || vowBadge.h !== 12 || vowBadge.kind === 'none') {
+    if (vowBadge.hidden || vowBadge.w !== 16 || vowBadge.h !== 16 || vowBadge.kind === 'none') {
       fail('vow badge: ' + JSON.stringify(vowBadge));
     }
     if (vowBadge.rendering !== 'pixelated') fail('vow badge rendering: ' + vowBadge.rendering);

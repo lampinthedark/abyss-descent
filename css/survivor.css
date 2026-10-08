@@ -48,23 +48,50 @@ body.survivor .sv-vitals .bar-wrap span {
 #sv-vow { color: #e0c080; }
 #sv-vow-badge {
   align-self: center;
+  position: relative;
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: #24222a;
+  background: transparent;
   line-height: 0;
-  flex: 0 0 12px;
-  overflow: hidden;
+  flex: 0 0 16px;
+  overflow: visible;
 }
 #sv-vow-badge img,
 #sv-vow-badge canvas {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   display: block;
   image-rendering: pixelated;
+  position: relative;
+  z-index: 1;
+}
+#sv-vow-badge.sv-vow-pulse::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1px solid #cfd3dc;
+  border-radius: 50%;
+  z-index: 0;
+  pointer-events: none;
+  animation:
+    sv-vow-ring 600ms cubic-bezier(0.33, 1, 0.68, 1) 1 forwards,
+    sv-vow-fade 600ms linear 1 forwards;
+}
+@keyframes sv-vow-ring {
+  from { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+  to { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+}
+@keyframes sv-vow-fade {
+  from { opacity: 0.6; }
+  to { opacity: 0; }
 }
 #sv-vow-badge.hidden { display: none; }
 #sv-pause-btn {
@@ -202,6 +229,7 @@ body.sv-bench-run #sv-bench {
 }
 @media (prefers-reduced-motion: reduce) {
   .sv-warn.sv-pulse { animation: none; }
+  #sv-vow-badge.sv-vow-pulse::before { animation: none; display: none; }
 }
 .sv-boss { margin-bottom: 6px; max-width: 420px; }
 .sv-boss span { display: block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #d0b4ff; margin-bottom: 3px; }

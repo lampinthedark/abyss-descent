@@ -39,10 +39,22 @@ function memoryStorage() {
 function fakeDocument() {
   const ctx = fakeCtx();
   const listeners = Object.create(null);
-  function el() {
+  const byId = Object.create(null);
+  function el(id) {
+    const classes = Object.create(null);
     return {
+      id: id || '',
       classList: {
-        add() {}, remove() {}, toggle() {}, contains() { return false; },
+        add(name) { if (name) classes[name] = true; },
+        remove(name) { delete classes[name]; },
+        toggle(name, on) {
+          if (on === false) delete classes[name];
+          else if (on === true) classes[name] = true;
+          else if (classes[name]) delete classes[name];
+          else classes[name] = true;
+          return !!classes[name];
+        },
+        contains(name) { return !!classes[name]; },
       },
       style: {},
       dataset: {},
@@ -82,9 +94,12 @@ function fakeDocument() {
     visibilityState: 'visible',
     documentElement: { classList: { add() {} } },
     body: { classList: { add() {}, remove() {} } },
-    getElementById: () => el(),
+    getElementById(id) {
+      if (!byId[id]) byId[id] = el(id);
+      return byId[id];
+    },
     querySelectorAll: () => [],
-    createElement: () => el(),
+    createElement: () => el(''),
   };
 }
 
@@ -871,6 +886,50 @@ function deadStretch() {
   console.log('longest dead gap after 5:00 ' + reported.toFixed(1) + 's (seen ' + worst.toFixed(1) + 's)');
 }
 
+function levelGap() {
+  const game = boot(2, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svInvuln(30);
+  let snap = game.__svQueueLevels(2);
+  if (snap.state !== 'levelup') fail('queued level did not open, ' + snap.state);
+  snap = game.__svChoose(0);
+  if (snap.state !== 'playing') fail('next level opened immediately, ' + snap.state);
+  snap = game.__svStep(0.5);
+  if (snap.state === 'levelup') fail('level card opened before 0.6s');
+  snap = game.__svStep(0.2);
+  if (snap.state !== 'levelup') fail('level card stayed shut after 0.7s, ' + snap.state);
+  console.log('level-ups wait 0.6s');
+}
+
+function bruteTint() {
+  const game = boot(1);
+  game.__svStart();
+  game.__svSpawn('brute', 3, 0);
+  game.__svElite(4, 0);
+  const scales = game.__svScales();
+  const plain = scales.filter((en) => en.eid === 'brute' && !en.elite && !en.boss).pop();
+  const elite = scales.filter((en) => en.elite && en.eid === 'brute').pop();
+  if (!plain || plain.color !== '#8e97a3' || Math.abs(plain.scale - 0.625) > 0.001) {
+    fail('plain brute ' + JSON.stringify(plain));
+  }
+  if (!elite || elite.color !== '#6f8f62' || Math.abs(elite.scale - 1.2) > 0.001 || Math.abs(elite.scale - 1.5) < 0.001) {
+    fail('elite brute ' + JSON.stringify(elite));
+  }
+  console.log('elite brute ' + elite.color + ' at scale ' + elite.scale);
+}
+
+function restartToast() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svFind({ name: 'Ash Bead', rarity: 'rare' });
+  const toast = game.document.getElementById('sv-toast');
+  if (!toast || toast.classList.contains('hidden') || !toast.textContent) fail('toast did not show');
+  game.__svRestart();
+  if (!toast.classList.contains('hidden')) fail('restart left #sv-toast visible');
+  if (toast.textContent) fail('restart left toast text ' + toast.textContent);
+  console.log('restart hides #sv-toast');
+}
+
 function hermitTwice() {
   const game = boot(11);
   game.__svStart();
@@ -887,11 +946,9 @@ function hermitTwice() {
     }
     if (snap.state === 'dead' || snap.time > 320) break;
   }
-  if (times.length !== 2) fail('hermit offers ' + times.join(', ') + ' (want exactly two)');
+  if (times.length !== 1) fail('hermit offers ' + times.join(', ') + ' (want one)');
   if (times[0] < 90 || times[0] > 116) fail('first hermit at ' + times[0]);
-  const gap = times[1] - times[0];
-  if (gap < 70 || gap > 85) fail('second hermit gap ' + gap.toFixed(1));
-  console.log('hermit offers', times.join(', '));
+  console.log('hermit offers once at ' + times[0]);
 }
 
 function vowRevive() {
@@ -2554,6 +2611,9 @@ retiredAfterEvo();
 burstStagger();
 demonShield();
 deadStretch();
+levelGap();
+bruteTint();
+restartToast();
 hermitTwice();
 vowRevive();
 twoEvos();

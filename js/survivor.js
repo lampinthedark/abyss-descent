@@ -51,7 +51,7 @@
     eliteHp: 16,
   };
   const PARTICLE_CAP = 40;
-  const FLOAT_CAP = 40;
+  const FLOAT_CAP = 24;
   // Trail only. The lerp still lands the gem, and banking stays here.
   // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
   const LOOTPULL_FX = true;
@@ -249,6 +249,7 @@
   let sweepKills = 0;
   let showerLeft = 0;
   let pendingLevels = 0;
+  let levelGapUntil = 0;
   let toastT = 0;
   let shardCd = 0;
   let emberCd = 0;
@@ -592,9 +593,10 @@
     en.sprite = bossKind === 'warden' ? 'warden' : (bossFlag ? 'boss' : '');
     en.elite = !!(opts && opts.elite);
     if (bossFlag) en.scale = BOSS_SCALE;
-    else if (en.elite) en.scale = 1.65;
+    else if (en.elite) en.scale = 1.2;
     else if (type.id === 'brute') en.scale = 0.625;
     else en.scale = 1;
+    if (en.elite && type.id === 'brute' && !bossFlag) en.color = '#6f8f62';
     if (en.elite) {
       en.maxLife = Math.max(1, Math.round(hpFor(type.id, '') * BALANCE.eliteHp));
       en.life = en.maxLife;
@@ -818,7 +820,7 @@
     if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
         const f = floats[i];
-        if (f.fid === fid && time - f.stamp < 0.25) {
+        if (f.fid === fid && time - f.stamp < 0.15) {
           f.amount += amount || 0;
           f.text = ntext(f.amount);
           f.x = x;
@@ -3006,6 +3008,7 @@
       applyQueuedEvolutions();
       return;
     }
+    if (time < levelGapUntil) return;
     if (pendingLevels <= 0) return;
     levelBlast();
     bankLevels();
@@ -3431,6 +3434,8 @@
     toastText = '';
     activeToast = null;
     toastQueue.length = 0;
+    hideToastEl();
+    levelGapUntil = 0;
     localTells.length = 0;
     chatLog.length = 0;
     const chatHost = $('sv-chat');
@@ -4240,7 +4245,9 @@
     pickLeft = 0;
     if (pendingLevels > 0) pendingLevels -= 1;
     if (pendingLevels > 0) {
-      openLevel();
+      levelGapUntil = time + 0.6;
+      state = 'playing';
+      sfx('ui');
       return;
     }
     state = 'playing';
@@ -4286,7 +4293,13 @@
     releaseEvolution();
     vowCount += 1;
     vowActive = true;
-    nextVowAt = time + 150;
+    nextVowAt = 1e9;
+    const badge = $('sv-vow-badge');
+    if (badge && !reduceMotion) {
+      badge.classList.remove('sv-vow-pulse');
+      void badge.offsetWidth;
+      badge.classList.add('sv-vow-pulse');
+    }
     try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
     fxCall('vow', vowCount);
     syncVowChrome();
@@ -4332,8 +4345,8 @@
     if (badge.appendChild) badge.appendChild(canvas);
     const img = document.createElement('img');
     img.alt = '';
-    img.width = 12;
-    img.height = 12;
+    img.width = 16;
+    img.height = 16;
     img.draggable = false;
     const showImage = () => {
       if (!(img.naturalWidth > 0)) return;
@@ -4341,7 +4354,7 @@
       if (badge.appendChild) badge.appendChild(img);
     };
     if (img.addEventListener) img.addEventListener('load', showImage);
-    img.src = 'assets/ui/vow_badge.png?v=6.1.1';
+    img.src = 'assets/ui/vow_badge.png?v=6.1.2';
     if (img.complete && img.naturalWidth > 0) showImage();
   }
 
@@ -4370,8 +4383,7 @@
   function declineHermit() {
     hide('sv-hermit');
     hermitDeclines += 1;
-    if (hermitDeclines >= 2) nextVowAt = 1e9;
-    else nextVowAt = time + 75;
+    nextVowAt = 1e9;
     state = 'playing';
     releaseEvolution();
   }
@@ -5800,6 +5812,11 @@
       return item ? cardTag(item) : '';
     };
     window.__svOpenHermit = () => { openHermit(); return snapRun(); };
+    window.__svQueueLevels = (n) => {
+      pendingLevels += n || 1;
+      tryShowLevel();
+      return snapRun();
+    };
     window.__svTitleGold = () => paintTitleGold();
     window.__svPurse = () => {
       try { return SurvivorSave.gold(); } catch (e) { return -1; }
@@ -5808,7 +5825,7 @@
       const out = [];
       for (let i = 0; i < enemies.length; i++) {
         const en = enemies[i];
-        out.push({ name: en.name, boss: !!en.boss, scale: en.scale, radius: en.radius, kind: en.bossKind || '', life: en.maxLife });
+        out.push({ name: en.name, boss: !!en.boss, elite: !!en.elite, scale: en.scale, radius: en.radius, kind: en.bossKind || '', color: en.color, life: en.maxLife, eid: en.eid });
       }
       return out;
     };
@@ -6105,7 +6122,7 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.1');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.2');
     mountVowBadge();
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);

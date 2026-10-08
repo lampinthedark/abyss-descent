@@ -183,7 +183,7 @@ if (src.includes('setFlush(false)') || src.includes('clampArena')) fail('survivo
 if (!src.includes('spawnOffscreen')) fail('enemies should spawn just off screen');
 if (!src.includes('setPointerCapture')) fail('pointer drag should capture the mouse');
 if (!src.includes('vowPayout')) fail('hermit cards should wait for the vow');
-if (!src.includes('FLOAT_CAP = 40')) fail('floating numbers should cap near 40');
+if (!src.includes('FLOAT_CAP = 24')) fail('floating numbers should cap near 24');
 if (!src.includes('function pickupR')) fail('gem pickup radius missing');
 if (html.includes('id="title-screen"') || html.includes('Choose Your Fate')) fail('survivor boots the descent menu');
 if (!html.includes('sv-bench-boot')) fail('bench should skip the title flash');
@@ -197,10 +197,10 @@ if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.inc
 if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
 const drawAt = src.indexOf('function draw()');
 const drawBody = src.slice(drawAt, src.indexOf('function uiBlock', drawAt));
-const orderAt = ['drawArena()', 'drawGem(', 'drawFoes()', "fxCall('drawUnder'", 'drawHeroActor()', "fxCall('draw',"].map((mark) => drawBody.indexOf(mark));
-if (orderAt.some((at, i) => at < 0 || (i > 0 && at <= orderAt[i - 1]))) fail('draw order should be ground, gems, foes, drawUnder, hero, FX.draw');
-if (!src.includes('dungeon-tileset-ii.png?v=6.1.1')) fail('tileset is not cache-busted');
-if (!src.includes('assets/ui/vow_badge.png?v=6.1.1')) fail('vow badge is not cache-busted');
+const orderAt = ['drawArena()', 'drawGem(', 'drawFoes()', "fxCall('drawUnder'", 'drawHeroActor()', 'drawLocalTells()', "fxCall('draw',"].map((mark) => drawBody.indexOf(mark));
+if (orderAt.some((at, i) => at < 0 || (i > 0 && at <= orderAt[i - 1]))) fail('draw order should be ground, gems, foes, drawUnder, hero, local tells, FX.draw');
+if (!src.includes('dungeon-tileset-ii.png?v=6.1.2')) fail('tileset is not cache-busted');
+if (!src.includes('assets/ui/vow_badge.png?v=6.1.2')) fail('vow badge is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 if ((src.match(/#ff8060/g) || []).length !== 1) fail('warm damage numbers should be the hero hit only');
 if (!src.includes("floatText(player.x, player.y - 0.4, ntext(dmg), '#ff8060'")) fail('hero damage should sit on the hero');
@@ -325,10 +325,10 @@ if (store.gets !== reads) fail('cached stats touched storage again, +' + (store.
 const crypto = require('crypto');
 const vowPng = fs.readFileSync(path.join(root, 'assets/ui/vow_badge.png'));
 const vowHash = crypto.createHash('sha256').update(vowPng).digest('hex');
-if (vowHash !== '85d4e06351c4ecbcfa5ae9793bf9e5cbca78dc95efd1c40f07fcd1e0762a45c5') {
+if (vowHash !== '87a013581792dd5cb557d7dae7bf555cc7f2bb8eeb5c6b8fe125ad097b4f3282') {
   fail('vow badge sha256 ' + vowHash);
 }
-if (!fs.readFileSync(path.join(root, 'assets/CREDITS.md'), 'utf8').includes('Vow badge: original art by the team')) {
+if (!fs.readFileSync(path.join(root, 'assets/CREDITS.md'), 'utf8').includes('Vow badge: original art, Abyss Descent team')) {
   fail('credits missing the vow badge line');
 }
 
