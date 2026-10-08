@@ -46,8 +46,12 @@
  * rarity is cached per slot; rarityId runs only when that argument is not
  * the same string as last time. Common, junk, and unknown names draw
  * nothing. lootPullOff(id) and FX.reset() cancel with no pop. Reaching the
- * hero plays a 4-spark pop. Reduced motion skips the trail and draws one
- * ring on arrival.
+ * hero plays a 4-spark pop. lootPullOff(id, true) plays that same pop once
+ * at the last hero point when the slot is still in flight, then clears it.
+ * A second call, an inactive id, or a flight that already popped does
+ * nothing. A later lootPull with the same id starts a new flight and may
+ * pop once more. Reduced motion skips the trail and draws one ring on
+ * arrival, including that banked pop.
  * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
  * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
  * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
@@ -268,7 +272,7 @@ const FX = (function () {
     const s = loots[i] = {
       on: 0, id: null, x: 0.5, y: 0.5, nx: 0.5, ny: 0.5,
       toX: 0.5, toY: 0.5, ux: 0.5, uy: 0.5,
-      age: 0.5, dur: 0.5, r: 0, pop: 0, wait: 0, lit: 0, tag: null,
+      age: 0.5, dur: 0.5, r: 0, pop: 0, wait: 0, lit: 0, popped: 0, tag: null,
     };
     s.x = -0;
     s.y = -0;
@@ -284,6 +288,7 @@ const FX = (function () {
     s.pop = 0;
     s.wait = 0;
     s.lit = 0;
+    s.popped = 0;
   }
 
   const hexUx = new Array(6);
@@ -1412,10 +1417,9 @@ const FX = (function () {
     s.lit = 0;
   }
 
-  function lootArrive(s) {
-    const x = s.x;
-    const y = s.y;
+  function lootArriveAt(s, x, y) {
     const r = s.r;
+    s.popped = 1;
     lootStop(s);
     if (reducedNow()) {
       s.pop = 1;
@@ -1427,7 +1431,20 @@ const FX = (function () {
     lootSparks(x, y, r);
   }
 
-  function lootClear(id) {
+  function lootArrive(s) {
+    lootArriveAt(s, s.x, s.y);
+  }
+
+  function lootClear(id, pop) {
+    if (pop) {
+      for (let i = 0; i < LOOT_N; i++) {
+        const s = loots[i];
+        if (s.id !== id) continue;
+        if (s.on && !s.popped) lootArriveAt(s, s.toX, s.toY);
+        return;
+      }
+      return;
+    }
     for (let i = 0; i < LOOT_N; i++) {
       if (loots[i].id === id) lootStop(loots[i]);
     }
@@ -1502,6 +1519,7 @@ const FX = (function () {
       slot.uy = -0;
       slot.age = -0;
       slot.lit = 0;
+      slot.popped = 0;
     } else {
       slot.on = 1;
     }
@@ -2872,8 +2890,8 @@ const FX = (function () {
       lootPullOn(id, x, y, toX, toY, ms, rarity);
     },
 
-    lootPullOff: function (id) {
-      lootClear(id);
+    lootPullOff: function (id, pop) {
+      lootClear(id, pop);
     },
 
     shield: function (id, x, y, r, ms, opts) {
