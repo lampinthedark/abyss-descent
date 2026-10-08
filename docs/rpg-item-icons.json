@@ -1,0 +1,1106 @@
+{
+  "generated_by": "dev/rpg/gen-icons.js (do not hand-edit; rerun after item changes)",
+  "size": {
+    "art_px": 32,
+    "module_px": 16,
+    "modules": "2x2",
+    "note": "32x32 art px on the 16 px module (2x2 modules); drawn 3x on DPR-3 phones"
+  },
+  "rules": [
+    "Rarity is NOT baked into icons: the UI draws the rarity border/beam colour (RPGItems.ItemsDb.RARITIES).",
+    "Tinted icons: draw ONE greyscale/value shape, the game multiplies it by `tint` per item. Tier tints come from ItemsDb.TIERS[].color.",
+    "Per-item sheet key is icon_<itemId>; until a dedicated frame exists, draw the shape key with the tint.",
+    "Ore/log/fish ids line up with the town sheet nodes node_ore_<tier>, node_tree_pine/ash, node_fish_0."
+  ],
+  "tiers": [
+    {
+      "id": "rustbound",
+      "name": "Rustbound",
+      "tint": "#9b6a48",
+      "level": 1
+    },
+    {
+      "id": "cinderiron",
+      "name": "Cinderiron",
+      "tint": "#7a5a5a",
+      "level": 5
+    },
+    {
+      "id": "verdite",
+      "name": "Verdite",
+      "tint": "#4f9a6a",
+      "level": 10
+    },
+    {
+      "id": "tidesteel",
+      "name": "Tidesteel",
+      "tint": "#4a86a8",
+      "level": 20
+    },
+    {
+      "id": "sunforged",
+      "name": "Sunforged",
+      "tint": "#d8a83a",
+      "level": 30
+    },
+    {
+      "id": "wyrm",
+      "name": "Wyrmscale",
+      "tint": "#b8323a",
+      "level": 40
+    }
+  ],
+  "counts": {
+    "distinct_icons": 37,
+    "tinted_shapes": 18,
+    "unique": 19,
+    "top_priority_D3_D5": 15,
+    "item_bases_covered": 101
+  },
+  "icons": [
+    {
+      "key": "icon_shape_sword",
+      "name": "Sword",
+      "type": "tinted",
+      "priority": "D3",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_sword",
+          "key": "icon_rustbound_sword",
+          "name": "Rustbound Sword",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_sword",
+          "key": "icon_cinderiron_sword",
+          "name": "Cinderiron Sword",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_sword",
+          "key": "icon_verdite_sword",
+          "name": "Verdite Sword",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_sword",
+          "key": "icon_tidesteel_sword",
+          "name": "Tidesteel Sword",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_sword",
+          "key": "icon_sunforged_sword",
+          "name": "Sunforged Sword",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_hearth_bread",
+      "name": "Hearth Bread",
+      "type": "unique",
+      "priority": "D3",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_gold",
+      "name": "Gold coins",
+      "type": "unique",
+      "priority": "D3",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": null,
+      "note": "Gold is a balance, not an item; icon for HUD, ground piles and shop prices. One coin-pile drawing."
+    },
+    {
+      "key": "icon_shape_pickaxe",
+      "name": "Pickaxe",
+      "type": "tinted",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_pickaxe",
+          "key": "icon_rustbound_pickaxe",
+          "name": "Rustbound Pickaxe",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_pickaxe",
+          "key": "icon_cinderiron_pickaxe",
+          "name": "Cinderiron Pickaxe",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_pickaxe",
+          "key": "icon_verdite_pickaxe",
+          "name": "Verdite Pickaxe",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_pickaxe",
+          "key": "icon_tidesteel_pickaxe",
+          "name": "Tidesteel Pickaxe",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_pickaxe",
+          "key": "icon_sunforged_pickaxe",
+          "name": "Sunforged Pickaxe",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_hatchet",
+      "name": "Hatchet",
+      "type": "tinted",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_hatchet",
+          "key": "icon_rustbound_hatchet",
+          "name": "Rustbound Hatchet",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_hatchet",
+          "key": "icon_cinderiron_hatchet",
+          "name": "Cinderiron Hatchet",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_hatchet",
+          "key": "icon_verdite_hatchet",
+          "name": "Verdite Hatchet",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_hatchet",
+          "key": "icon_tidesteel_hatchet",
+          "name": "Tidesteel Hatchet",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_hatchet",
+          "key": "icon_sunforged_hatchet",
+          "name": "Sunforged Hatchet",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_ore",
+      "name": "Ore chunk",
+      "type": "tinted",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_ore",
+          "key": "icon_rustbound_ore",
+          "name": "Rustbound Ore",
+          "tier": "rustbound",
+          "rarity": "material",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_ore",
+          "key": "icon_cinderiron_ore",
+          "name": "Cinderiron Ore",
+          "tier": "cinderiron",
+          "rarity": "material",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_ore",
+          "key": "icon_verdite_ore",
+          "name": "Verdite Ore",
+          "tier": "verdite",
+          "rarity": "material",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_ore",
+          "key": "icon_tidesteel_ore",
+          "name": "Tidesteel Ore",
+          "tier": "tidesteel",
+          "rarity": "material",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_ore",
+          "key": "icon_sunforged_ore",
+          "name": "Sunforged Ore",
+          "tier": "sunforged",
+          "rarity": "material",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_logs",
+      "name": "Logs",
+      "type": "tinted",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "pine_logs",
+          "key": "icon_pine_logs",
+          "name": "Pine Logs",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#b08a5a"
+        },
+        {
+          "id": "ashwood_logs",
+          "key": "icon_ashwood_logs",
+          "name": "Ashwood Logs",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#cfc2a0"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_fish_raw",
+      "name": "Raw fish",
+      "type": "tinted",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "raw_mudminnow",
+          "key": "icon_raw_mudminnow",
+          "name": "Raw Mudminnow",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#8a8c70"
+        },
+        {
+          "id": "raw_brookfin",
+          "key": "icon_raw_brookfin",
+          "name": "Raw Brookfin",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#8fb0c8"
+        }
+      ]
+    },
+    {
+      "key": "icon_fishing_rod",
+      "name": "Fishing Rod",
+      "type": "unique",
+      "priority": "D4",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_shape_bar",
+      "name": "Bar",
+      "type": "tinted",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_bar",
+          "key": "icon_rustbound_bar",
+          "name": "Rustbound Bar",
+          "tier": "rustbound",
+          "rarity": "material",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_bar",
+          "key": "icon_cinderiron_bar",
+          "name": "Cinderiron Bar",
+          "tier": "cinderiron",
+          "rarity": "material",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_bar",
+          "key": "icon_verdite_bar",
+          "name": "Verdite Bar",
+          "tier": "verdite",
+          "rarity": "material",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_bar",
+          "key": "icon_tidesteel_bar",
+          "name": "Tidesteel Bar",
+          "tier": "tidesteel",
+          "rarity": "material",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_bar",
+          "key": "icon_sunforged_bar",
+          "name": "Sunforged Bar",
+          "tier": "sunforged",
+          "rarity": "material",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_fish_cooked",
+      "name": "Cooked fish",
+      "type": "tinted",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "mudminnow",
+          "key": "icon_mudminnow",
+          "name": "Mudminnow",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#b07a48"
+        },
+        {
+          "id": "brookfin",
+          "key": "icon_brookfin",
+          "name": "Brookfin",
+          "tier": null,
+          "rarity": "material",
+          "tint": "#c89a5e"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_helm",
+      "name": "Helm",
+      "type": "tinted",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_helm",
+          "key": "icon_rustbound_helm",
+          "name": "Rustbound Helm",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_helm",
+          "key": "icon_cinderiron_helm",
+          "name": "Cinderiron Helm",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_helm",
+          "key": "icon_verdite_helm",
+          "name": "Verdite Helm",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_helm",
+          "key": "icon_tidesteel_helm",
+          "name": "Tidesteel Helm",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_helm",
+          "key": "icon_sunforged_helm",
+          "name": "Sunforged Helm",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_helm",
+          "key": "icon_wyrm_helm",
+          "name": "Wyrmscale Helm",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_smithing_hammer",
+      "name": "Smithing Hammer",
+      "type": "unique",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_flint_striker",
+      "name": "Flint Striker",
+      "type": "unique",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_charred_fish",
+      "name": "Charred Fish",
+      "type": "unique",
+      "priority": "D5",
+      "top": true,
+      "size": 32,
+      "tier": null,
+      "rarity": "material",
+      "note": "Shared burnt result for every fish."
+    },
+    {
+      "key": "icon_shape_shield",
+      "name": "Shield",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_shield",
+          "key": "icon_rustbound_shield",
+          "name": "Rustbound Shield",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_shield",
+          "key": "icon_cinderiron_shield",
+          "name": "Cinderiron Shield",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_shield",
+          "key": "icon_verdite_shield",
+          "name": "Verdite Shield",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_shield",
+          "key": "icon_tidesteel_shield",
+          "name": "Tidesteel Shield",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_shield",
+          "key": "icon_sunforged_shield",
+          "name": "Sunforged Shield",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_shield",
+          "key": "icon_wyrm_shield",
+          "name": "Wyrmscale Shield",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_cuirass",
+      "name": "Cuirass",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_cuirass",
+          "key": "icon_rustbound_cuirass",
+          "name": "Rustbound Cuirass",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_cuirass",
+          "key": "icon_cinderiron_cuirass",
+          "name": "Cinderiron Cuirass",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_cuirass",
+          "key": "icon_verdite_cuirass",
+          "name": "Verdite Cuirass",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_cuirass",
+          "key": "icon_tidesteel_cuirass",
+          "name": "Tidesteel Cuirass",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_cuirass",
+          "key": "icon_sunforged_cuirass",
+          "name": "Sunforged Cuirass",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_cuirass",
+          "key": "icon_wyrm_cuirass",
+          "name": "Wyrmscale Cuirass",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_greaves",
+      "name": "Greaves",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_greaves",
+          "key": "icon_rustbound_greaves",
+          "name": "Rustbound Greaves",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_greaves",
+          "key": "icon_cinderiron_greaves",
+          "name": "Cinderiron Greaves",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_greaves",
+          "key": "icon_verdite_greaves",
+          "name": "Verdite Greaves",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_greaves",
+          "key": "icon_tidesteel_greaves",
+          "name": "Tidesteel Greaves",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_greaves",
+          "key": "icon_sunforged_greaves",
+          "name": "Sunforged Greaves",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_greaves",
+          "key": "icon_wyrm_greaves",
+          "name": "Wyrmscale Greaves",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_gauntlets",
+      "name": "Gauntlets",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_gauntlets",
+          "key": "icon_rustbound_gauntlets",
+          "name": "Rustbound Gauntlets",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_gauntlets",
+          "key": "icon_cinderiron_gauntlets",
+          "name": "Cinderiron Gauntlets",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_gauntlets",
+          "key": "icon_verdite_gauntlets",
+          "name": "Verdite Gauntlets",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_gauntlets",
+          "key": "icon_tidesteel_gauntlets",
+          "name": "Tidesteel Gauntlets",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_gauntlets",
+          "key": "icon_sunforged_gauntlets",
+          "name": "Sunforged Gauntlets",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_gauntlets",
+          "key": "icon_wyrm_gauntlets",
+          "name": "Wyrmscale Gauntlets",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_sabatons",
+      "name": "Sabatons",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_sabatons",
+          "key": "icon_rustbound_sabatons",
+          "name": "Rustbound Sabatons",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_sabatons",
+          "key": "icon_cinderiron_sabatons",
+          "name": "Cinderiron Sabatons",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_sabatons",
+          "key": "icon_verdite_sabatons",
+          "name": "Verdite Sabatons",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_sabatons",
+          "key": "icon_tidesteel_sabatons",
+          "name": "Tidesteel Sabatons",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_sabatons",
+          "key": "icon_sunforged_sabatons",
+          "name": "Sunforged Sabatons",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        },
+        {
+          "id": "wyrm_sabatons",
+          "key": "icon_wyrm_sabatons",
+          "name": "Wyrmscale Sabatons",
+          "tier": "wyrm",
+          "rarity": "normal",
+          "tint": "#b8323a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_dirk",
+      "name": "Dirk",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_dirk",
+          "key": "icon_rustbound_dirk",
+          "name": "Rustbound Dirk",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_dirk",
+          "key": "icon_cinderiron_dirk",
+          "name": "Cinderiron Dirk",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_dirk",
+          "key": "icon_verdite_dirk",
+          "name": "Verdite Dirk",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_dirk",
+          "key": "icon_tidesteel_dirk",
+          "name": "Tidesteel Dirk",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_dirk",
+          "key": "icon_sunforged_dirk",
+          "name": "Sunforged Dirk",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_greataxe",
+      "name": "Greataxe",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "rustbound_greataxe",
+          "key": "icon_rustbound_greataxe",
+          "name": "Rustbound Greataxe",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#9b6a48"
+        },
+        {
+          "id": "cinderiron_greataxe",
+          "key": "icon_cinderiron_greataxe",
+          "name": "Cinderiron Greataxe",
+          "tier": "cinderiron",
+          "rarity": "normal",
+          "tint": "#7a5a5a"
+        },
+        {
+          "id": "verdite_greataxe",
+          "key": "icon_verdite_greataxe",
+          "name": "Verdite Greataxe",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#4f9a6a"
+        },
+        {
+          "id": "tidesteel_greataxe",
+          "key": "icon_tidesteel_greataxe",
+          "name": "Tidesteel Greataxe",
+          "tier": "tidesteel",
+          "rarity": "normal",
+          "tint": "#4a86a8"
+        },
+        {
+          "id": "sunforged_greataxe",
+          "key": "icon_sunforged_greataxe",
+          "name": "Sunforged Greataxe",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#d8a83a"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_ring",
+      "name": "Ring",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "plain_band",
+          "key": "icon_plain_band",
+          "name": "Plain Band",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#b8a888"
+        },
+        {
+          "id": "garnet_band",
+          "key": "icon_garnet_band",
+          "name": "Garnet Band",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#a8323a"
+        },
+        {
+          "id": "moonstone_band",
+          "key": "icon_moonstone_band",
+          "name": "Moonstone Band",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#c8d8f0"
+        }
+      ]
+    },
+    {
+      "key": "icon_shape_amulet",
+      "name": "Amulet",
+      "type": "tinted",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "items": [
+        {
+          "id": "bone_charm",
+          "key": "icon_bone_charm",
+          "name": "Bone Charm",
+          "tier": "rustbound",
+          "rarity": "normal",
+          "tint": "#e0d6bc"
+        },
+        {
+          "id": "amber_pendant",
+          "key": "icon_amber_pendant",
+          "name": "Amber Pendant",
+          "tier": "verdite",
+          "rarity": "normal",
+          "tint": "#e09a30"
+        },
+        {
+          "id": "starglass_pendant",
+          "key": "icon_starglass_pendant",
+          "name": "Starglass Pendant",
+          "tier": "sunforged",
+          "rarity": "normal",
+          "tint": "#a8c8ff"
+        }
+      ]
+    },
+    {
+      "key": "icon_rat_tail",
+      "name": "Rat Tail",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_goblin_trinket",
+      "name": "Goblin Trinket",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_bone_shard",
+      "name": "Bone Shard",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_imp_ember",
+      "name": "Imp Ember",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_wyrm_scale",
+      "name": "Wyrm Scale",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_travellers_stew",
+      "name": "Traveller's Stew",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "material"
+    },
+    {
+      "key": "icon_wyrmfang",
+      "name": "Wyrmfang",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": "wyrm",
+      "rarity": "legendary",
+      "note": "Dragon-tier legendary sword (Gate 4/6 show-off). Most detailed icon in the set; red-black blade, fang-shaped."
+    },
+    {
+      "key": "icon_gravewarden_crown",
+      "name": "Gravewarden's Crown",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": "verdite",
+      "rarity": "legendary",
+      "note": "Legendary helm (boss chase)."
+    },
+    {
+      "key": "icon_emberheart_pendant",
+      "name": "Emberheart Pendant",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": "cinderiron",
+      "rarity": "legendary",
+      "note": "Legendary amulet."
+    },
+    {
+      "key": "icon_tinkers_oath",
+      "name": "Tinker's Oath",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": "cinderiron",
+      "rarity": "legendary",
+      "note": "Legendary ring."
+    },
+    {
+      "key": "icon_cracked_sigil",
+      "name": "Cracked Sigil",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "quest",
+      "note": "Quest item; names follow GD quests, may change."
+    },
+    {
+      "key": "icon_wardens_ledger",
+      "name": "Warden's Ledger",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "quest",
+      "note": "Quest item; may change."
+    },
+    {
+      "key": "icon_old_survey_map",
+      "name": "Old Survey Map",
+      "type": "unique",
+      "priority": "D6",
+      "top": false,
+      "size": 32,
+      "tier": null,
+      "rarity": "quest",
+      "note": "Quest item; may change."
+    }
+  ],
+  "uncovered_bases": []
+}
