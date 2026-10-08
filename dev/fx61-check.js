@@ -961,14 +961,19 @@ calls.length = 0;
 FX.draw(ctx, cam);
 const demonX = demon.x * 16 * cam.zoom + cam.x;
 const demonY = demon.y * 16 * cam.zoom + cam.y;
+const bossScale = demon.radius / 0.9;
+const bossFoot = (40 - 2) * cam.zoom * bossScale;
+const bodyX = demonX;
+const bodyY = demonY - bossFoot + (2 + 20) * cam.zoom * bossScale;
+console.log('hex was below the body by', (demonY - bodyY).toFixed(2), 'device px');
 const hexAt = steelCentre();
-check('shield centre matches the demon', hexAt.n > 0 && Math.abs(hexAt.x - demonX) <= 1 && Math.abs(hexAt.y - demonY) <= 1);
+check('shield centre matches the demon body', hexAt.n > 0 && Math.abs(hexAt.x - bodyX) <= 2 && Math.abs(hexAt.y - bodyY) <= 2);
 let hexReach = 0;
 for (let i = 0; i < calls.length; i++) {
   const c = calls[i];
   if (c[0] !== 'fill' || c[1] !== '#9fb4c8' || Math.abs(c[2] - 1) > 0.001) continue;
-  const dx = c[3] + c[5] * 0.5 - demonX;
-  const dy = c[4] + c[6] * 0.5 - demonY;
+  const dx = c[3] + c[5] * 0.5 - bodyX;
+  const dy = c[4] + c[6] * 0.5 - bodyY;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist > hexReach) hexReach = dist;
 }
@@ -981,14 +986,22 @@ calls.length = 0;
 FX.draw(ctx, cam);
 const moved = steelCentre();
 const movedX = (demon.x + 0.8) * 16 * cam.zoom + cam.x;
-const movedY = (demon.y - 0.35) * 16 * cam.zoom + cam.y;
-check('shield follows a later tile update', moved.n > 0 && Math.abs(moved.x - movedX) <= 1 && Math.abs(moved.y - movedY) <= 1);
+const movedFeetY = (demon.y - 0.35) * 16 * cam.zoom + cam.y;
+const movedY = movedFeetY - bossFoot + (2 + 20) * cam.zoom * bossScale;
+check('shield follows a later tile update', moved.n > 0 && Math.abs(moved.x - movedX) <= 2 && Math.abs(moved.y - movedY) <= 2);
+
+FX.shield(demon.id, demon.x, demon.y, shieldR, 4000, { lift: 0 });
+calls.length = 0;
+FX.draw(ctx, cam);
+const planted = steelCentre();
+check('opts.lift 0 keeps the hex on the feet', planted.n > 0 && Math.abs(planted.x - demonX) <= 2 && Math.abs(planted.y - demonY) <= 2);
 
 FX.reset();
 FX.setReducedMotion(false);
 FX.draw(ctx, cam);
 FX.shield(demon.id, demon.x, demon.y, shieldR, 4000);
-FX.shieldHit(demon.id, demon.x + shieldR, demon.y);
+const bodyTileY = demon.y - (bossFoot - (2 + 20) * cam.zoom * bossScale) / (16 * cam.zoom);
+FX.shieldHit(demon.id, demon.x + shieldR, bodyTileY);
 calls.length = 0;
 FX.draw(ctx, cam);
 let hitX = 0;
@@ -1006,7 +1019,7 @@ for (let i = 0; i < calls.length; i++) {
 }
 const rimX = demonX + Math.round(shieldR * 16 * Math.cos(Math.PI / 6)) * cam.zoom;
 const hitDx = hitN ? hitX / hitN - rimX : 99;
-const hitDy = hitN ? hitY / hitN - demonY : 99;
+const hitDy = hitN ? hitY / hitN - bodyY : 99;
 console.log('shield hit rim dx', hitDx.toFixed(2), 'dy', hitDy.toFixed(2));
 check('shield hit lands on the demon rim', hitN > 0 && Math.abs(hitDx) <= 1 && Math.abs(hitDy) <= 1);
 

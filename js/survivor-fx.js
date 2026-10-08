@@ -27,7 +27,12 @@
  * in tiles. It uses its own 32-slot table, never the particle pool, and never a
  * white flash. opts.boss enlarges the default ring.
  * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
- * Shield radius is in tiles. Line width and pixel snap stay in art px.
+ * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
+ * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
+ * at scale body/0.9. The opaque body on that 36px sheet is centred 16
+ * source px above the foot row, so the bubble, hit sparks, and break
+ * shards rise by body/0.9 tiles. opts.lift, in tiles, overrides that.
+ * Line width and pixel snap stay in art px.
  * Its bubble, chevrons, and arrival puffs sit on fixed tables. Only a shield
  * break's shards use the particle pool, and its one white flash shares the
  * 3-per-0.1s death window.
@@ -177,10 +182,11 @@ const FX = (function () {
   const shields = new Array(SH_N);
   const shEdge = new Array(CH_N);
   for (let i = 0; i < SH_N; i++) {
-    const s = shields[i] = { on: 0, id: null, x: 0.5, y: 0.5, r: 0.5, age: 0.5, dur: 0.5 };
+    const s = shields[i] = { on: 0, id: null, x: 0.5, y: 0.5, r: 0.5, age: 0.5, dur: 0.5, lift: 0.5 };
     s.x = 0;
     s.y = 0;
     s.r = 16;
+    s.lift = 0;
     s.age = 0;
     s.dur = 1;
   }
@@ -1212,7 +1218,7 @@ const FX = (function () {
       const s = shields[i];
       const span = tileSpan(zoom);
       const dx = s.x * span + lastCamX - hx;
-      const dy = s.y * span + lastCamY - hy;
+      const dy = shieldCY(s) * span + lastCamY - hy;
       const d = dx * dx + dy * dy;
       if (d > bestD) {
         bestD = d;
@@ -1229,7 +1235,21 @@ const FX = (function () {
     return -1;
   }
 
-  function shieldOn(id, x, y, r, ms) {
+  const SHIELD_PAD = 0.9;
+  const BODY_RISE_SRC = 16;
+
+  function shieldLiftOf(r, opts) {
+    if (opts && ok(opts.lift)) return opts.lift;
+    const body = r - SHIELD_PAD;
+    if (!(body > 0)) return 0;
+    return body * BODY_RISE_SRC / (SHIELD_PAD * framePx());
+  }
+
+  function shieldCY(s) {
+    return s.y - s.lift;
+  }
+
+  function shieldOn(id, x, y, r, ms, opts) {
     if (!ok(x) || !ok(y) || !(r > 0)) return;
     let dur = 1;
     if (ok(ms) && ms > 0) dur = ms * 0.001;
@@ -1254,6 +1274,7 @@ const FX = (function () {
     s.x = x;
     s.y = y;
     s.r = r;
+    s.lift = shieldLiftOf(r, opts);
     s.age = 0;
     s.dur = dur;
     clearEdges(idx);
@@ -1305,8 +1326,9 @@ const FX = (function () {
     if (idx < 0 || !ok(x) || !ok(y)) return;
     const s = shields[idx];
     const frame = framePx();
+    const cy = shieldCY(s);
     layHex(shieldSpin(), s.r * frame);
-    const edge = shieldNearest((x - s.x) * frame, (y - s.y) * frame);
+    const edge = shieldNearest((x - s.x) * frame, (y - cy) * frame);
     const base = idx * CH_PER;
     let slot = -1;
     for (let k = 0; k < CH_PER; k++) {
@@ -1331,7 +1353,7 @@ const FX = (function () {
     ch.on = 1;
     ch.age = 0;
     ch.x = s.x + shQx / frame;
-    ch.y = s.y + shQy / frame;
+    ch.y = cy + shQy / frame;
     ch.nx = nx;
     ch.ny = ny;
     ch.px = -ny;
@@ -1376,7 +1398,7 @@ const FX = (function () {
     if (idx < 0) return;
     const s = shields[idx];
     const x = s.x;
-    const y = s.y;
+    const y = shieldCY(s);
     const r = s.r;
     s.on = 0;
     clearEdges(idx);
@@ -1453,7 +1475,7 @@ const FX = (function () {
   function paintShield(ctx, s, idx, zoom, camX, camY, calm) {
     const span = tileSpan(zoom);
     const sx = s.x * span + camX;
-    const sy = s.y * span + camY;
+    const sy = shieldCY(s) * span + camY;
     const cell = telCell(zoom);
     const half = cell >> 1;
     const radArt = s.r * framePx();
@@ -2371,8 +2393,8 @@ const FX = (function () {
       telegraphClear(id);
     },
 
-    shield: function (id, x, y, r, ms) {
-      shieldOn(id, x, y, r, ms);
+    shield: function (id, x, y, r, ms, opts) {
+      shieldOn(id, x, y, r, ms, opts);
     },
 
     shieldOff: function (id) {
