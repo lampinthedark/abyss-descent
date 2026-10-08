@@ -67,7 +67,8 @@
     if (!(amount > 0)) return;
     const srcName = e.srcName || e.name || e.source || e.monsterId || 'Something';
     hits.push({
-      amount: amount,
+      // Unrounded armour lands in 0.1 steps; players only see whole numbers (same rule as the HP bar).
+      amount: Math.ceil(Math.round(amount * 10) / 10),
       crit: !!(e.crit || e.isCrit),
       srcId: e.srcId || e.monsterId || '',
       srcName: srcName,

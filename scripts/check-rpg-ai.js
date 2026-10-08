@@ -601,6 +601,14 @@ RPG.emit('hurt', { amount: 8, name: 'Cinder Ring', srcName: 'Ashmaw the Wyrmling
 RPG.emit('death', { target: 'hero' });
 assert(uiRecap && uiRecap.lastHits.map((h) => h.name).join(',') === 'Grave Brute,Ashmaw the Wyrmling,Ashmaw the Wyrmling', 'recap shows attack srcName');
 assert(uiRecap.lines[0] === 'Grave Brute 3', 'recap line uses the display name');
+RPG.deathRecap.resetRun();
+uiRecap = null;
+RPG.emit('hurt', { amount: 1.7, name: 'Ditch Goblin', target: 'hero' });
+RPG.emit('hurt', { amount: 2.0000001, name: 'Ditch Goblin', target: 'hero' });
+RPG.emit('hurt', { amount: 0.3, name: 'Rat', target: 'hero' });
+RPG.emit('death', { target: 'hero' });
+assert(uiRecap.lines.join('|') === 'Ditch Goblin 2|Ditch Goblin 2|Rat 1', 'recap shows whole numbers (ceil), got ' + uiRecap.lines.join('|'));
+assert(uiRecap.hits.every((h) => Number.isInteger(h.amount)), 'recap hit amounts are whole');
 
 // Revive cap: one accept per dungeon load.
 let ads = 0;
