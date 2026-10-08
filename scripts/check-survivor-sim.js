@@ -2795,6 +2795,27 @@ if (process.env.PICKUP === '1') {
   process.exit(0);
 }
 
+if (process.env.VOWBUG === '1') {
+  const seeds = (process.env.SEEDS || '4,6').split(',').map((n) => Number(n));
+  const limit = Number(process.env.LIMIT || 210);
+  const modes = (process.env.MODES || 'circle,vow').split(',');
+  seeds.forEach((seed) => {
+    modes.forEach((mode) => {
+      const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+      const run = watchRun(game, limit, { dt: 1 / 60, vow: mode === 'vow' });
+      console.log(JSON.stringify({
+        seed: seed,
+        mode: mode,
+        end: run.end,
+        state: run.state,
+        level: run.level,
+        totals: game.__svHitTotals(),
+      }));
+    });
+  });
+  process.exit(0);
+}
+
 tapGuards();
 evoNeeds();
 evolvedOffers();

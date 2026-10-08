@@ -241,6 +241,10 @@
   let spawnLocked = false;
   let fairDps = false;
   let lastHit = '';
+  let hitSource = '';
+  let hitTele = false;
+  const hitLog = [];
+  const hitTotals = {};
   let rareSeen = false;
   let epicSeen = false;
   let hitPause = 0;
@@ -667,6 +671,7 @@
     stillBite = BALANCE.idleBiteEvery;
     en.touchCd = 0.7;
     lastHit = 'idle';
+    noteHit('contact', false);
     hurt(BALANCE.chip, false);
   }
 
@@ -680,6 +685,7 @@
       if (dist >= (en.radius || 0.32) + BALANCE.idleReach) continue;
       stillBite = BALANCE.idleBiteEvery;
       lastHit = 'idle';
+      noteHit('contact', false);
       hurt(BALANCE.chip, false);
       return;
     }
@@ -1257,14 +1263,38 @@
     return pxToWorld(36);
   }
 
+  function noteHit(source, tele) {
+    hitSource = source || '';
+    hitTele = !!tele;
+  }
+
   function hurt(amount, heavy, floorLife) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    let incoming = curse > 0 ? amount * vowSpec().hit : amount;
+    // The cursed minute starts at the 1:30 offer. Its 1.5× used to land
+    // immediately and kill some runs near 2:40. Damage waits until 5:00.
+    const cursed = curse > 0 && time >= VOW_LATE_AT;
+    let incoming = cursed ? amount * vowSpec().hit : amount;
     incoming *= vowDanger('dmg');
     const cut = stillT >= BALANCE.idleGrace ? 0 : armorCut();
     let dmg = Math.max(1, incoming - cut);
     if (floorLife > 0) dmg = Math.max(dmg, floorLife);
+    const lifeBefore = player.life;
     player.life -= dmg;
+    const totalKey = (hitSource || lastHit || 'other') + '|' + (hitTele ? 1 : 0) + '|' + (cursed ? 1 : 0);
+    hitTotals[totalKey] = (hitTotals[totalKey] || 0) + dmg;
+    if (hitLog.length > 64) hitLog.shift();
+    hitLog.push({
+      t: time,
+      dmg: dmg,
+      raw: amount,
+      source: hitSource || lastHit || 'other',
+      tele: hitTele ? 1 : 0,
+      curse: cursed ? 1 : 0,
+      life: lifeBefore,
+      max: player.maxLife,
+    });
+    hitSource = '';
+    hitTele = false;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
     addShake(heavy ? 4.2 : 2.6);
@@ -2221,7 +2251,7 @@
     }
   }
 
-  function spawnFoeShot(x, y, vx, vy, dmg) {
+  function spawnFoeShot(x, y, vx, vy, dmg, from) {
     const s = foeShotPool.pop() || {};
     s.x = x;
     s.y = y;
@@ -2229,6 +2259,7 @@
     s.vy = vy;
     s.dmg = dmg;
     s.life = 3.2;
+    s.from = from || 'shooter';
     foeShots.push(s);
   }
 
@@ -2243,6 +2274,7 @@
       const shotR = player.moving ? 0.22 : 0.46;
       if (sweptHit(x0, y0, s.x, s.y, player.x, player.y, shotR)) {
         lastHit = 'shot';
+        noteHit(s.from === 'warden' ? 'warden' : (s.from === 'demon' ? 'demon' : 'ranged'), false);
         hurt(s.dmg, false);
         s.life = 0;
       }
@@ -2305,6 +2337,8 @@
       en.touchCd = (player.moving && en.elite) ? 22 : 0.7;
       lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
       const floor = en.bossKind === 'warden' ? wardenLifeFloor() : 0;
+      const touchSrc = en.bossKind === 'warden' ? 'warden' : (en.boss ? 'demon' : (en.elite ? 'elite' : (backlogWave > 0 ? 'burst' : 'contact')));
+      noteHit(touchSrc, false);
       hurt(dmg == null ? en.dmg : dmg, en.boss, floor);
     }
   }
@@ -2600,6 +2634,7 @@
       if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
+        noteHit('dash', true);
         hurt(player.moving ? 4 : en.dmg + 3, false);
       }
       if (ai.t <= 0) {
@@ -2630,7 +2665,7 @@
         const lx = px - en.x;
         const ly = py - en.y;
         const ld = len2(lx, ly) || 1;
-        spawnFoeShot(en.x, en.y, (lx / ld) * sp, (ly / ld) * sp, shot);
+        spawnFoeShot(en.x, en.y, (lx / ld) * sp, (ly / ld) * sp, shot, 'shooter');
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -2670,6 +2705,7 @@
           telegraphOff(en);
           if (dist < 2.15) {
             lastHit = 'boss';
+            noteHit(en.bossKind === 'warden' ? 'warden' : 'demon', true);
             hurt(en.dmg + 6, true);
           }
           ai.mode = 'recover';
@@ -2679,7 +2715,7 @@
           const volley = en.bossKind === 'warden' ? wardenShotDmg() : 7;
           for (let i = -1; i <= 1; i++) {
             const ang = base + i * 0.32;
-            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley, en.bossKind || 'boss');
           }
           ai.mode = 'recover';
           ai.t = 1.3;
@@ -2787,6 +2823,7 @@
     orbitClip = time < 180 ? 16 : 8;
     lastHit = 'clip';
     const bite = time < 180 ? 8 : Math.max(7, Math.round(player.maxLife * 0.08));
+    noteHit('clip', false);
     hurt(bite, false);
   }
 
@@ -3399,6 +3436,8 @@
     pickLeft = 0;
     rerollUsed = false;
     hits = 0;
+    hitLog.length = 0;
+    Object.keys(hitTotals).forEach((k) => { delete hitTotals[k]; });
     owned = { bolt: 1 };
     cds = { bolt: T.firstBolt, nova: 1.6, pierce: 1.2 };
     orbitAngle = 0;
@@ -5916,6 +5955,8 @@
       return snapRun();
     };
     window.__svSnap = () => snapRun();
+    window.__svHits = () => hitLog.slice();
+    window.__svHitTotals = () => Object.assign({}, hitTotals);
     window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
     window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
