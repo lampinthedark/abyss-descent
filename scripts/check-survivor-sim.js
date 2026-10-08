@@ -182,6 +182,26 @@ function saveOnQuit() {
   console.log('save on quit keeps ' + dead.prev);
 }
 
+function restartBanksGold() {
+  const game = boot(3, '?headless=1&debug=1');
+  if (game.__svPurse() !== 0) fail('restart gold setup purse ' + game.__svPurse());
+  game.__svStart();
+  game.__svAddGold(40);
+  if (game.__svPurse() !== 0) fail('unsynced gold reached the bank ' + game.__svPurse());
+  if (game.__svSnap().gold !== 40) fail('run gold ' + game.__svSnap().gold);
+  game.__svRestart();
+  if (game.__svPurse() !== 40) fail('restart banked ' + game.__svPurse() + ' (want 40)');
+  game.__svAddGold(15);
+  game.__svPageHide();
+  if (game.__svPurse() !== 55) fail('hide sync ' + game.__svPurse());
+  game.__svRestart();
+  if (game.__svPurse() !== 55) fail('restart counted synced gold again ' + game.__svPurse());
+  game.__svAddGold(7);
+  game.__svRestart();
+  if (game.__svPurse() !== 62) fail('restart missed unsynced gold ' + game.__svPurse());
+  console.log('restart banks unsynced gold once');
+}
+
 function titleGold() {
   const game = boot(1, '?headless=1');
   if (game.__svTitleGold() !== '0 gold') fail('title gold ' + game.__svTitleGold());
@@ -2822,6 +2842,7 @@ evolvedOffers();
 freshAndFlags();
 bossLook();
 saveOnQuit();
+restartBanksGold();
 titleGold();
 wardenHitFloor();
 earlyCrowd();

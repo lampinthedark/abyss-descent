@@ -3524,6 +3524,7 @@
 
   function startRun() {
     claimUnbankedFlight();
+    if (state === 'playing' || state === 'paused' || state === 'levelup' || state === 'hermit') syncBank();
     const preview = previewOnce;
     previewOnce = '';
     resetRun();
