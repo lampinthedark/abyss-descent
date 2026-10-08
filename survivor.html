@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Abyss Descent — Survivor</title>
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/style.css?v=1" />
+  <link rel="stylesheet" href="css/survivor.css?v=1" />
+</head>
+<body class="survivor">
+  <div id="game-wrap">
+    <canvas id="game" width="960" height="640"></canvas>
+
+    <div id="sv-hud" class="hidden">
+      <div class="sv-top">
+        <div class="sv-vitals">
+          <div class="bar-wrap hp-wrap"><div id="sv-hp" class="bar"></div><span id="sv-hp-text">90/90</span></div>
+          <div class="bar-wrap xp-wrap"><div id="sv-xp" class="bar"></div><span id="sv-xp-text">Lv 1</span></div>
+        </div>
+        <div class="sv-stats">
+          <span id="sv-time">0:00</span>
+          <span id="sv-kills">Kills 0</span>
+          <span id="sv-gold">Gold 0</span>
+          <span id="sv-vow" class="hidden">Vow</span>
+        </div>
+      </div>
+      <button type="button" id="sv-pause-btn" aria-label="Pause">❚❚</button>
+      <div id="sv-fps" class="hidden">0 fps</div>
+      <div id="sv-bench" class="hidden"></div>
+    </div>
+
+    <div id="sv-title" class="overlay">
+      <div class="panel title-panel">
+        <h1>SURVIVOR</h1>
+        <p class="subtitle">The sorcerer holds the stair. The staff fires itself.</p>
+        <p class="lore">One thumb to move. Demons come for ten minutes. Live.</p>
+        <ul class="controls-hint">
+          <li><b>Drag</b> anywhere to move · <b>WASD</b> or arrows on a keyboard</li>
+          <li>No attack button. Ash fire finds the nearest demon.</li>
+        </ul>
+        <button type="button" id="sv-play" class="big-btn">Play</button>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
+        <p class="mode-link"><a href="index.html">Back to Abyss Descent</a></p>
+      </div>
+    </div>
+
+    <div id="sv-level" class="overlay hidden">
+      <div class="panel sv-level-panel">
+        <h2>Level up</h2>
+        <div id="sv-cards"></div>
+        <button type="button" id="sv-reroll" class="big-btn secondary">Reroll</button>
+      </div>
+    </div>
+
+    <div id="sv-hermit" class="overlay hidden">
+      <div class="panel">
+        <h2>The Hermit</h2>
+        <p class="lore">Enemies gain 50% life for 60 seconds. Then you pick two upgrades.</p>
+        <button type="button" id="sv-hermit-yes" class="big-btn">Take the vow</button>
+        <button type="button" id="sv-hermit-no" class="big-btn secondary">Walk away</button>
+      </div>
+    </div>
+
+    <div id="sv-pause" class="overlay hidden">
+      <div class="panel">
+        <h2>Paused</h2>
+        <button type="button" id="sv-resume" class="big-btn">Resume</button>
+        <button type="button" id="sv-quit" class="big-btn secondary">Quit</button>
+        <button type="button" class="big-btn secondary js-mute">🔊 Sound On</button>
+      </div>
+    </div>
+
+    <div id="sv-end" class="overlay hidden">
+      <div class="panel">
+        <h2 id="sv-end-title">You have fallen</h2>
+        <p id="sv-end-stats" class="lore">Time 0:00</p>
+        <button type="button" id="sv-restart" class="big-btn">Restart</button>
+        <button type="button" id="sv-revive" class="big-btn secondary">Revive</button>
+        <button type="button" id="sv-double" class="big-btn secondary">Double gold</button>
+      </div>
+    </div>
+
+    <div id="adtest-panel" class="hidden">
+      <div class="adtest-title">Ad test</div>
+      <button type="button" data-ad-offer="revive">Revive</button>
+      <button type="button" data-ad-offer="reroll">Reroll</button>
+      <button type="button" data-ad-offer="gold">Double gold</button>
+      <div id="adtest-held" class="hidden">held: in combat</div>
+    </div>
+    <div id="adtest-prompt" class="hidden">
+      <div data-ad-label>TEST AD</div>
+      <div class="adtest-actions">
+        <button type="button" data-ad-accept>Accept</button>
+        <button type="button" data-ad-dismiss>Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js?v=1"></script>
+  <script src="js/classes.js?v=1"></script>
+  <script src="js/entities.js?v=1"></script>
+  <script src="js/audio.js?v=1"></script>
+  <script src="js/analytics.js?v=1"></script>
+  <script src="js/ads.js?v=1"></script>
+  <script src="js/survivor-data.js?v=1"></script>
+  <script src="js/survivor.js?v=1"></script>
+</body>
+</html>

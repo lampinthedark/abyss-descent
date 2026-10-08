@@ -1,0 +1,153 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const root = path.resolve(__dirname, '..');
+
+function fail(msg) {
+  console.error(msg);
+  process.exit(1);
+}
+
+function load(names, extra) {
+  const context = {
+    console, Math, Date, Number, String, JSON, parseInt,
+    navigator: { doNotTrack: '1', sendBeacon: () => false },
+    location: { search: '' },
+    localStorage: (() => {
+      const bag = {};
+      return {
+        getItem: (k) => (k in bag ? bag[k] : null),
+        setItem: (k, v) => { bag[k] = String(v); },
+      };
+    })(),
+    document: extra && extra.document ? extra.document : {
+      addEventListener() {},
+      visibilityState: 'visible',
+      getElementById: () => null,
+      querySelectorAll: () => [],
+    },
+  };
+  if (extra) {
+    Object.keys(extra).forEach((k) => {
+      if (k !== 'document') context[k] = extra[k];
+    });
+  }
+  context.window = context;
+  context.globalThis = context;
+  vm.createContext(context);
+  for (const name of names) {
+    vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
+  }
+  vm.runInContext(
+    ['SurvivorData', 'Ads'].map(n => 'if (typeof ' + n + ' !== "undefined") this.' + n + ' = ' + n + ';').join('\n'),
+    context
+  );
+  return context;
+}
+
+const game = load(['js/survivor-data.js']);
+const D = game.SurvivorData;
+if (D.HERO !== 'sorcerer') fail('hero should be the sorcerer');
+const ids = {};
+D.CATALOG.forEach(item => {
+  if (ids[item.id]) fail('duplicate upgrade ' + item.id);
+  ids[item.id] = true;
+  if (item.maxLevel < 2) fail(item.id + ' needs a level cap');
+  if (!Object.prototype.hasOwnProperty.call(item, 'evolvesWith')) fail(item.id + ' missing evolvesWith');
+});
+if (D.CATALOG.length < 8 || D.CATALOG.length > 12) fail('upgrade pool should be about 8 to 10, got ' + D.CATALOG.length);
+if (D.WEAPONS.length < 3) fail('need a starter bolt plus at least two more weapons');
+
+const hitIn = D.TUNING.firstBolt + D.TUNING.spawnNear / D.TUNING.boltSpeed;
+if (!(hitIn < 5)) fail('first bolt is later than 5s: ' + hitIn);
+const killsForLevel = Math.ceil(D.xpToNext(1) / D.TUNING.gemXp);
+if (killsForLevel > 12) fail('first level asks for too many kills: ' + killsForLevel);
+
+const offers = D.pickOffers({ bolt: 1 }, () => 0);
+if (offers.length !== 3) fail('level-up should offer 3 choices');
+if (offers.some(o => o.id === 'bolt' && false)) fail('unexpected');
+const maxed = {};
+D.CATALOG.forEach(item => { maxed[item.id] = item.maxLevel; });
+const filler = D.pickOffers(maxed, () => 0.5);
+if (filler.length !== 3) fail('a full build should still offer 3 cards');
+
+if (D.minuteReachedEvent(1) !== 'survivor-minute-1') fail('minute 1 name');
+if (D.minuteReachedEvent(10) !== 'survivor-minute-10') fail('minute 10 name');
+if (D.minuteReachedEvent(11) !== '') fail('minute 11 should not be its own event');
+if (D.deathEvent(12) !== 'survivor-died-minute-0') fail('opening minute death');
+if (D.deathEvent(90) !== 'survivor-died-minute-1') fail('minute 1 death');
+if (D.deathEvent(700) !== 'survivor-died-minute-10') fail('late death caps at 10');
+if (D.levelReachedEvent(1) !== 'survivor-level-1-5') fail('level 1 bucket');
+if (D.levelReachedEvent(6) !== 'survivor-level-6-10') fail('level 6 bucket');
+if (D.levelReachedEvent(11) !== 'survivor-level-11-20') fail('level 11 bucket');
+if (D.levelReachedEvent(21) !== 'survivor-level-21-plus') fail('level 21 bucket');
+if (D.levelUpCountEvent(0) !== 'survivor-levelups-0') fail('no level-ups');
+if (D.levelUpCountEvent(8) !== 'survivor-levelups-8-plus') fail('many level-ups');
+
+const meta = D.emptyMeta();
+if (meta.version !== 1 || !meta.cosmetics || !('skin' in meta.cosmetics) || !('effect' in meta.cosmetics)) {
+  fail('meta save is missing version or cosmetics');
+}
+if (!meta.upgrades || typeof meta.upgrades !== 'object') fail('meta save needs an upgrades slot');
+const banked = D.bankGold(D.REWARDS.gold.win);
+if (banked !== D.REWARDS.gold.win) fail('banked gold mismatch');
+if (D.loadMeta().gold !== D.REWARDS.gold.win) fail('gold did not persist');
+
+const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
+if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
+if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
+if (!html.includes('survivor.js?v=1')) fail('cache bust');
+const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+if (!index.includes('survivor.html?v=1')) fail('descent title is missing the survivor link');
+if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
+
+const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
+if (src.includes('setPath') || src.includes('click-to-move')) fail('survivor grew a click path');
+if (!src.includes('backButton') || !src.includes('holdMute')) fail('missing back button or background mute');
+if (!src.includes("offerRevive") || !src.includes("offerReroll") || !src.includes("offerDoubleGold")) {
+  fail('missing ad hooks');
+}
+if (!src.includes('setFlush(false)')) fail('survivor should not auto-show held ads during play');
+
+function fakeDocument() {
+  const nodes = {};
+  function make(id) {
+    return {
+      id,
+      classList: {
+        _hidden: true,
+        toggle(name, on) { if (name === 'hidden') this._hidden = !!on; },
+        add(name) { if (name === 'hidden') this._hidden = true; },
+        remove(name) { if (name === 'hidden') this._hidden = false; },
+        contains(name) { return name === 'hidden' && this._hidden; },
+      },
+      textContent: '',
+      querySelector() { return { textContent: '' }; },
+      addEventListener() {},
+    };
+  }
+  return {
+    _nodes: nodes,
+    addEventListener() {},
+    visibilityState: 'visible',
+    getElementById(id) { return nodes[id] || (nodes[id] = make(id)); },
+    querySelectorAll: () => [],
+  };
+}
+
+const doc = fakeDocument();
+const ads = load(['js/ads.js'], { document: doc, location: { search: '?adtest=1' } });
+if (ads.Ads.offerRevive() !== 'shown') fail('direct revive should show when combat is clear');
+if (doc._nodes['adtest-prompt'].classList.contains('hidden')) fail('placeholder stayed hidden');
+
+const heldDoc = fakeDocument();
+const held = load(['js/ads.js'], { document: heldDoc, location: { search: '?adtest=1' } });
+held.Ads.setFlush(false);
+held.Ads.setCombat(() => true);
+if (held.Ads.offerReroll() !== 'held') fail('combat should hold reroll');
+if (!heldDoc._nodes['adtest-prompt'].classList.contains('hidden')) fail('held reroll opened a prompt');
+
+console.log('survivor data ok, first hit ~' + hitIn.toFixed(2) + 's, first level ~' + killsForLevel + ' kills');

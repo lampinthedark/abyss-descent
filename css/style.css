@@ -565,6 +565,9 @@ html.touch-ui #touch-bar { display: flex; }
   border: 1px solid #8a5040; color: #e8dcc8;
 }
 
+.mode-link { margin: 14px 0 0; font-size: 15px; }
+.mode-link a { color: #e0c080; font-weight: 700; }
+
 .continue-summary {
   margin: 0 0 10px;
   font-size: 13px;
