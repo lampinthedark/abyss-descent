@@ -64,12 +64,12 @@ function slab(x, z) {
 }
 
 function grassColor(ix, iz) {
-  const g = (ix * 5 + iz * 3) & 7;
-  if (g === 0) return [0.20, 0.28, 0.12];
-  if (g === 1) return [0.27, 0.35, 0.16];
-  if (g === 2) return [0.23, 0.31, 0.13];
-  if (g === 3) return [0.30, 0.37, 0.17];
-  return [0.24, 0.33, 0.14];
+  // Soft flat shades. Displayed L* stays within about ±2 of the middle green.
+  const g = (ix * 3 + iz * 5) & 3;
+  if (g === 0) return [0.239, 0.324, 0.136];
+  if (g === 1) return [0.247, 0.333, 0.145];
+  if (g === 2) return [0.252, 0.337, 0.149];
+  return [0.244, 0.329, 0.141];
 }
 
 function sandColor(ix, iz) {

@@ -101,9 +101,10 @@
       white-space: nowrap;
     }
     #bench {
+      display: none;
       position: absolute;
-      left: 8px;
-      bottom: 8px;
+      right: 8px;
+      bottom: 52px;
       z-index: 3;
       max-width: min(280px, 74vw);
       padding: 8px 10px 10px;
@@ -114,7 +115,7 @@
       line-height: 1.45;
       pointer-events: auto;
     }
-    body.bench #bench { font-size: 16px; max-width: min(420px, 92vw); }
+    body.bench #bench { display: block; font-size: 16px; max-width: min(420px, 92vw); }
     #bench b { color: #f6f1e4; font-weight: 400; }
     #bench .row { margin-top: 6px; }
     #bench button, #tiers button {
@@ -180,12 +181,12 @@
       flex-direction: row;
       align-items: stretch;
     }
-    .beam i { display: block; height: 100%; flex: 0 0 auto; }
+    .beam i { display: block; height: 100%; flex: 0 0 auto; min-width: 1px; }
     .plate {
       position: absolute;
       z-index: 2;
       background: #12100e;
-      font-size: 8px;
+      font-size: 12px;
       line-height: 1.2;
       padding: 2px 4px;
       white-space: nowrap;

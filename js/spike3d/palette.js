@@ -37,8 +37,11 @@ export const HEX = {
   robe: '#c9a8ff',
   robeDeep: '#8f74c9',
   violet: '#7b4dff',
-  spider: '#2a0a0e',
-  spiderDeep: '#140406',
+  spider: '#d23b3b',
+  spiderDeep: '#8d2224',
+  slime: '#6fbf45',
+  slimeDeep: '#3d8628',
+  slimeLight: '#d4f2a4',
   eye: '#e8e0d0',
   eyeRed: '#d42828',
 };

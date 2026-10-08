@@ -47,7 +47,7 @@ export function createSim(max, obstacles) {
     return rng / 4294967296;
   }
 
-  function place(i, px0, pz0, k, isBoss) {
+  function place(i, px0, pz0, k, isBoss, asElite) {
     x[i] = px0;
     z[i] = pz0;
     kind[i] = k;
@@ -57,7 +57,7 @@ export function createSim(max, obstacles) {
     dir[i] = i & 7;
     animT[i] = rand();
     fade[i] = 1;
-    elite[i] = !isBoss && (i % 9 === 4) ? 1 : 0;
+    elite[i] = !isBoss && asElite ? 1 : 0;
     if (i + 1 > count) count = i + 1;
     if (isBoss) boss = i;
   }

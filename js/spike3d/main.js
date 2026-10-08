@@ -34,7 +34,19 @@ const FOOT_Y = 2;
 const SRC_H = CELL_H - FOOT_Y;
 const ANIM_IDS = ['walk', 'attack', 'hit', 'death'];
 const ANIM_FRAMES = [4, 4, 2, 4];
-const KIND_SHEET = ['skeleton/body/base', 'rat/body/base', 'wolf/body/base', 'caster/body/base'];
+const TRASH_MUL = 0.65;
+const ELITE_MUL = TRASH_MUL * 1.3;
+const CHARGER_MUL = 0.5;
+const ROLES = [
+  { kind: 0, sheet: 'slime/body/base', mul: TRASH_MUL },
+  { kind: 4, sheet: 'skeleton/body/base', mul: TRASH_MUL },
+  { kind: 1, sheet: 'rat/body/base', mul: TRASH_MUL },
+  { kind: 5, sheet: 'spider/body/base', mul: TRASH_MUL },
+  { kind: 6, sheet: 'goblin/body/base', mul: TRASH_MUL },
+  { kind: 2, sheet: 'wolf/body/base', mul: CHARGER_MUL },
+  { kind: 3, sheet: 'caster/body/base', mul: 0.7 },
+];
+const CROWD = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 6];
 const FWD_X = Math.sin(YAW);
 const FWD_Z = Math.cos(YAW);
 const RIGHT_X = Math.cos(YAW);
@@ -156,7 +168,11 @@ window.__spike = api;
 
 if (bare) document.body.classList.add('bare');
 if (bigBench) document.body.classList.add('bench');
-if (mock) document.body.classList.add('mock');
+if (mock) {
+  document.body.classList.add('mock');
+  document.getElementById('tier').style.display = 'none';
+  document.getElementById('tiers').style.display = 'none';
+}
 
 function clampInt(value, fallback, min, max) {
   const n = Number(value);
@@ -418,44 +434,41 @@ function boot() {
     }
     const spanX = Math.max(4, frustumW * 0.92);
     const spanZ = Math.max(6, (frustumH / Math.sin(PITCH)) * 0.86);
-    const cols = glance ? 11 : Math.max(6, Math.round(Math.sqrt(count * (spanX / spanZ))));
-    const rows = Math.ceil(count / Math.max(1, cols));
-    const gap = heroWorld * (glance ? 0.48 : 0.78);
+    const cols = Math.max(3, Math.round(Math.sqrt(count * (spanX / Math.max(1, spanZ)))));
+    const rows = Math.ceil(count / cols);
     for (let i = 0; i < count; i++) {
       let px;
       let pz;
       let kind = i % 4;
       if (stand) {
         const ang = (i / Math.max(1, count)) * Math.PI * 2;
-        const rad = i === 0 ? heroWorld * 1.35 : heroWorld * (2.6 + (i % 5) * 0.35);
-        px = h.x + RIGHT_X * Math.cos(ang) * rad + FWD_X * Math.sin(ang) * rad * 0.35;
-        pz = h.z + RIGHT_Z * Math.cos(ang) * rad + FWD_Z * Math.sin(ang) * rad * 0.35;
-        if (i === 0) kind = 3;
-      } else if (glance) {
-        const c = i % cols;
-        const r = (i / cols) | 0;
-        const side = (c - (cols - 1) / 2) * gap;
-        const along = ((rows - 1) / 2 - r) * gap * 0.92;
-        px = h.x + FWD_X * along + RIGHT_X * side;
-        pz = h.z + FWD_Z * along + RIGHT_Z * side;
+        const rad = i === 0 ? heroWorld * 1.6 : heroWorld * (3.2 + (i % 5) * 0.55);
+        px = h.x + RIGHT_X * Math.cos(ang) * rad + FWD_X * Math.sin(ang) * rad * 0.45;
+        pz = h.z + RIGHT_Z * Math.cos(ang) * rad + FWD_Z * Math.sin(ang) * rad * 0.45;
       } else {
         const c = i % cols;
         const r = (i / cols) | 0;
         const u = cols <= 1 ? 0.5 : c / (cols - 1);
         const v = rows <= 1 ? 0.5 : r / (rows - 1);
-        px = h.x + (u - 0.5) * spanX;
-        pz = h.z + (v - 0.42) * spanZ;
-        if (Math.hypot(px - h.x, pz - h.z) < heroWorld * 0.9) px += spanX * 0.12;
+        px = h.x + (u - 0.5) * spanX * 0.86;
+        pz = h.z + (v - 0.38) * spanZ * 0.72;
+        if (Math.hypot(px - h.x, pz - h.z) < heroWorld * 1.15) {
+          px += spanX * 0.18;
+          pz += spanZ * 0.08;
+        }
       }
       const isBoss = bossOn && i === count - 1;
+      const crowd = ROLES[CROWD[i % CROWD.length]];
+      kind = isBoss ? 4 : crowd.kind;
       if (isBoss && arrowTest) {
         px = h.x + 28;
         pz = h.z - 28;
       } else if (isBoss && (focusBoss || mock)) {
-        px = h.x + RIGHT_X * heroWorld * 1.15 + FWD_X * heroWorld * 1.55;
-        pz = h.z + RIGHT_Z * heroWorld * 1.15 + FWD_Z * heroWorld * 1.55;
+        px = h.x - 2.15;
+        pz = h.z + 1.7;
       }
-      sim.place(i, px, pz, isBoss ? 2 : kind, isBoss);
+      const asElite = !isBoss && crowd.kind === 4 && i % 4 === 1;
+      sim.place(i, px, pz, kind, isBoss, asElite);
     }
     if (glance) {
       sim.beginCorpse(
@@ -627,6 +640,10 @@ function boot() {
     api.heroPxMeasured = Math.abs(feet.y - head.y);
     api.fx = feet.x;
     api.fy = feet.y;
+    api.trashPx = TRASH_MUL * api.heroPxMeasured;
+    api.elitePx = ELITE_MUL * api.heroPxMeasured;
+    api.bossPx = BOSS_SCALE * api.heroPxMeasured;
+    api.chargerPx = CHARGER_MUL * api.heroPxMeasured;
     api.chest = projectCss(hx, hy + drawH * 0.5, hz).y / Math.max(1, viewH);
     api.heroScreen = feet.y / Math.max(1, viewH);
     heroWorld = drawH;
@@ -637,16 +654,29 @@ function boot() {
     const boss = sim.boss;
     for (let i = 0; i < sim.count; i++) {
       const y = heightAt(sim.x[i], sim.z[i]);
-      let mul = 0.72;
-      let sheet = KIND_SHEET[sim.kind[i]] || KIND_SHEET[0];
+      let mul = TRASH_MUL;
+      let sheet = 'skeleton/body/base';
+      const kind = sim.kind[i];
       if (i === boss) {
         mul = BOSS_SCALE;
         sheet = 'skeleton/body/boss';
       } else if (sim.elite[i]) {
-        mul = 1.3;
+        mul = ELITE_MUL;
         sheet = 'skeleton/body/elite';
-      } else if (sim.kind[i] === 2 || sim.kind[i] === 3) {
-        mul = 1;
+      } else if (kind === 0) {
+        sheet = 'slime/body/base';
+      } else if (kind === 1) {
+        sheet = 'rat/body/base';
+      } else if (kind === 2) {
+        mul = CHARGER_MUL;
+        sheet = 'wolf/body/base';
+      } else if (kind === 3) {
+        mul = 0.7;
+        sheet = 'caster/body/base';
+      } else if (kind === 5) {
+        sheet = 'spider/body/base';
+      } else if (kind === 6) {
+        sheet = 'goblin/body/base';
       }
       const scale = mul * ppm;
       if (sim.state[i] === ANIM.DEAD) {
@@ -727,7 +757,7 @@ function boot() {
     let dy = 0;
     if (r.left < 4) dx = 4 - r.left;
     if (r.right > viewW - 4) dx = (viewW - 4) - r.right;
-    if (r.top < 4) dy = 4 - r.top;
+    if (r.top < 132) dy = 132 - r.top;
     if (r.bottom > viewH - 4) dy = (viewH - 4) - r.bottom;
     if (dx || dy) {
       el.style.left = (x + dx) + 'px';
@@ -809,7 +839,19 @@ function boot() {
       bossArrow.classList.remove('on');
       bossPlate.style.left = p.x + 'px';
       bossPlate.style.top = p.y + 'px';
+      const br = bossPlate.getBoundingClientRect();
+      let dx = 0;
+      let dy = 0;
+      if (br.left < 8) dx = 8 - br.left;
+      if (br.right > viewW - 8) dx = (viewW - 8) - br.right;
+      if (br.top < 128) dy = 128 - br.top;
+      if (br.bottom > viewH - 8) dy = (viewH - 8) - br.bottom;
+      if (dx || dy) {
+        bossPlate.style.left = (p.x + dx) + 'px';
+        bossPlate.style.top = (p.y + dy) + 'px';
+      }
       api.bossArrow = false;
+      api.bossPlate = { x: p.x + dx, y: p.y + dy };
       return;
     }
     bossPlate.hidden = true;
@@ -1050,12 +1092,12 @@ function wireUi() {
 let mockStick = mock;
 
 const DROP_LIST = [
-  { rarity: 'material', name: 'Flax', showcase: [2.9, 1.5], scatter: [2.6, 1.1] },
-  { rarity: 'normal', name: 'Bones', showcase: [1.4, 1.9], scatter: [-2.2, 0.9] },
-  { rarity: 'rare', name: 'River Nail', showcase: [0.1, 2.5], scatter: [1.1, 3.1] },
-  { rarity: 'veryrare', name: 'Night Opal', showcase: [-1.4, 2.3], scatter: [-2.6, 2.8] },
-  { rarity: 'legendary', name: 'Pale Crown', showcase: [-0.2, 4.5], scatter: [0.4, 4.4] },
-  { rarity: 'chase', name: 'Star Salt', showcase: [-2.9, 5.6], scatter: [-2.8, 5.2] },
+  { rarity: 'material', name: 'Flax', showcase: [3.1, 0.4], scatter: [2.6, 1.1] },
+  { rarity: 'normal', name: 'Bones', showcase: [0.7, 0.55], scatter: [-1.2, 0.8] },
+  { rarity: 'rare', name: 'River Nail', showcase: [2.6, 2.6], scatter: [1.6, 2.4] },
+  { rarity: 'veryrare', name: 'Night Opal', showcase: [-3.4, 0.5], scatter: [-2.8, 2.2] },
+  { rarity: 'legendary', name: 'Pale Crown', showcase: [1.05, 2.35], scatter: [0.8, 3.2] },
+  { rarity: 'chase', name: 'Star Salt', showcase: [0.05, 1.55], scatter: [0.2, 1.8] },
 ];
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1074,7 +1116,9 @@ function createDrops() {
       let width = 0;
       for (let s = 0; s < strips.length; s++) {
         const bar = document.createElement('i');
+        bar.style.flex = '0 0 ' + strips[s].css + 'px';
         bar.style.width = strips[s].css + 'px';
+        bar.style.minWidth = strips[s].css + 'px';
         bar.style.background = strips[s].background;
         beam.appendChild(bar);
         width += strips[s].css;
@@ -1109,12 +1153,20 @@ function createDrops() {
     plate.className = 'plate';
     plate.textContent = def.name;
     plate.style.color = spec.name;
-    plate.style.background = spec.plate;
-    const shadow = plateShadow(def.rarity);
-    if (shadow) {
-      plate.style.boxShadow = shadow;
+    plate.style.fontSize = (spec.namePx || 12) + 'px';
+    if (spec.chip === false) {
+      plate.style.background = 'transparent';
       plate.style.border = 'none';
-    } else plate.style.borderColor = spec.border;
+      plate.style.boxShadow = 'none';
+      plate.style.padding = '0';
+    } else {
+      plate.style.background = spec.plate;
+      const shadow = plateShadow(def.rarity);
+      if (shadow) {
+        plate.style.boxShadow = shadow;
+        plate.style.border = 'none';
+      } else plate.style.borderColor = spec.border;
+    }
     fx.appendChild(plate);
     let flash = null;
     if (spec.flash) {

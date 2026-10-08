@@ -27,6 +27,9 @@ const RGB = {
   14: hexRgb(HEX.boneDeep),
   15: hexRgb(HEX.spider),
   16: hexRgb(HEX.spiderDeep),
+  24: hexRgb(HEX.slime),
+  25: hexRgb(HEX.slimeDeep),
+  26: hexRgb(HEX.slimeLight),
   17: hexRgb(HEX.eye),
   18: hexRgb(HEX.eyeRed),
 };
@@ -52,6 +55,9 @@ const BONE = 13;
 const BONED = 14;
 const SPD = 15;
 const SPDD = 16;
+const SLIME = 24;
+const SLIMED = 25;
+const SLIMEL = 26;
 const EYE = 17;
 const EYER = 18;
 
@@ -326,21 +332,23 @@ function drawSkeleton(buf, d, lean, step, bob, trim, horns) {
   } else {
     put(buf, 13 + lean, y + 4, INK);
   }
-  fill(buf, 10 + lean, y + 8, 4, 2, BONE);
-  fill(buf, 8 + lean, y + 10, 8, 1, BONE);
-  fill(buf, 9 + lean, y + 12, 6, 1, BONE);
-  fill(buf, 10 + lean, y + 14, 4, 1, BONE);
-  const ly = 20 + (step > 0 ? 0 : 1);
-  fill(buf, 8 + lean, ly, 2, 9, BONE);
-  fill(buf, 14 + lean, ly + (step !== 0 ? 1 : 0), 2, 9, BONE);
+  fill(buf, 11 + lean, y + 8, 2, 2, BONE);
+  fill(buf, 9 + lean, y + 10, 6, 1, BONE);
+  fill(buf, 10 + lean, y + 12, 4, 1, BONE);
+  fill(buf, 11 + lean, y + 14, 2, 1, BONE);
+  const ly = 18 + (step > 0 ? 0 : 1);
+  fill(buf, 9 + lean, ly, 1, 12, BONE);
+  fill(buf, 14 + lean, ly + (step !== 0 ? 1 : 0), 1, 12, BONE);
   if (d !== 4) {
-    fill(buf, 16 + lean, y + 9, 2, 8, BONED);
-    fill(buf, 17 + lean, y + 8, 3, 2, BONE);
+    fill(buf, 17 + lean, y + 10, 1, 8, BONED);
+    put(buf, 18 + lean, y + 9, BONE);
+  } else {
+    fill(buf, 6 + lean, y + 10, 1, 8, BONED);
   }
   if (trim) {
-    fill(buf, 6 + lean, y + 8, 3, 2, VIOLET);
-    fill(buf, 15 + lean, y + 8, 3, 2, VIOLET);
-    fill(buf, 10 + lean, y + 11, 4, 1, VIOLET);
+    fill(buf, 8 + lean, y + 8, 2, 1, ROBE);
+    fill(buf, 14 + lean, y + 8, 2, 1, ROBE);
+    fill(buf, 11 + lean, y + 11, 2, 1, ROBE);
   }
 }
 
@@ -391,11 +399,30 @@ function drawCaster(buf, d, lean, step, bob) {
   fill(buf, 13 + lean, 28 + foot, 3, 3, ROBED);
 }
 
+function drawSlime(buf, d, lean, step, bob) {
+  const y = 16 + bob;
+  const hop = step > 0 ? 1 : 0;
+  fill(buf, 7 + lean, y + 2, 10, 8, SLIME);
+  fill(buf, 5 + lean, y + 4, 14, 6, SLIME);
+  fill(buf, 6 + lean, y + 3, 12, 8, SLIME);
+  fill(buf, 8 + lean, y + 1 - hop, 8, 3, SLIME);
+  fill(buf, 9 + lean, y + 3, 3, 2, SLIMEL);
+  if (d < 2) {
+    put(buf, 9 + lean, y + 6, INK);
+    put(buf, 13 + lean, y + 6, INK);
+  } else if (d !== 4) {
+    put(buf, 13 + lean, y + 6, INK);
+  }
+  fill(buf, 4 + lean, y + 10, 16, 2, SLIMED);
+  fill(buf, 6 + lean, y + 12, 12, 1, SLIMED);
+}
+
 function drawSpider(buf, d, lean, step, bob) {
   const y = 12 + bob;
   const swing = step > 0 ? 1 : -1;
-  box(buf, 8 + lean, y, 8, 6, SPD, INK);
-  box(buf, 9 + lean, y + 5, 6, 5, SPDD, INK);
+  fill(buf, 9 + lean, y, 6, 5, SPD);
+  fill(buf, 8 + lean, y + 1, 8, 3, SPD);
+  fill(buf, 10 + lean, y + 5, 4, 4, SPDD);
   if (d !== 4) {
     put(buf, 10 + lean, y + 2, EYER);
     put(buf, 13 + lean, y + 2, EYER);
@@ -435,6 +462,9 @@ function renderLogical(sheetId, dir, anim, frame) {
   else if (sheetId === 'skeleton/body/elite') drawSkeleton(buf, d, lean, step, bob, true);
   else if (sheetId === 'skeleton/body/boss') drawSkeleton(buf, d, lean, step, bob, false, true);
   else if (sheetId === 'wolf/body/base') drawWolf(buf, d, lean, step, bob);
+  else if (sheetId === 'slime/body/base') drawSlime(buf, d, lean, step, bob);
+  else if (sheetId === 'spider/body/base') drawSpider(buf, d, lean, step, bob);
+  else if (sheetId === 'goblin/body/base') drawGoblin(buf, d, lean, step, bob);
   let out = pose.mirror ? mirror(buf) : buf;
   if (anim === 'death') {
     const keep = [1, 0.75, 0.48, 0.26][frame];
