@@ -26,6 +26,13 @@
  * ring stay in art px. A numeric opts.radius, opts.r, or opts.size is a radius
  * in tiles. It uses its own 32-slot table, never the particle pool, and never a
  * white flash. opts.boss enlarges the default ring.
+ * FX.telegraphLine(id, x, y, toX, toY, ms, opts) draws a dash lane in those
+ * same tiles and the same 32 slots. telegraphOff(id) clears a ring or a lane.
+ * Calling it again with the same id moves the endpoints without restarting
+ * the wind-up. opts.width is the lane width in tiles (default 0.5). opts.boss
+ * uses the steel tint. The fill ramps from 15% to 45% and a bright edge
+ * sweeps the lane; the last 120ms blinks once at 60% white. Reduced motion
+ * keeps a static lane and a solid end outline, with no sweep and no blink.
  * FX.shield, FX.shieldHit, and FX.spawn use those same tile coordinates.
  * Shield radius is in tiles. The anchor GD passes is the foe's feet, the
  * same point drawFoe uses. Body radius is r - 0.9, and the boss is drawn
@@ -170,12 +177,16 @@ const FX = (function () {
 
   const tels = new Array(TEL_N);
   for (let i = 0; i < TEL_N; i++) {
-    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0 };
+    const t = tels[i] = { on: 0, id: null, x: 0.5, y: 0.5, age: 0.5, dur: 0.5, boss: 0, rad: 0.5, mark: 0, x2: 0.5, y2: 0.5, line: 0, w: 0.5 };
     t.x = 0;
     t.y = 0;
+    t.x2 = 0;
+    t.y2 = 0;
     t.age = 0;
     t.dur = 0.7;
     t.rad = 0;
+    t.line = 0;
+    t.w = 0.5;
   }
   let telGen = 0;
 
@@ -1033,7 +1044,88 @@ const FX = (function () {
     return framePx() * z;
   }
 
+  function paintLane(ctx, t, zoom, camX, camY, calm) {
+    const span = tileSpan(zoom);
+    const x0 = t.x * span + camX;
+    const y0 = t.y * span + camY;
+    const x1 = t.x2 * span + camX;
+    const y1 = t.y2 * span + camY;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    let len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0)) len = 0;
+    const inv = len > 0 ? 1 / len : 0;
+    const ux = dx * inv;
+    const uy = dy * inv;
+    const nx = -uy;
+    const ny = ux;
+    const z = zoom > 0 ? zoom : 1;
+    const cell = telCell(zoom);
+    const half = cell >> 1;
+    const wide = t.w > 0 ? t.w : 0.5;
+    let across = Math.round(wide * framePx() * 0.5);
+    if (across < 1) across = 1;
+    const along = len > 0 ? Math.round(len / z) : 0;
+    let u = t.dur > 0 ? t.age / t.dur : 1;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const left = t.dur - t.age;
+    const blink = (!calm && left <= 0.12 && left > 0.06) ? 1 : 0;
+    const fillA = calm ? 0.3 : (0.15 + 0.3 * u);
+    const fill = t.boss ? '#9fb4c8' : '#c9a8ff';
+    const leadAt = along > 0 ? Math.round(along * u) : 0;
+    const steps = along > 480 ? 480 : along;
+    for (let i = 0; i <= steps; i++) {
+      const bx = x0 + ux * i * z;
+      const by = y0 + uy * i * z;
+      for (let k = -across; k <= across; k++) {
+        if (k <= -across || k >= across) {
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = '#14120f';
+        } else if (blink) {
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = '#ffffff';
+        } else {
+          ctx.globalAlpha = fillA;
+          ctx.fillStyle = fill;
+        }
+        plotArt(ctx, bx, by, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    if (blink) {
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#ffffff';
+    } else {
+      ctx.globalAlpha = fillA;
+      ctx.fillStyle = fill;
+    }
+    plotArt(ctx, x0, y0, 0, 0, zoom, cell, half);
+    plotArt(ctx, x1, y1, 0, 0, zoom, cell, half);
+    if (!calm && !blink) {
+      const bx = x0 + ux * leadAt * z;
+      const by = y0 + uy * leadAt * z;
+      const inner = across > 1 ? across - 1 : 0;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      for (let k = -inner; k <= inner; k++) {
+        plotArt(ctx, bx, by, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    if (calm) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#14120f';
+      for (let k = -across; k <= across; k++) {
+        plotArt(ctx, x1, y1, Math.round(nx * k), Math.round(ny * k), zoom, cell, half);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function paintTelegraph(ctx, t, zoom, camX, camY, calm) {
+    if (t.line) {
+      paintLane(ctx, t, zoom, camX, camY, calm);
+      return;
+    }
     const span = tileSpan(zoom);
     const sx = t.x * span + camX;
     const sy = t.y * span + camY;
@@ -1080,10 +1172,7 @@ const FX = (function () {
       for (let i = 0; i < TEL_N; i++) {
         const t = tels[i];
         if (!t.on || t.mark === telGen) continue;
-        const span = tileSpan(zoom);
-        const dx = t.x * span + camX - hx;
-        const dy = t.y * span + camY - hy;
-        const d = dx * dx + dy * dy;
+        const d = telDist2(t, tileSpan(zoom), camX, camY, hx, hy);
         if (best < 0 || d < bestD) {
           best = i;
           bestD = d;
@@ -1105,10 +1194,7 @@ const FX = (function () {
     let bestD = -1;
     for (let i = 0; i < TEL_N; i++) {
       const t = tels[i];
-      const span = tileSpan(zoom);
-      const dx = t.x * span + lastCamX - hx;
-      const dy = t.y * span + lastCamY - hy;
-      const d = dx * dx + dy * dy;
+      const d = telDist2(t, tileSpan(zoom), lastCamX, lastCamY, hx, hy);
       if (d > bestD) {
         bestD = d;
         best = i;
@@ -1150,6 +1236,61 @@ const FX = (function () {
     slot.dur = dur;
     slot.boss = boss;
     slot.rad = rad;
+    slot.line = 0;
+  }
+
+  function telDist2(t, span, camX, camY, hx, hy) {
+    const dx = t.x * span + camX - hx;
+    const dy = t.y * span + camY - hy;
+    let d = dx * dx + dy * dy;
+    if (!t.line) return d;
+    const ex = t.x2 * span + camX - hx;
+    const ey = t.y2 * span + camY - hy;
+    const d2 = ex * ex + ey * ey;
+    return d2 < d ? d2 : d;
+  }
+
+  function telegraphLineOn(id, x, y, toX, toY, ms, opts) {
+    if (!ok(x) || !ok(y) || !ok(toX) || !ok(toY)) return;
+    let dur = 0.7;
+    if (ok(ms) && ms > 0) dur = ms * 0.001;
+    const boss = opts && opts.boss ? 1 : 0;
+    let w = 0.5;
+    if (opts && ok(opts.width) && opts.width > 0) w = opts.width;
+    let slot = null;
+    let keep = 0;
+    for (let i = 0; i < TEL_N; i++) {
+      if (tels[i].on && tels[i].id === id) {
+        slot = tels[i];
+        keep = tels[i].line ? 1 : 0;
+        break;
+      }
+    }
+    if (!slot) {
+      for (let i = 0; i < TEL_N; i++) {
+        if (!tels[i].on) {
+          slot = tels[i];
+          break;
+        }
+      }
+    }
+    if (!slot) slot = telFarSlot();
+    slot.on = 1;
+    slot.id = id;
+    slot.x = x;
+    slot.y = y;
+    slot.x2 = toX;
+    slot.y2 = toY;
+    slot.line = 1;
+    slot.w = w;
+    slot.boss = boss;
+    slot.rad = 0;
+    if (!keep) {
+      slot.age = 0;
+      slot.dur = dur;
+    } else if (ok(ms) && ms > 0) {
+      slot.dur = dur;
+    }
   }
 
   function telegraphClear(id) {
@@ -2391,6 +2532,10 @@ const FX = (function () {
 
     telegraphOff: function (id) {
       telegraphClear(id);
+    },
+
+    telegraphLine: function (id, x, y, toX, toY, ms, opts) {
+      telegraphLineOn(id, x, y, toX, toY, ms, opts);
     },
 
     shield: function (id, x, y, r, ms, opts) {

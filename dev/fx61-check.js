@@ -1032,6 +1032,113 @@ FX.draw(ctx, cam);
 const spawnAt = fillCentroid(function (c) { return c[1] === '#26252b' || c[1] === '#141318'; });
 check('spawn centre matches the demon', spawnAt.n > 0 && Math.abs(spawnAt.x - demonX) <= 1 && Math.abs(spawnAt.y - demonY) <= 1);
 
+function nearestLane(ex, ey) {
+  let best = 1e9;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] !== 'fill') continue;
+    const color = c[1];
+    if (color !== '#c9a8ff' && color !== '#9fb4c8' && color !== '#14120f' && color !== '#ffffff') continue;
+    const px = c[3] + c[5] * 0.5;
+    const py = c[4] + c[6] * 0.5;
+    const dx = px - ex;
+    const dy = py - ey;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < best) best = dist;
+  }
+  return best;
+}
+
+FX.reset();
+FX.setReducedMotion(false);
+FX.draw(ctx, cam);
+let laneThrew = false;
+try {
+  FX.telegraphLine('nope', NaN, 0, 1, 1, 700);
+  FX.telegraphLine('nope', 0, 0, Infinity, 1, 700);
+  FX.telegraphLine();
+} catch (err) {
+  laneThrew = true;
+}
+check('bad telegraphLine args do not throw', laneThrew === false);
+const laneFrom = { x: 0.4, y: -0.2 };
+const laneTo = { x: 2.1, y: 0.35 };
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const laneX0 = laneFrom.x * 16 * cam.zoom + cam.x;
+const laneY0 = laneFrom.y * 16 * cam.zoom + cam.y;
+const laneX1 = laneTo.x * 16 * cam.zoom + cam.x;
+const laneY1 = laneTo.y * 16 * cam.zoom + cam.y;
+const startErr = nearestLane(laneX0, laneY0);
+const endErr = nearestLane(laneX1, laneY1);
+console.log('lane endpoint px', startErr.toFixed(2), endErr.toFixed(2));
+check('lane start matches the tile', startErr <= 1);
+check('lane end matches the tile', endErr <= 1);
+let laneMinA = 1;
+let laneDark = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill') continue;
+  if (c[1] === '#c9a8ff' && c[2] < laneMinA) laneMinA = c[2];
+  if (c[1] === '#14120f' && Math.abs(c[2] - 0.7) < 0.001) laneDark += 1;
+}
+check('lane fill starts near 15%', laneMinA > 0.1 && laneMinA < 0.2);
+check('lane edges are 70% ink', laneDark > 8);
+
+const laneAim = { x: -0.15, y: 1.6 };
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneAim.x, laneAim.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const aimX = laneAim.x * 16 * cam.zoom + cam.x;
+const aimY = laneAim.y * 16 * cam.zoom + cam.y;
+check('re-aim moves the lane end', nearestLane(aimX, aimY) <= 1 && nearestLane(laneX1, laneY1) > 8);
+
+FX.telegraphOff('dash');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('telegraphOff clears the lane', nearestLane(laneX0, laneY0) > 8 && nearestLane(aimX, aimY) > 8);
+
+FX.telegraphLine('dash', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+advance(0.6);
+calls.length = 0;
+FX.draw(ctx, cam);
+let laneHot = 0;
+let laneWhite = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[1] !== '#ffffff') continue;
+  laneWhite += 1;
+  if (c[2] > 0.6 + 0.001) laneHot += 1;
+}
+check('lane blink stays at most 60% white', laneWhite > 0 && laneHot === 0);
+
+FX.reset();
+FX.setReducedMotion(true);
+FX.draw(ctx, cam);
+FX.telegraphLine('still-lane', laneFrom.x, laneFrom.y, laneTo.x, laneTo.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+const calmLane = calls.map(function (c) { return c.join(','); }).join('|');
+let calmSweep = 0;
+let calmCap = 0;
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill') continue;
+  if (c[1] === '#ffffff') calmSweep += 1;
+  if (c[1] === '#14120f' && Math.abs(c[2] - 1) < 0.001) calmCap += 1;
+}
+advance(0.3);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('reduced motion lane does not sweep', calmSweep === 0 && calls.map(function (c) { return c.join(','); }).join('|') === calmLane);
+check('reduced motion lane outlines the end', calmCap > 0);
+
+FX.telegraph('still-lane', laneFrom.x, laneFrom.y, 700);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('a ring replaces a lane with the same id', nearestLane(laneX1, laneY1) > 8 && countStyle('#c9a8ff', null) > 0);
+
 function quietCtx() {
   return {
     canvas: { width: 390, height: 844 },
@@ -1118,6 +1225,32 @@ if (typeof global.gc === 'function') {
   const shieldPer = (shieldAfter - shieldBefore) / 120;
   console.log('shield heap bytes/frame', shieldPer.toFixed(2));
   check('zero allocations per shield frame', shieldPer < 16);
+
+  FX.reset();
+  FX.setReducedMotion(false);
+  FX.draw(quiet, cam);
+  FX.telegraphLine('lane', 0.2, -0.4, 1.8, 0.6, 8000);
+  for (let i = 0; i < 160; i++) {
+    if (i % 10 === 0) FX.telegraphLine('lane', 0.2, -0.4, 1.4 + (i % 3) * 0.2, 0.3, 8000);
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  for (let i = 0; i < 80; i++) {
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const laneBefore = process.memoryUsage().heapUsed;
+  for (let i = 0; i < 120; i++) {
+    if (i % 10 === 0) FX.telegraphLine('lane', 0.2, -0.4, 1.4 + (i % 3) * 0.2, 0.3, 8000);
+    FX.update(0.016);
+    FX.draw(quiet, cam);
+  }
+  global.gc();
+  const lanePer = (process.memoryUsage().heapUsed - laneBefore) / 120;
+  console.log('lane heap bytes/frame', lanePer.toFixed(2));
+  check('zero allocations per lane frame', lanePer < 16);
 
   FX.reset();
   FX.setReducedMotion(false);
