@@ -211,6 +211,8 @@
   let legendDrops = 0;
   let demonLegend = false;
   let eliteN = 0;
+  let spawnLocked = false;
+  let fairDps = false;
   let lastHit = '';
   let rareSeen = false;
   let epicSeen = false;
@@ -529,6 +531,7 @@
   typeById.shooter = { id: 'shooter', name: 'Shooter', speed: 1.05, radius: 0.3, behaviour: 'shooter' };
 
   function spawnEnemy(id, x, y, opts) {
+    if (spawnLocked && !(opts && opts.measure)) return null;
     const type = typeById[id] || typeById.skel;
     const en = enemyPool.pop() || {};
     const bossKind = (opts && opts.bossKind) || '';
@@ -761,6 +764,10 @@
     s.pierce = 0;
     s.hitFid = 0;
     s.chained = 0;
+    if (s.hits) {
+      const hitKeys = Object.keys(s.hits);
+      for (let h = 0; h < hitKeys.length; h++) delete s.hits[hitKeys[h]];
+    } else s.hits = {};
     shots.push(s);
     return s;
   }
@@ -1173,7 +1180,7 @@
       return;
     }
     let crit = false;
-    if (!tick && Math.random() < critChance()) {
+    if (!tick && !fairDps && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
     }
@@ -1966,14 +1973,15 @@
           nearbyFill(s.x, s.y, s.r + 0.6);
           for (let n = 0; n < nearCount; n++) {
             const en = nearList[n];
-            if (en._nova === s.seq) continue;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid]) continue;
             const dx = en.x - s.x;
             const dy = en.y - s.y;
             const dist2 = dx * dx + dy * dy;
             const outer = s.r + bodyReach(en);
             const inner = s.r - band - bodyReach(en);
             if (dist2 < outer * outer && (inner <= 0 || dist2 > inner * inner)) {
-              en._nova = s.seq;
+              seen[en.fid] = 1;
               damageEnemy(en, s.dmg);
               if (effectOn('chain') && en.life <= 0 && !s.chained) chainNova(en, s);
             }
@@ -2002,20 +2010,21 @@
             continue;
           }
           if (s.kind === 'pierce') {
-            if (en._pierce === s.seq || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
-            en._pierce = s.seq;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid] || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
+            seen[en.fid] = 1;
             damageEnemy(en, s.dmg);
             continue;
           }
           const boltHit = s.kind === 'ember' ? sd2 <= hit2 : sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach);
           if (boltHit) {
-            if (s.pierce > 0 && s.hitFid === en.fid) continue;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid]) continue;
+            seen[en.fid] = 1;
             damageEnemy(en, s.dmg);
             if (effectOn('chain') && s.kind === 'nova' && en.life <= 0 && !s.chained) chainNova(en, s);
-            if (s.pierce > 0 && s.hitFid !== en.fid) {
-              s.hitFid = en.fid;
-              s.pierce -= 1;
-            } else s.life = 0;
+            if (s.pierce > 0) s.pierce -= 1;
+            else s.life = 0;
           }
         }
       }
@@ -2456,6 +2465,13 @@
         continue;
       }
       if (en.life <= 0) { releaseEnemy(i); continue; }
+      if (en.hold) {
+        en.x = en.holdX;
+        en.y = en.holdY;
+        en.kx = 0;
+        en.ky = 0;
+        continue;
+      }
       if (en.kx || en.ky) {
         en.x += en.kx * dt;
         en.y += en.ky * dt;
@@ -5484,6 +5500,53 @@
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
     window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
     window.__svInvuln = (seconds) => { player.invuln = seconds == null ? 30 : seconds; return player.invuln; };
+    window.__svLock = () => {
+      spawnLocked = true;
+      fairDps = true;
+      while (enemies.length) releaseEnemy(0);
+      return enemies.length;
+    };
+    window.__svMeasure = (id, rank, seconds, at) => {
+      time = 1;
+      state = 'playing';
+      nextVowAt = 99999;
+      nextDropAt = 99999;
+      rareAt = 1;
+      rareDue = false;
+      eliteWarned = true;
+      eliteSpawned = true;
+      demonWarned = true;
+      boss5 = true;
+      player.invuln = 999;
+      owned.bolt = 0;
+      owned.orbit = 0;
+      owned.nova = 0;
+      owned.pierce = 0;
+      owned[id] = rank;
+      cds.bolt = 0;
+      cds.nova = 0;
+      cds.pierce = 0;
+      novaQueue = 0;
+      shots.length = 0;
+      while (enemies.length) releaseEnemy(0);
+      const spot = at || (id === 'orbit' ? { x: 0, y: 0 } : { x: 1.6, y: 0 });
+      const en = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden', measure: true });
+      if (!en) return { dps: 0 };
+      if (id === 'orbit') en.radius = 4;
+      en.hold = 1;
+      en.holdX = en.x;
+      en.holdY = en.y;
+      en.maxLife = 100000000;
+      en.life = en.maxLife;
+      const span = seconds || 8;
+      const steps = Math.max(1, Math.round(span / 0.05));
+      const before = en.life;
+      for (let n = 0; n < steps; n++) {
+        if (state === 'playing') sim(0.05);
+      }
+      const dealt = before - en.life;
+      return { dps: dealt / (steps * 0.05), dealt: dealt, seconds: steps * 0.05 };
+    };
     window.__svBanner = (text, seconds) => {
       raiseBanner(text || 'Grave Warden approaches', true);
       if (seconds != null) bannerT = seconds;

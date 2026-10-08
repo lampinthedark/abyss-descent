@@ -877,6 +877,50 @@ function forcedVow() {
   console.log('forced vow accepted at ' + snap.time.toFixed(2));
 }
 
+function bossWeaponDps() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svLock();
+  function paperBolt(rank) {
+    const steps = [1, 1.15, 1.35, 1.5, 1.85];
+    const cd = [0.62, 0.56, 0.5, 0.42, 0.36];
+    const volley = rank >= 5 ? 3 : rank >= 3 ? 2 : 1;
+    const dmg = 12 * steps[rank - 1];
+    return dmg * (1 + 0.65 * (volley - 1)) / cd[rank - 1];
+  }
+  function paperPierce(rank) {
+    const dmg = (14 + rank * 6) * (rank >= 3 ? 1.15 : 1);
+    const lines = rank >= 5 ? 2 : 1;
+    const cd = Math.max(0.7, 2.5 - rank * 0.18);
+    return (dmg * lines) / cd;
+  }
+  function paperNova(rank) {
+    const dmg = 12 + rank * 6;
+    const table = [3.15, 2.7, 2.35, 2.05, 1.75];
+    const cd = Math.max(0.8, table[rank - 1]);
+    const rings = rank >= 3 ? 2 : 1;
+    return (dmg * rings) / cd;
+  }
+  function paperOrbit(rank) {
+    const count = rank >= 5 ? 3 : rank >= 3 ? 2 : 1;
+    return (7 + rank * 3) * 2.2 * count;
+  }
+  const papers = { bolt: paperBolt, pierce: paperPierce, nova: paperNova, orbit: paperOrbit };
+  const names = Object.keys(papers);
+  const rows = [];
+  for (let w = 0; w < names.length; w++) {
+    const id = names[w];
+    for (let rank = 1; rank <= 5; rank++) {
+      const paper = papers[id](rank);
+      const got = game.__svMeasure(id, rank, 20);
+      const ratio = paper > 0 ? got.dps / paper : 0;
+      rows.push(id + rank + ' ' + got.dps.toFixed(1) + '/' + paper.toFixed(1));
+      if (Math.abs(ratio - 1) > 0.15) fail(id + ' L' + rank + ' dps ' + got.dps.toFixed(2) + ' paper ' + paper.toFixed(2) + ' ratio ' + ratio.toFixed(2));
+    }
+  }
+  console.log('boss dps within 15%: ' + rows.join(' | '));
+}
+
 function vowFlagAlone() {
   const game = boot(4, '?headless=1&vow=1');
   game.__svStart();
@@ -1917,6 +1961,7 @@ bannerToastCap('demon', '?headless=1&debug=1&t=295', 'Risen Demon');
 vows();
 forcedVow();
 vowFlagAlone();
+bossWeaponDps();
 hermitTwice();
 vowRevive();
 twoEvos();
