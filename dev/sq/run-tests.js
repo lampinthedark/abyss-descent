@@ -179,8 +179,12 @@ async function playQ1(seed) {
         for (let i = 0; i < 2; i++) RPG.bus.emit('kill', { monsterId: 'goblin' });
         eq(RPG.quests.active().step, 4);
         s.log.dialog.length = 0;
+        const def0 = s.xp.defence;
         await s.talk('questgiver');
         ok(RPG.quests.state().done.q2_field, 'Q2 done');
+        eq(s.xp.defence - def0, C.quest('q2_field').rewards.xp.defence, 'Q2 Defence XP from data');
+        eq(s.xp.defence - def0, 55, 'Q2 pays +55 Defence');
+        ok(s.log.float.some(f => /\+55 Defence/.test(f)), 'floats +55 Defence');
         eq(w.Gold.balance(), 85); ok(w.Inventory.has('rustbound_shield'));
         const rum = s.log.dialog.find(d => d.lines.some(l => /Ashmaw/.test(l)));
         ok(rum && rum.opts && rum.opts.drops.length, 'rumour carries the drop list');
