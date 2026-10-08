@@ -75,7 +75,7 @@ body.sv-bench-run #sv-fps {
 }
 body.sv-bench-run #sv-bench {
   top: 124px;
-  font-size: 22px;
+  font-size: 28px;
   color: #ffe8b0;
   white-space: pre-line;
 }

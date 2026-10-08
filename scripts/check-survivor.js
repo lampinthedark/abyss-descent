@@ -120,6 +120,8 @@ if (!src.includes('FLOAT_CAP = 40')) fail('floating numbers should cap near 40')
 if (!src.includes('function pickupR')) fail('gem pickup radius missing');
 if (html.includes('id="title-screen"') || html.includes('Choose Your Fate')) fail('survivor boots the descent menu');
 if (!html.includes('sv-bench-boot')) fail('bench should skip the title flash');
+if (!src.includes('elapsed > 2000') || !src.includes('elapsed > 12000')) fail('bench should skip 2s then measure about 10s');
+if (!src.includes('slowPct') || !src.includes('gap > 0.033')) fail('bench should count frames slower than 33ms');
 if (!html.includes('id="sv-revive" class="big-btn secondary hidden"')) fail('revive should be hidden until an ad test');
 if (src.includes('Utils.iso') || src.includes('screenToWorld')) fail('survivor camera should stay top-down');
 if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor reduced motion');

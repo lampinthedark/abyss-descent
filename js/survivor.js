@@ -1466,7 +1466,8 @@
 
   let last = 0;
   function frame(now) {
-    const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
+    const raw = last ? (now - last) / 1000 : 0.016;
+    const dt = Math.min(0.05, raw);
     last = now;
     if (dt > 0) {
       const inst = 1 / dt;
@@ -1474,30 +1475,38 @@
     }
     if (state === 'playing') sim(dt);
     else animT += dt;
-    if (bench && state === 'playing') {
+    if (bench && state === 'playing' && !benchDone) {
       if (!benchStart) benchStart = now;
-      benchFrames.push(dt);
-      if (!benchDone && now - benchStart > 10000) {
+      const elapsed = now - benchStart;
+      // Skip the first 2s (atlas and spawn), then sample about 10s of real frame gaps.
+      if (elapsed > 2000) benchFrames.push(raw);
+      if (elapsed > 12000 && benchFrames.length) {
         benchDone = true;
         let sum = 0;
         let min = Infinity;
+        let slow = 0;
         for (let i = 0; i < benchFrames.length; i++) {
-          const f = 1 / benchFrames[i];
+          const gap = benchFrames[i];
+          const f = 1 / gap;
           sum += f;
           if (f < min) min = f;
+          if (gap > 0.033) slow += 1;
         }
         const avg = sum / benchFrames.length;
+        const slowPct = (slow / benchFrames.length) * 100;
         const sw = (window.screen && window.screen.width) || canvas.width;
         const sh = (window.screen && window.screen.height) || canvas.height;
         const dpr = window.devicePixelRatio || 1;
         window.__fps = {
-          avg, min, enemies: enemies.length, frames: benchFrames.length,
+          avg, min, slow, slowPct,
+          enemies: enemies.length, frames: benchFrames.length,
           screen: sw + 'x' + sh, dpr,
         };
         const out = $('sv-bench');
         if (out) {
           out.classList.remove('hidden');
           out.textContent = 'Bench ' + enemies.length + ' foes\navg ' + avg.toFixed(1) + ' fps · min ' + min.toFixed(1) + ' fps\n'
+            + slow + ' frames over 33ms (' + slowPct.toFixed(1) + '%)\n'
             + sw + '×' + sh + ' · ' + dpr + ' dpr';
         }
       }

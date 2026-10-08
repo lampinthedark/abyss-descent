@@ -318,16 +318,21 @@ async function pageWith(browser, url, viewport) {
     await boss.close();
 
     const bench = await pageWith(browser, base + 'survivor.html?v=3&debug=1&bench=1', desk);
-    await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 25000 });
+    await bench.waitForFunction(() => window.__fps && window.__fps.frames > 30, { timeout: 30000 });
     const fps = await bench.evaluate(() => window.__fps);
     const benchText = await bench.$eval('#sv-bench', (el) => el.textContent);
     const fpsSize = await bench.$eval('#sv-fps', (el) => parseFloat(getComputedStyle(el).fontSize));
-    console.log('FPS', JSON.stringify(fps), benchText, 'live', fpsSize);
+    const benchSize = await bench.$eval('#sv-bench', (el) => parseFloat(getComputedStyle(el).fontSize));
+    console.log('FPS', JSON.stringify(fps), benchText, 'live', fpsSize, 'result', benchSize);
     if (fps.enemies < 300) fail('bench spawned ' + fps.enemies);
     if (fps.avg < 55) fail('avg fps ' + fps.avg);
+    if (typeof fps.slow !== 'number' || typeof fps.slowPct !== 'number') fail('bench slow frames: ' + JSON.stringify(fps));
+    if (fps.slowPct < 0 || fps.slowPct > 100) fail('bench slow percent: ' + fps.slowPct);
     if (!/avg /.test(benchText) || !/min /.test(benchText) || !/dpr/.test(benchText)) fail('bench result: ' + benchText);
+    if (!/frames over 33ms/.test(benchText) || !/%/.test(benchText)) fail('bench slow line: ' + benchText);
     if (!(fps.dpr > 0) || !fps.screen) fail('bench device info: ' + JSON.stringify(fps));
     if (fpsSize < 24) fail('live fps is too small: ' + fpsSize);
+    if (benchSize < 24) fail('bench result is too small: ' + benchSize);
     fs.writeFileSync(path.join(shots, 'survivor-fps.json'), JSON.stringify(fps, null, 2));
     await bench.screenshot({ path: path.join(shots, 'survivor-bench.png') });
     if (bench.__errors.length) fail('bench errors: ' + bench.__errors.join(' | '));
