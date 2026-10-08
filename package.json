@@ -5,7 +5,7 @@
   "description": "Isometric browser ARPG. The same static files ship on GitHub Pages and inside the Capacitor Android/iOS WebView.",
   "scripts": {
     "copy:www": "node scripts/copy-www.js",
-    "test": "node scripts/copy-www.js && node scripts/check-www.js && node scripts/check-routing.js && node scripts/check-survivor.js",
+    "test": "node scripts/copy-www.js && node scripts/check-www.js && node scripts/check-routing.js && node scripts/check-survivor.js && node scripts/check-survivor-sim.js",
     "icons": "node scripts/generate-icons.js && capacitor-assets generate --android --ios",
     "cap:sync": "npm run copy:www && cap sync",
     "cap:sync:android": "npm run copy:www && cap sync android",

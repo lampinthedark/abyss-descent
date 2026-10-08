@@ -7,20 +7,87 @@ const SurvivorData = (() => {
   const WEAPON_CAP = 5;
   const PASSIVE_CAP = 5;
 
+  const EVOLUTIONS = {
+    orbit: { id: 'storm', name: 'Storm of Blades', needs: 'tempo' },
+    nova: { id: 'halo', name: 'Cinder Halo', needs: 'cinder' },
+  };
+
   const WEAPONS = [
-    { id: 'bolt', name: 'Ash Bolt', kind: 'weapon', blurb: 'Hurls ash-fire at the nearest demon.', maxLevel: WEAPON_CAP, evolvesWith: null },
-    { id: 'orbit', name: 'Orbiting Blade', kind: 'weapon', blurb: 'Blades circle you and cut whatever they touch.', maxLevel: WEAPON_CAP, evolvesWith: null },
-    { id: 'nova', name: 'Star Nova', kind: 'weapon', blurb: 'A ring of fire bursts outward.', maxLevel: WEAPON_CAP, evolvesWith: null },
-    { id: 'pierce', name: 'Piercing Ash', kind: 'weapon', blurb: 'A bolt that keeps going through a line of demons.', maxLevel: WEAPON_CAP, evolvesWith: null },
+    {
+      id: 'bolt', name: 'Ash Bolt', kind: 'weapon', icon: 'bolt',
+      blurb: 'Hurls ash at the nearest demon.',
+      ranks: ['One bolt.', 'The bolt hits harder.', 'A second bolt follows.', 'The volley quickens.', 'Three bolts in a spread.'],
+      maxLevel: WEAPON_CAP, evolvesWith: null,
+    },
+    {
+      id: 'orbit', name: 'Orbiting Blade', kind: 'weapon', icon: 'blade',
+      blurb: 'Blades circle you and cut whatever they touch.',
+      ranks: ['One blade.', 'The blade spins faster.', 'A second blade joins.', 'The ring widens.', 'Three blades. Ready to evolve.'],
+      maxLevel: WEAPON_CAP, evolvesWith: 'tempo', evolveName: 'Storm of Blades',
+    },
+    {
+      id: 'nova', name: 'Star Nova', kind: 'weapon', icon: 'nova',
+      blurb: 'A ring of ash bursts outward.',
+      ranks: ['A single ring.', 'The ring returns sooner.', 'The ring pulses twice.', 'The ring reaches farther.', 'A thick double ring.'],
+      maxLevel: WEAPON_CAP, evolvesWith: 'cinder', evolveName: 'Cinder Halo',
+    },
+    {
+      id: 'pierce', name: 'Piercing Ash', kind: 'weapon', icon: 'pierce',
+      blurb: 'A bolt that keeps going through a line of demons.',
+      ranks: ['A line of ash.', 'It bites harder.', 'The line is wider.', 'It flies faster.', 'Two lines, side by side.'],
+      maxLevel: WEAPON_CAP, evolvesWith: null,
+    },
   ];
 
   const PASSIVES = [
-    { id: 'might', name: 'Might', kind: 'passive', blurb: '+12% damage each rank.', maxLevel: PASSIVE_CAP, evolvesWith: null },
-    { id: 'haste', name: 'Haste', kind: 'passive', blurb: 'Weapons fire faster.', maxLevel: PASSIVE_CAP, evolvesWith: null },
-    { id: 'magnet', name: 'Magnet', kind: 'passive', blurb: 'XP gems pull in from farther away.', maxLevel: PASSIVE_CAP, evolvesWith: null },
-    { id: 'vitality', name: 'Vitality', kind: 'passive', blurb: '+15 max life each rank.', maxLevel: PASSIVE_CAP, evolvesWith: null },
-    { id: 'area', name: 'Area', kind: 'passive', blurb: 'Novas, blades, and bolts cover more ground.', maxLevel: PASSIVE_CAP, evolvesWith: null },
-    { id: 'armor', name: 'Armor', kind: 'passive', blurb: 'Each rank reduces a hit by 2.', maxLevel: PASSIVE_CAP, evolvesWith: null },
+    {
+      id: 'might', name: 'Might', kind: 'passive', icon: 'might',
+      blurb: 'Your blows get heavier.',
+      ranks: ['A firmer hit.', 'A little more weight.', 'Heavy hands. Damage jumps.', 'The staff bites.', 'Ruinous force.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'haste', name: 'Haste', kind: 'passive', icon: 'haste',
+      blurb: 'Weapons cycle faster.',
+      ranks: ['A quicker cast.', 'Less wait between bolts.', 'Battle rhythm. Weapons jump in speed.', 'The cycle tightens.', 'Unbroken tempo.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'magnet', name: 'Magnet', kind: 'passive', icon: 'magnet',
+      blurb: 'XP gems pull in from farther away.',
+      ranks: ['A short pull.', 'Gems notice you.', 'A wide grab.', 'The field thickens.', 'Gems cross the screen.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'vitality', name: 'Vitality', kind: 'passive', icon: 'heart',
+      blurb: 'More life, and a heal when you take it.',
+      ranks: ['+12 life.', '+12 life.', '+20 life and a full breath.', '+12 life.', '+28 life. The deep well.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'area', name: 'Area', kind: 'passive', icon: 'area',
+      blurb: 'Novas, blades, and bolts cover more ground.',
+      ranks: ['A wider spark.', 'More reach.', 'The ring opens up.', 'Broad strokes.', 'The whole crowd.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'armor', name: 'Armor', kind: 'passive', icon: 'armor',
+      blurb: 'Each rank turns a hit aside.',
+      ranks: ['Chip one point off a hit.', 'A thicker hide.', 'Hits lose 3.', 'Another point aside.', 'Hits lose 6.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null,
+    },
+    {
+      id: 'tempo', name: 'Battle Tempo', kind: 'passive', icon: 'tempo',
+      blurb: 'The rhythm that wakes a storm of blades.',
+      ranks: ['Your step finds the beat.', 'Blades drink the rhythm.', 'The beat locks in.', 'Faster hands.', 'Storm-ready.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null, evolveName: 'Storm of Blades', evolveOf: 'orbit',
+    },
+    {
+      id: 'cinder', name: 'Cinder Heart', kind: 'passive', icon: 'cinder',
+      blurb: 'Ash that remembers how to crown you.',
+      ranks: ['A warm coal. Not the hero\'s fire.', 'The ring lingers.', 'A second echo.', 'Ash stays in the air.', 'Halo-ready.'],
+      maxLevel: PASSIVE_CAP, evolvesWith: null, evolveName: 'Cinder Halo', evolveOf: 'nova',
+    },
   ];
 
   const CATALOG = WEAPONS.concat(PASSIVES);
@@ -43,48 +110,54 @@ const SurvivorData = (() => {
 
   const META_KEY = 'abyss-survivor-meta';
 
-  function emptyMeta() {
-    return {
-      version: 1,
-      gold: 0,
-      upgrades: {},
-      cosmetics: { skin: null, effect: null },
-    };
+  function bankGold(amount) {
+    return SurvivorSave.bankGold(amount);
   }
 
   function loadMeta() {
-    try {
-      const raw = localStorage.getItem(META_KEY);
-      if (!raw) return emptyMeta();
-      const data = JSON.parse(raw);
-      const blank = emptyMeta();
-      if (!data || data.version !== 1) return blank;
-      blank.gold = Math.max(0, Number(data.gold) || 0);
-      blank.upgrades = data.upgrades && typeof data.upgrades === 'object' ? data.upgrades : {};
-      const skin = data.cosmetics && data.cosmetics.skin;
-      const effect = data.cosmetics && data.cosmetics.effect;
-      blank.cosmetics.skin = skin == null ? null : String(skin);
-      blank.cosmetics.effect = effect == null ? null : String(effect);
-      return blank;
-    } catch (e) {
-      return emptyMeta();
-    }
-  }
-
-  function saveMeta(meta) {
-    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {}
-  }
-
-  function bankGold(amount) {
-    const n = Math.max(0, Math.round(Number(amount) || 0));
-    const meta = loadMeta();
-    meta.gold += n;
-    saveMeta(meta);
-    return meta.gold;
+    const progress = SurvivorSave.loadProgress();
+    const profile = SurvivorSave.loadProfile();
+    return {
+      version: progress.version,
+      gold: progress.gold,
+      upgrades: progress.upgrades,
+      cosmetics: profile.cosmetics,
+    };
   }
 
   function xpToNext(level) {
-    return 16 + (Math.max(1, level) - 1) * 8;
+    const lv = Math.max(1, level | 0);
+    // Early ranks are a handful of gems so the first two minutes hold about six
+    // level-ups. After that the cost climbs so a geared hero waits ~20–35s.
+    if (lv <= 1) return 12;
+    if (lv === 2) return 14;
+    if (lv === 3) return 16;
+    if (lv === 4) return 18;
+    if (lv === 5) return 22;
+    if (lv === 6) return 28;
+    if (lv === 7) return 82;
+    if (lv === 8) return 100;
+    if (lv === 9) return 122;
+    if (lv === 10) return 152;
+    if (lv === 11) return 158;
+    if (lv === 12) return 176;
+    if (lv === 13) return 184;
+    if (lv === 14) return 196;
+    return 200 + (lv - 14) * 12;
+  }
+
+  function rankText(item, nextLevel) {
+    const ranks = item && item.ranks;
+    const i = Math.max(1, nextLevel | 0) - 1;
+    if (ranks && ranks[i]) return ranks[i];
+    return (item && item.blurb) || '';
+  }
+
+  function evolutionFor(id) {
+    if (EVOLUTIONS[id]) return EVOLUTIONS[id];
+    const item = CATALOG.find((c) => c.id === id);
+    if (item && item.evolveOf && EVOLUTIONS[item.evolveOf]) return EVOLUTIONS[item.evolveOf];
+    return null;
   }
 
   function minuteReachedEvent(minute) {
@@ -114,6 +187,18 @@ const SurvivorData = (() => {
     return 'survivor-levelups-8-plus';
   }
 
+  function healCard() {
+    return {
+      id: 'heal',
+      name: 'Second Wind',
+      kind: 'reward',
+      icon: 'heart',
+      blurb: 'Heal 30% now, and +1 life a second for a moment.',
+      maxLevel: 99,
+      evolvesWith: null,
+    };
+  }
+
   function pickOffers(owned, rng) {
     const random = rng || Math.random;
     const bag = [];
@@ -122,6 +207,7 @@ const SurvivorData = (() => {
       const lv = owned && owned[item.id] ? owned[item.id] : 0;
       if (lv < item.maxLevel) bag.push(item);
     }
+    if (random() < 0.4) bag.push(healCard());
     const out = [];
     while (out.length < 3 && bag.length) {
       const i = Math.floor(random() * bag.length);
@@ -141,8 +227,8 @@ const SurvivorData = (() => {
   }
 
   return {
-    HERO, WEAPONS, PASSIVES, CATALOG, REWARDS, TUNING, WEAPON_CAP, PASSIVE_CAP,
-    META_KEY, emptyMeta, loadMeta, saveMeta, bankGold, xpToNext,
+    HERO, WEAPONS, PASSIVES, CATALOG, EVOLUTIONS, REWARDS, TUNING, WEAPON_CAP, PASSIVE_CAP,
+    META_KEY, loadMeta, bankGold, xpToNext, rankText, evolutionFor,
     minuteReachedEvent, deathEvent, levelReachedEvent, levelUpCountEvent, pickOffers,
   };
 })();
