@@ -32,6 +32,12 @@ const FX = (function () {
   const VOW_CAP = 8;
   const CD_N = 24;
   const BEAM_N = 64;
+  // Spec heights and widths are CSS px at the desktop zoom constant
+  // cssPerArt = 2 (survivor.js resize; the initial zoom). Art px = CSS px / 2:
+  // rare 1 x 36, epic 1.5 x 48, legendary 1 x 72 per column. One CSS px is
+  // drawn round(zoom / 2) device px wide, which matches a CSS pixel when
+  // zoom is cssPerArt * dpr.
+  const BEAM_CSS_PER_ART = 2;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
@@ -189,6 +195,8 @@ const FX = (function () {
   })();
 
   let clock = 0;
+  let frameTick = 0;
+  let underTick = -1;
   let vows = 0;
   let vowAng = 0;
   let halo = 0;
@@ -513,10 +521,18 @@ const FX = (function () {
   }
 
   function rarityId(r) {
-    if (r === 'uncommon') return 1;
-    if (r === 'rare') return 2;
-    if (r === 'epic') return 3;
-    if (r === 'legendary') return 4;
+    if (typeof r === 'number' || r == null) return 0;
+    let raw;
+    if (typeof r === 'string') raw = r;
+    else {
+      try { raw = String(r); } catch (e) { return 0; }
+    }
+    if (typeof raw !== 'string' || !raw) return 0;
+    const name = raw.trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (name === 'uncommon') return 1;
+    if (name === 'rare') return 2;
+    if (name === 'epic' || name === 'very rare' || name === 'veryrare') return 3;
+    if (name === 'legendary') return 4;
     return 0;
   }
 
@@ -535,13 +551,18 @@ const FX = (function () {
 
   function beamOn(id, x, y, rarity) {
     if (!ok(x) || !ok(y)) return;
+    const r = rarityId(rarity);
+    // Common and unknown names draw nothing. Uncommon still draws its green cross.
+    if (r <= 0) {
+      beamClear(id);
+      return;
+    }
     let slot = null;
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on && beams[i].id === id) slot = beams[i];
     }
     const fresh = !slot;
     if (!slot) slot = takeBeam();
-    const r = rarityId(rarity);
     slot.on = 1;
     slot.id = id;
     slot.x = x;
@@ -868,6 +889,7 @@ const FX = (function () {
 
   function step(dt) {
     if (!(dt > 0)) return;
+    frameTick += 1;
     if (dt > 0.05) dt = 0.05;
     clock += dt;
     if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
@@ -1015,31 +1037,49 @@ const FX = (function () {
     return a;
   }
 
+  function columnAlpha() {
+    if (reducedNow()) return 0.9;
+    const s = Math.sin(clock * 12.566370614359172);
+    const a = 0.9 + s * 0.05;
+    return a < 0.85 ? 0.85 : a;
+  }
+
   function legendAlpha() {
-    if (reducedNow()) return 0.55;
+    if (reducedNow()) return 0.9;
     const s = Math.sin(clock * 6.283185307179586);
-    return 0.46 + s * 0.16;
+    const a = 0.9 + s * 0.05;
+    return a < 0.85 ? 0.85 : a;
   }
 
   function rarityFill(r) {
     if (r === 1) return '#5ed37a';
     if (r === 2) return '#4c7cff';
     if (r === 3) return '#b48cff';
-    if (r === 4) return '#f4f2ff';
+    if (r === 4) return '#ffb43c';
     return '#b9b4aa';
+  }
+
+  function beamUnit(zoom) {
+    const u = Math.round(zoom / BEAM_CSS_PER_ART);
+    return u > 1 ? u : 1;
+  }
+
+  function paintStrip(ctx, x, y, w, h, color, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
   }
 
   function paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH) {
     const a = beamAlpha();
     const calm = reducedNow();
     const cell = Math.max(1, zoom | 0);
+    const unit = beamUnit(zoom);
     for (let i = 0; i < BEAM_N; i++) {
       const b = beams[i];
       if (!b.on || b.r <= 0) continue;
       const sx = Math.round(b.x * tile + camX);
       const sy = Math.round(b.y * tile + camY);
-      const colA = b.r === 4 ? legendAlpha() : a;
-      ctx.globalAlpha = colA;
       if (b.r === 1) {
         const s = 6 * cell;
         ctx.globalAlpha = a;
@@ -1048,40 +1088,49 @@ const FX = (function () {
         ctx.fillRect(sx - (cell >> 1), sy - (s >> 1), cell, s);
         continue;
       }
-      const hArt = b.r === 2 ? 24 : (b.r === 3 ? 56 : 72);
-      const wArt = b.r === 2 ? 2 : (b.r === 3 ? 3 : 4);
-      const h = hArt * cell;
-      const w = wArt * cell;
-      const x0 = Math.round(sx - w / 2);
+      const legend = b.r === 4;
+      const hCss = b.r === 2 ? 72 : (legend ? 144 : 96);
+      const strips = b.r === 2 ? 4 : (legend ? 8 : 5);
+      const h = hCss * unit;
+      const span = strips * unit;
+      const x0 = Math.round(sx - span * 0.5);
       const y0 = Math.round(sy - h);
-      if (sx > -w && sx < viewW + w && sy > -8 && y0 < viewH + 8) {
-        if (b.r === 4) {
-          ctx.fillStyle = '#f4f2ff';
-          ctx.fillRect(x0, y0, w, h);
-          for (let row = 0; row < hArt; row++) {
-            ctx.fillStyle = (row & 1) ? '#c9b6ff' : '#7fb2ff';
-            const yy = y0 + row * cell;
-            ctx.fillRect(x0, yy, cell, cell);
-            ctx.fillRect(x0 + (wArt - 1) * cell, yy, cell, cell);
-          }
+      const bodyA = legend ? legendAlpha() : columnAlpha();
+      if (sx > -span && sx < viewW + span && sy > -8 && y0 < viewH + 8) {
+        if (b.r === 2) {
+          paintStrip(ctx, x0, y0, unit, h, '#14120f', 0.7);
+          paintStrip(ctx, x0 + unit, y0, unit, h, '#4c7cff', bodyA);
+          paintStrip(ctx, x0 + unit * 2, y0, unit, h, '#ffffff', bodyA);
+          paintStrip(ctx, x0 + unit * 3, y0, unit, h, '#14120f', 0.7);
+        } else if (!legend) {
+          paintStrip(ctx, x0, y0, unit, h, '#14120f', 0.7);
+          paintStrip(ctx, x0 + unit, y0, unit, h, '#b48cff', bodyA);
+          paintStrip(ctx, x0 + unit * 2, y0, unit, h, '#ffffff', bodyA);
+          paintStrip(ctx, x0 + unit * 3, y0, unit, h, '#b48cff', bodyA);
+          paintStrip(ctx, x0 + unit * 4, y0, unit, h, '#14120f', 0.7);
         } else {
-          ctx.fillStyle = rarityFill(b.r);
-          ctx.fillRect(x0, y0, w, h);
+          paintStrip(ctx, x0, y0, unit, h, '#14120f', 0.7);
+          paintStrip(ctx, x0 + unit, y0, unit, h, '#ffd27a', bodyA);
+          paintStrip(ctx, x0 + unit * 2, y0, unit, h, '#ffb43c', bodyA);
+          paintStrip(ctx, x0 + unit * 3, y0, unit, h, '#14120f', 0.7);
+          paintStrip(ctx, x0 + unit * 4, y0, unit, h, '#14120f', 0.7);
+          paintStrip(ctx, x0 + unit * 5, y0, unit, h, '#ffb43c', bodyA);
+          paintStrip(ctx, x0 + unit * 6, y0, unit, h, '#ffd27a', bodyA);
+          paintStrip(ctx, x0 + unit * 7, y0, unit, h, '#14120f', 0.7);
         }
-        ctx.fillStyle = rarityFill(b.r);
-        ctx.fillRect(sx - cell, sy - cell, cell * 2, cell);
         if (b.r >= 3) {
-          const count = b.r === 4 ? 3 : 2;
-          ctx.fillStyle = b.r === 4 ? '#7fb2ff' : '#b48cff';
+          const count = legend ? 3 : 2;
+          ctx.globalAlpha = bodyA;
+          ctx.fillStyle = legend ? '#ffd27a' : '#b48cff';
           for (let s = 0; s < count; s++) {
-            let ph = (s + 1) * (hArt / (count + 1));
-            if (!calm) ph = (clock * 20 + s * (hArt / count)) % hArt;
-            ctx.fillRect(Math.round(sx + w * 0.5 + cell), Math.round(sy - ph * cell), cell, cell);
+            let ph = (s + 1) * (hCss / (count + 1));
+            if (!calm) ph = (clock * 20 + s * (hCss / count)) % hCss;
+            ctx.fillRect(Math.round(x0 + span + unit), Math.round(sy - ph * unit), unit, unit);
           }
         }
       }
       if (sy > -16 && sy < viewH + 16 && sx > -40 && sx < viewW + 40) {
-        paintGround(ctx, Math.round(sx), Math.round(sy), cell, rarityFill(b.r), b.r === 4 ? colA : 1);
+        paintGround(ctx, Math.round(sx), Math.round(sy), cell, rarityFill(b.r), legend ? bodyA : 1);
       }
     }
     ctx.globalAlpha = 1;
@@ -1193,7 +1242,24 @@ const FX = (function () {
     ctx.globalAlpha = 1;
   }
 
-  function paint(ctx, cam) {
+  function paintBeamsNow(ctx, cam) {
+    const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
+    const tile = framePx() * zoom;
+    const camX = cam && ok(cam.x) ? cam.x : 0;
+    const camY = cam && ok(cam.y) ? cam.y : 0;
+    const viewW = ctx.canvas.width;
+    const viewH = ctx.canvas.height;
+    lastW = viewW;
+    lastH = viewH;
+    lastZoom = zoom;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false;
+    paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
+    ctx.globalAlpha = 1;
+  }
+
+  function paint(ctx, cam, skipBeams) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
     const camX = cam && ok(cam.x) ? cam.x : 0;
@@ -1317,6 +1383,7 @@ const FX = (function () {
     }
 
     paintEmbers(ctx, zoom, calm);
+    if (!skipBeams) paintBeams(ctx, zoom, tile, camX, camY, viewW, viewH);
     paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH);
 
     if (flashLeft > 0) {
@@ -1435,6 +1502,8 @@ const FX = (function () {
 
     reset: function () {
       clock = 0;
+      frameTick = 0;
+      underTick = -1;
       vows = 0;
       vowAng = 0;
       halo = 0;
@@ -1511,18 +1580,19 @@ const FX = (function () {
 
     draw: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      paint(ctx, cam || emptyCam);
+      let skip = 0;
+      if (underTick === frameTick) {
+        skip = 1;
+        underTick = -1;
+      }
+      paint(ctx, cam || emptyCam, skip);
     },
 
     drawUnder: function (ctx, cam) {
       if (!ctx || !ctx.canvas) return;
-      const view = cam || emptyCam;
-      const zoom = (view && ok(view.zoom) && view.zoom > 0) ? view.zoom : 1;
-      const tile = framePx() * zoom;
-      const camX = view && ok(view.x) ? view.x : 0;
-      const camY = view && ok(view.y) ? view.y : 0;
-      ctx.imageSmoothingEnabled = false;
-      paintBeams(ctx, zoom, tile, camX, camY, ctx.canvas.width, ctx.canvas.height);
+      if (underTick === frameTick) return;
+      underTick = frameTick;
+      paintBeamsNow(ctx, cam || emptyCam);
     },
 
     drawBeamArrows: function (ctx, cam, w, h) {
