@@ -24,7 +24,7 @@
     hpScaleAt: 150,
     hpScale: 48,
     edgeAt: 45,
-    wardenHp: 1400,
+    wardenHp: 1480,
     demonHp: 3100,
     evoSlow: 0.5,
     evoScale: 0.3,
