@@ -98,6 +98,19 @@ const SurvivorData = (() => {
     doubleMult: 2,
   };
 
+  // The Hermit card reads these numbers. Combat, XP, and gold use the same table.
+  // earliest is run seconds; the vow is never offered before that.
+  // hit applies only during the cursed minute. xp and gold last the rest of the run
+  // and are indexed by how many vows have been accepted (0 = none).
+  const VOW = {
+    earliest: 90,
+    duration: 60,
+    window: 25,
+    hit: 1.5,
+    xp: [1, 1.5, 2, 3],
+    gold: [1, 1.5, 2, 3],
+  };
+
   // Opening pace: a bolt connects in the first few seconds, a level before a minute.
   const TUNING = {
     firstBolt: 0.35,
@@ -284,7 +297,7 @@ const SurvivorData = (() => {
   }
 
   return {
-    HERO, WEAPONS, PASSIVES, CATALOG, EVOLUTIONS, REWARDS, TUNING, WEAPON_CAP, PASSIVE_CAP,
+    HERO, WEAPONS, PASSIVES, CATALOG, EVOLUTIONS, REWARDS, TUNING, VOW, WEAPON_CAP, PASSIVE_CAP,
     META_KEY, loadMeta, bankGold, xpToNext, rankText, evolutionFor,
     minuteReachedEvent, deathEvent, levelReachedEvent, levelUpCountEvent, pickOffers,
   };

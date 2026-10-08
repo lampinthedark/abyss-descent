@@ -150,8 +150,10 @@ const SurvivorSave = (() => {
     }
     data.gold = Math.max(0, Number(data.gold) || 0);
     if (!data.upgrades || typeof data.upgrades !== 'object') data.upgrades = {};
-    data.bestTime = Math.max(0, Number(data.bestTime) || 0);
-    data.bestKills = Math.max(0, Number(data.bestKills) || 0);
+    data.bestTime = Math.max(0, Number(data.bestTime) || 0, sessionBest);
+    data.bestKills = Math.max(0, Number(data.bestKills) || 0, sessionKills);
+    if (data.bestTime > sessionBest) sessionBest = data.bestTime;
+    if (data.bestKills > sessionKills) sessionKills = data.bestKills;
     return data;
   }
 
@@ -163,6 +165,10 @@ const SurvivorSave = (() => {
   // every frame; they must not touch localStorage again until a purchase,
   // a drop, or a migration changes the save.
   let derived = null;
+  // Survives a failed localStorage write in the same page, so a second
+  // run still knows the first run's best.
+  let sessionBest = 0;
+  let sessionKills = 0;
 
   function bonusFrom(list) {
     let might = 0;
@@ -197,6 +203,7 @@ const SurvivorSave = (() => {
     }
     derived = {
       gold: progress.gold,
+      bestTime: progress.bestTime || 0,
       upgrades: Object.assign({}, progress.upgrades || {}),
       might: bonus.might,
       life: bonus.life,
@@ -221,6 +228,10 @@ const SurvivorSave = (() => {
 
   function gold() {
     return view().gold;
+  }
+
+  function bestTime() {
+    return Math.max(sessionBest, view().bestTime || 0);
   }
 
   function bankGold(amount) {
@@ -432,18 +443,28 @@ const SurvivorSave = (() => {
 
   function recordRun(stats) {
     const p = loadProgress();
-    const previous = p.bestTime || 0;
+    const previous = Math.max(p.bestTime || 0, sessionBest);
     const time = Math.max(0, Number(stats && stats.time) || 0);
     const kills = Math.max(0, Number(stats && stats.kills) || 0);
     const isBest = time > previous;
-    if (isBest) p.bestTime = time;
+    if (isBest) {
+      p.bestTime = time;
+      sessionBest = time;
+    } else if (previous > sessionBest) sessionBest = previous;
     if (kills > (p.bestKills || 0)) p.bestKills = kills;
+    if (p.bestKills > sessionKills) sessionKills = p.bestKills;
     saveProgress(p);
+    const echoed = read(KEYS.progress);
+    if (!echoed || Number(echoed.bestTime) < (p.bestTime || 0)) {
+      // The write did not stick. Keep the session copy and try once more.
+      p.bestTime = Math.max(sessionBest, p.bestTime || 0);
+      saveProgress(p);
+    }
     refreshDerived();
     return {
       isBest: isBest,
       previous: previous,
-      best: p.bestTime,
+      best: Math.max(p.bestTime || 0, sessionBest),
       gold: p.gold,
       next: nextUpgrade(p.gold),
     };
@@ -456,7 +477,7 @@ const SurvivorSave = (() => {
   return {
     KEYS, SCHEMA, RARITY, RARITY_ORDER, SHOP, BASES,
     loadProfile, saveProfile, loadInventory, saveInventory, loadProgress, saveProgress,
-    rank, gold, bankGold, shopList, nextUpgrade, buy, roman, reload,
+    rank, gold, bestTime, bankGold, shopList, nextUpgrade, buy, roman, reload,
     createItem, rollRarity, mintDrop, addItem, items, equipped, effects, itemBonus, recordRun, rarityName,
   };
 })();

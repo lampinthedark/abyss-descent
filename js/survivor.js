@@ -11,9 +11,9 @@
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
-  // BALANCE 6.1 — one table. Revert this block to undo the mix pass.
-  // Keep the screen full. Survivability is the mix: one-hit trash and chip
-  // contact, with chargers, brutes and elites thinned before the Warden.
+  // BALANCE 6.1.1 — one table. Revert this block to undo the tuning pass.
+  // Evolutions wait for the clock. After the Demon, pressure ramps so a
+  // circle dies between 6:00 and 8:00 while the screen stays full.
   const BALANCE = {
     chip: 3,
     idleGrace: 8,
@@ -25,9 +25,29 @@
     hpScale: 48,
     edgeAt: 45,
     wardenHp: 1400,
-    demonHp: 2600,
+    demonHp: 3100,
     evoSlow: 0.5,
     evoScale: 0.3,
+    evoRank: 5,
+    evoPartner: 1,
+    evoAt: 95,
+    lateAt: 300,
+    lateRamp: 150,
+    lateRate: 64,
+    lateCap: 400,
+    lateEliteEvery: 14,
+    lateHpScale: 16,
+    lateShooter: 6,
+    lateShot: 9,
+    demonShield: 4,
+    foodChance: 0.3,
+    foodLife: 30,
+    wardenReach: 3.05,
+    wardenHit: 0.7,
+    wardenHitFloor: 0.15,
+    minSpawn: 3,
+    idleClose: 2.4,
+    idleReach: 3.6,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
@@ -49,7 +69,14 @@
   const seedMatch = /(?:^|[?&])seed=(\d+)(?:&|$)/.exec(search);
   const toolDebug = debug || freshSave || skelTest;
   const debugClock = toolDebug && debugClockMatch ? Number(debugClockMatch[1]) : 0;
-  const walkCircle = !!(toolDebug && /(?:^|[?&])walk=circle(?:&|$)/.test(search));
+  const walkMatch = toolDebug && /(?:^|[?&])walk=(circle|kite)(?:&|$)/.exec(search);
+  const walkCircle = !!(walkMatch && walkMatch[1] === 'circle');
+  const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
+  const fpsMatch = /(?:^|[?&])fps=(\d+)(?:&|$)/.exec(search);
+  const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
+  const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
+  const demonHpFrac = demonHpMatch ? Math.max(0, Math.min(1, Number(demonHpMatch[1]))) : -1;
+  const forceVow = toolDebug && /(?:^|[?&])vow=1(?:&|$)/.test(search);
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
     Math.random = () => {
@@ -142,6 +169,8 @@
   let gemChainAt = -10;
   let doubleLocked = false;
   let bankedAmount = 0;
+  let bestAtStart = 0;
+  let prevLabel = 'Previous best: none';
   let doubled = false;
   let revived = false;
   let ended = false;
@@ -151,6 +180,25 @@
   let ringAngle = 0;
   let nextEliteAt = 45;
   let stillT = 0;
+  let velX = 0;
+  let velY = 0;
+  let headX = 1;
+  let headY = 0;
+  let frameDt = 1 / 60;
+  let nextDropAt = 18;
+  let foodEaten = 0;
+  let shieldEarly = 0;
+  let shieldSeen = 0;
+  let lastPrevious = 0;
+  let lastBest = 0;
+  let hpBar = -1;
+  let hpFrom = 0;
+  let hpTo = 0;
+  let hpTween = 1;
+  let kiteSide = 1;
+  let kiteSideAt = 2.6;
+  let forwardAcc = 0;
+  const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
   let rareAt = -1;
@@ -205,6 +253,7 @@
   let evolveFreeze = 0;
   let evoSlow = 0;
   let evoHold = false;
+  let evoIgnoreClock = false;
   let evoPollAt = 1;
   let evolvePending = '';
   const evolveQueue = [];
@@ -286,11 +335,64 @@
     return s;
   }
 
+  function vowSpec() {
+    const spec = (typeof SurvivorData !== 'undefined' && SurvivorData.VOW) ? SurvivorData.VOW : null;
+    if (spec && spec.hit > 0 && spec.gold && spec.xp) return spec;
+    return { earliest: 90, duration: 60, window: 25, hit: 1.5, xp: [1, 1.5, 2, 3], gold: [1, 1.5, 2, 3] };
+  }
+
+  function vowFrom(table, count) {
+    const n = count < 0 ? 0 : count;
+    const i = n >= table.length ? table.length - 1 : n;
+    return table[i];
+  }
+
   function vowMult() {
-    if (vowCount >= 3) return 3;
-    if (vowCount === 2) return 2;
-    if (vowCount === 1) return 1.5;
-    return 1;
+    return vowFrom(vowSpec().gold, vowCount);
+  }
+
+  function vowXpMul() {
+    return vowFrom(vowSpec().xp, vowCount);
+  }
+
+  function vowNum(n) {
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function vowLines() {
+    const spec = vowSpec();
+    const gold = vowFrom(spec.gold, vowCount + 1);
+    const xp = vowFrom(spec.xp, vowCount + 1);
+    const goldPct = Math.round((gold - 1) * 100);
+    const xpPct = Math.round((xp - 1) * 100);
+    const reward = xpPct === goldPct
+      ? ('Reward: +' + goldPct + '% XP and gold')
+      : ('Reward: +' + xpPct + '% XP and +' + goldPct + '% gold');
+    return {
+      risk: 'Risk: enemies hit ' + vowNum(spec.hit) + '\u00d7 harder',
+      reward: reward,
+    };
+  }
+
+  function paintHermitCard() {
+    const lines = vowLines();
+    const risk = $('sv-hermit-risk');
+    const reward = $('sv-hermit-reward');
+    if (risk) risk.textContent = lines.risk;
+    if (reward) reward.textContent = lines.reward;
+  }
+
+  function scheduleFirstVow() {
+    const spec = vowSpec();
+    const span = spec.window == null ? 25 : spec.window;
+    if (forceVow) return spec.earliest;
+    return spec.earliest + Math.random() * span;
+  }
+
+  function grantXp(amount) {
+    const n = amount || 0;
+    if (!(n > 0)) return;
+    player.xp += n * vowXpMul();
   }
 
   let clockMs = -1;
@@ -409,8 +511,12 @@
     else if (id === 'brute') hp = 12;
     if (bossKind === 'warden') return BALANCE.wardenHp;
     if (bossKind === 'demon') return BALANCE.demonHp;
-    if (time > BALANCE.hpScaleAt) hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / BALANCE.hpScale));
-    if (curse > 0) hp = Math.round(hp * 1.35);
+    if (time > BALANCE.hpScaleAt) {
+      let div = BALANCE.hpScale;
+      const u = lateT();
+      if (u > 0) div = BALANCE.hpScale + (BALANCE.lateHpScale - BALANCE.hpScale) * u;
+      hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / div));
+    }
     return Math.max(1, hp);
   }
 
@@ -431,6 +537,7 @@
     en.radius = type.radius || 0.32;
     en.speed = (type.speed || 1) * (bossFlag ? 0.58 : 0.5);
     en.dmg = bossFlag ? 18 : (type.id === 'charger' ? 6 : BALANCE.chip);
+    if (bossKind === 'warden') en.dmg = wardenContactDmg();
     en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
     en.boss = bossFlag;
@@ -481,6 +588,16 @@
     return en;
   }
 
+  function wardenContactDmg() {
+    const cut = 18 * BALANCE.wardenHit;
+    const floor = (hero.base.life || 90) * BALANCE.wardenHitFloor;
+    return Math.max(cut, floor);
+  }
+
+  function wardenShotDmg() {
+    return Math.max(1, Math.round(7 * BALANCE.wardenHit));
+  }
+
   function stillRing() {
     return stillT > BALANCE.idleGrace;
   }
@@ -489,7 +606,7 @@
     if (!stillRing() || !en || en.boss || en.elite) return;
     if (en.behaviour === 'shooter' || en.behaviour === 'boss') return;
     const dist = len2(player.x - en.x, player.y - en.y);
-    if (dist >= (en.radius || 0.32) + 0.48) return;
+    if (dist >= (en.radius || 0.32) + BALANCE.idleReach) return;
     if (stillBite > 0) return;
     stillBite = BALANCE.idleBiteEvery;
     en.touchCd = 0.7;
@@ -504,7 +621,7 @@
       if (!en || en.boss || en.elite || en.life <= 0 || en.dying > 0) continue;
       if (en.behaviour === 'shooter' || en.behaviour === 'boss') continue;
       const dist = len2(player.x - en.x, player.y - en.y);
-      if (dist >= (en.radius || 0.32) + 0.48) continue;
+      if (dist >= (en.radius || 0.32) + BALANCE.idleReach) continue;
       stillBite = BALANCE.idleBiteEvery;
       lastHit = 'idle';
       hurt(BALANCE.chip, false);
@@ -532,7 +649,7 @@
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
       if ((g.kind || 'gem') !== 'gem') continue;
-      player.xp += g.value || 0;
+      grantXp(g.value || 0);
       releaseGemAt(i);
       return true;
     }
@@ -555,8 +672,13 @@
     g.shower = 0;
     gems.push(g);
     if (sweepOn) markShowerGem(g);
-    if (en.boss) dropPickup(en, 'chest', null);
-    else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
+    if (en.boss) {
+      const chest = dropPickup(en, 'chest', null);
+      if (chest && en.bossKind === 'warden') chest.withFood = 1;
+    } else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
+    if (en.elite && !en.boss && Math.random() < BALANCE.foodChance) {
+      placePickup(en.x + 0.45, en.y - 0.15, 'food', null);
+    }
     try { maybeDropItem(en); } catch (e) {}
   }
 
@@ -601,7 +723,10 @@
     g.big = false;
     g.shower = 0;
     gems.push(g);
-    if (kind === 'item' && item && rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
+    if (kind === 'item' && item) {
+      if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
+      announceItem(item, g.x, g.y);
+    }
     return g;
   }
 
@@ -682,7 +807,7 @@
     else if (n === 4) fn.call(box, a, b, c);
     else fn.call(box, a, b, c, d);
     const spent = nowMs() - t0;
-    if (name === 'draw') fxDrawMs += spent;
+    if (name === 'draw' || name === 'drawUnder') fxDrawMs += spent;
     else fxUpdateMs += spent;
   }
 
@@ -739,7 +864,8 @@
     const rank = Math.min(5, owned.might || 0);
     let itemMight = 0;
     try { itemMight = itemStats().might; } catch (e) {}
-    return (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
+    const scale = (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
+    return scale;
   }
   function haste() {
     const steps = [1, 0.94, 0.9, 0.78, 0.74, 0.62];
@@ -777,22 +903,53 @@
     return Math.min(0.35, 0.1 + Math.min(5, owned.might || 0) * 0.02);
   }
   function beamFx(id, x, y, rarity) {
+    if (!rareBeam(rarity)) return;
     if (typeof FX === 'undefined' || typeof FX.beam !== 'function') return;
     FX.beam(id, x, y, rarity);
   }
-  function showToast(item) {
-    const el = $('sv-toast');
-    if (!el || !item) return;
+  const toastQueue = [];
+  function toastLine(item) {
     let rarity = 'Common';
     try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
       const raw = item.rarity || 'common';
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
-    toastText = rarity + ': ' + (item.name || 'Item');
-    el.textContent = toastText;
-    el.style.color = RARITY_FILL[item.rarity] || '#f4efe0';
-    el.classList.remove('hidden');
+    return {
+      text: rarity + ': ' + (item.name || 'Item'),
+      color: RARITY_FILL[item.rarity] || '#f4efe0',
+    };
+  }
+  function presentToast(entry) {
+    if (!entry) return;
+    toastText = entry.text;
+    const el = $('sv-toast');
+    if (el) {
+      el.textContent = toastText;
+      el.style.color = entry.color || '#f4efe0';
+      el.classList.remove('hidden');
+    }
     toastT = 1.6;
+  }
+  function showToast(item) {
+    if (!item) return;
+    const entry = toastLine(item);
+    if (toastT > 0) {
+      toastQueue.push(entry);
+      return;
+    }
+    presentToast(entry);
+  }
+  function tickToast(dt) {
+    if (toastT <= 0) return;
+    toastT = Math.max(0, toastT - dt);
+    if (toastT > 0) return;
+    if (toastQueue.length) {
+      presentToast(toastQueue.shift());
+      return;
+    }
+    toastText = '';
+    const toast = $('sv-toast');
+    if (toast) toast.classList.add('hidden');
   }
   function countGround(rarity) {
     let n = 0;
@@ -849,9 +1006,14 @@
   function rareBeam(rarity) {
     return rarity === 'rare' || rarity === 'epic' || rarity === 'legendary';
   }
+  function gemReachMul() {
+    if (time <= 90) return 2;
+    if (time >= 105) return 1;
+    return 2 - (time - 90) / 15;
+  }
   function magnetR() {
     const ranks = (owned.magnet || 0) + shopRank('magnet');
-    return pxToWorld(150 + ranks * 40);
+    return pxToWorld(150 + ranks * 40) * gemReachMul();
   }
   function pickupR() {
     return pxToWorld(36);
@@ -859,7 +1021,8 @@
 
   function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    const dmg = Math.max(1, amount - armorCut());
+    const incoming = curse > 0 ? amount * vowSpec().hit : amount;
+    const dmg = Math.max(1, incoming - armorCut());
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -885,12 +1048,23 @@
 
   function damageEnemy(en, amount, tick) {
     if (!en || en.life <= 0 || en.dying > 0) return;
+    if (en.bossKind === 'demon' && en.shieldT > 0) {
+      const box = fxBox();
+      if (box && typeof box.shieldHit === 'function' && time - (en.shieldHitAt || -1) >= 0.1) {
+        en.shieldHitAt = time;
+        box.shieldHit(en.fid, en.x, en.y);
+      }
+      return;
+    }
     let crit = false;
     if (!tick && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
     }
     en.life -= amount;
+    if (en.bossKind === 'demon' && !en.shieldUsed && en.life > 0 && en.life <= en.maxLife * 0.5) {
+      startDemonShield(en);
+    }
     if (!tick) {
       const heavy = !!(en.boss || en.elite);
       if (!heavy || time >= (en.flashAt || 0)) {
@@ -927,6 +1101,13 @@
       en.life = 0;
       en.dying = 0.22;
       telegraphOff(en);
+      if (en.bossKind === 'demon' && (en.shieldT > 0 || en.shieldLive)) {
+        en.shieldT = 0;
+        en.shieldLive = false;
+        const box = fxBox();
+        if (box && typeof box.shieldOff === 'function') box.shieldOff(en.fid);
+      }
+      if (en.shieldAdd) onShieldAddDead(en.shieldAdd);
       if (en.bossKind === 'warden') wardenCleared = true;
       else if (en.boss) demonCleared = true;
       if (!(en.boss || en.elite) || time >= (en.flashAt || 0)) {
@@ -1093,8 +1274,8 @@
     const n = 4;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
-      const dist = 7.2;
-      spawnEnemy(i === 0 ? 'imp' : 'skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
+      const spot = viewEdge(ang, true, 0.6);
+      spawnEnemy(i === 0 ? 'imp' : 'skel', spot.x, spot.y);
     }
   }
 
@@ -1151,11 +1332,10 @@
   function viewHalfH() { return canvas.height / (TILE * 2); }
 
   function edgePoint(ang, pad) {
-    const inside = time >= BALANCE.edgeAt && !stillRing();
-    const extra = inside ? 0 : (pad == null ? 0.85 : pad);
-    const span = inside ? 0.72 : 1;
-    const halfW = viewHalfW() * span + extra;
-    const halfH = viewHalfH() * span + extra;
+    // Span 1 plus about a tile past the visible rect, on phone and desktop.
+    const extra = Math.max(1, pad == null ? 1 : pad);
+    const halfW = viewHalfW() + extra;
+    const halfH = viewHalfH() + extra;
     const c = Math.cos(ang);
     const s = Math.sin(ang);
     const fit = 1 / Math.max(Math.abs(c) / Math.max(0.8, halfW), Math.abs(s) / Math.max(0.8, halfH));
@@ -1167,18 +1347,48 @@
   function spawnRing(pad) {
     spawnSerial += 1;
     const ang = ringAngle + spawnSerial * 2.399963;
-    const half = Math.max(viewHalfW(), viewHalfH());
-    if (stillRing()) {
-      spotScratch.x = player.x + Math.cos(ang) * 0.58;
-      spotScratch.y = player.y + Math.sin(ang) * 0.58;
-      return spotScratch;
+    const moving = player.moving && (headX * headX + headY * headY) > 0.01;
+    const aim = time >= MINI_AT && moving && spawnSerial % 3 === 0 ? aheadAngle(true) : ang;
+    return viewEdge(aim, true, 0.6);
+  }
+
+  function spawnForwardPack() {
+    const cap = Math.min(LIVE_CAP, spawnCap());
+    const count = 5;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let i = 0; i < count && enemies.length < cap; i++) {
+      const ang = aheadAngle(true);
+      const spot = viewEdge(ang, true, BALANCE.minSpawn);
+      const x = spot.x;
+      const y = spot.y;
+      spawnEnemy(spawnKind(), x, y);
+      sx += x;
+      sy += y;
+      n += 1;
+      spawnedThisFrame += 1;
     }
-    if (time >= BALANCE.edgeAt) return edgePoint(ang, 0.85 + (pad || 0));
-    let ring = half + 0.9 + (pad || 0);
-    if (time < 3) ring = Math.max(2.3, half * 0.7);
-    spotScratch.x = player.x + Math.cos(ang) * ring;
-    spotScratch.y = player.y + Math.sin(ang) * ring;
-    return spotScratch;
+    if (n) fxSpawn(sx / n, sy / n);
+  }
+
+  function dropWorldItem(forced) {
+    let kind = forced || 'mob';
+    if (!forced && rareAt < 0 && time >= 78) kind = 'rare';
+    let item = null;
+    try { item = SurvivorSave.mintDrop(kind); } catch (e) { item = null; }
+    if (!item) return;
+    const ang = player.moving ? aheadAngle(false) : Math.random() * Math.PI * 2;
+    const dist = Math.max(BALANCE.minSpawn, 3.4);
+    const x = player.x + Math.cos(ang) * dist;
+    const y = player.y + Math.sin(ang) * dist;
+    if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') {
+      if (rareAt < 0) rareAt = time;
+      rareSeen = true;
+    }
+    if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
+    itemDrops += 1;
+    placePickup(x, y, 'item', item);
   }
 
   function wardenAlive() {
@@ -1208,9 +1418,25 @@
     return spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden' });
   }
 
+  function lateT() {
+    if (!demonCleared || time < BALANCE.lateAt) return 0;
+    const span = BALANCE.lateRamp > 0 ? BALANCE.lateRamp : 1;
+    return Math.max(0, Math.min(1, (time - BALANCE.lateAt) / span));
+  }
+
+  function eliteInterval() {
+    const u = lateT();
+    if (u <= 0) return BALANCE.eliteEvery;
+    return Math.max(6, BALANCE.eliteEvery + (BALANCE.lateEliteEvery - BALANCE.eliteEvery) * u);
+  }
+
   function spawnKind() {
     const n = spawnSerial;
-    if (time >= MINI_AT && !wardenAlive() && n % 18 === 0) return 'shooter';
+    const u = lateT();
+    if (time >= MINI_AT && !wardenAlive()) {
+      const every = u > 0.2 ? BALANCE.lateShooter : 18;
+      if (every > 0 && n % every === 0) return 'shooter';
+    }
     if (time >= BALANCE.heavyAt && n % 18 === 0) return 'charger';
     if (time >= BALANCE.heavyAt && n % 14 === 0) return 'brute';
     if (n % 4 === 0) return 'imp';
@@ -1227,40 +1453,45 @@
     else if (time < 180) rate = 26;
     else if (time < 360) rate = 34;
     else rate = 40;
+    const u = lateT();
+    if (u > 0) rate = rate + (BALANCE.lateRate - rate) * u;
     if (swarm) rate *= 1.35;
     if (stillT > 0.7) rate *= 1.45;
     return rate;
   }
 
   function spawnCap() {
-    if (time < 12) return 14;
-    if (time < 35) return 32;
-    if (time < 70) return 72;
-    if (time < 120) return 140;
-    if (time < 200) return 220;
-    if (time < 360) return 320;
-    return 340;
+    let cap = 340;
+    if (time < 12) cap = 14;
+    else if (time < 35) cap = 32;
+    else if (time < 70) cap = 72;
+    else if (time < 120) cap = 140;
+    else if (time < 200) cap = 220;
+    else if (time < 360) cap = 320;
+    const u = lateT();
+    if (u > 0) cap = Math.round(cap + (BALANCE.lateCap - cap) * u);
+    return Math.min(LIVE_CAP, cap);
   }
 
   function spawnWave() {
-    const half = Math.max(viewHalfW(), viewHalfH());
-    const count = (Math.floor(time / 15) % 2 === 1) ? 16 : 10;
+    const swarm = (Math.floor(time / 15) % 2 === 1);
+    // Idle punishment is a thicker ring at the same edge, not a spawn on the hero.
+    let count = swarm ? 20 : 14;
+    if (stillRing()) count = swarm ? 24 : 18;
     const cap = Math.min(LIVE_CAP, spawnCap());
+    const moving = player.moving && (headX * headX + headY * headY) > 0.01;
     for (let i = 0; i < count && enemies.length < cap; i++) {
       const a = ringAngle + (i / count) * Math.PI * 2;
       let x;
       let y;
-      if (stillRing()) {
-        x = player.x + Math.cos(a) * 0.58;
-        y = player.y + Math.sin(a) * 0.58;
-      } else if (time >= BALANCE.edgeAt) {
-        const spot = edgePoint(a, 0.7);
+      if (time >= MINI_AT && moving && !stillRing() && i % 3 === 0) {
+        const spot = viewEdge(aheadAngle(true), true, Math.max(3, BALANCE.minSpawn));
         x = spot.x;
         y = spot.y;
       } else {
-        const rad = half + 0.75;
-        x = player.x + Math.cos(a) * rad;
-        y = player.y + Math.sin(a) * rad;
+        const spot = edgePoint(a, 1);
+        x = spot.x;
+        y = spot.y;
       }
       spawnEnemy(spawnKind(), x, y);
       spawnedThisFrame += 1;
@@ -1308,15 +1539,35 @@
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
       const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      applyDemonFrac(demon);
     }
-    if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt) {
+    if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt && time >= vowSpec().earliest) {
       hermit.x = player.x + 2.4;
       hermit.y = player.y + 1.2;
       vowSeen = true;
       fxCall('vow', vowCount);
+      if (forceVow) {
+        hermit.used = true;
+        acceptHermit();
+        return;
+      }
       openHermit();
       return;
+    }
+    if (state === 'playing' && rareAt < 0 && nextDropAt > 90) nextDropAt = 90;
+    if (time >= nextDropAt && state === 'playing') {
+      const forceRare = rareAt < 0 && time >= 78;
+      nextDropAt = time + 15 + Math.random() * 10;
+      if (rareAt < 0 && !forceRare && nextDropAt > 90) nextDropAt = 90;
+      dropWorldItem(forceRare ? 'rare' : '');
+    }
+    if (time >= MINI_AT && player.moving) {
+      forwardAcc += dt;
+      if (forwardAcc >= 3.4) {
+        forwardAcc = 0;
+        spawnForwardPack();
+      }
     }
     if (time >= RUN_SECONDS) {
       runGold += SurvivorData.REWARDS.gold.win;
@@ -1324,7 +1575,7 @@
       return;
     }
     if (time >= nextEliteAt && makeRoom()) {
-      nextEliteAt += BALANCE.eliteEvery;
+      nextEliteAt += eliteInterval();
       eliteN += 1;
       const spot = spawnRing(0.2);
       spawnEnemy('brute', spot.x, spot.y, { elite: true });
@@ -1333,7 +1584,10 @@
     const pressure = bossFightOn() ? 0.45 : 1;
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     ringAcc += dt;
-    const ringEvery = swarm ? 2.2 : 4.4;
+    // Slightly tighter than 2.2 / 4.4 so an off-screen ring still fills the view.
+    // Standing still tightens it again; the bodies stay on the edge.
+    let ringEvery = swarm ? 1.6 : 3.0;
+    if (stillRing()) ringEvery = swarm ? 1.25 : 2.2;
     if (ringAcc >= ringEvery && enemies.length < cap) {
       ringAcc = 0;
       spawnWave();
@@ -1360,21 +1614,14 @@
   }
 
   function spawnBossEdge() {
-    const halfW = Math.max(2.4, canvas.width / (TILE * 2) - 1.35);
-    const halfH = Math.max(2.4, canvas.height / (TILE * 2) - 1.35);
-    const ang = Math.random() * Math.PI * 2;
-    const sx = Math.cos(ang);
-    const sy = Math.sin(ang);
-    const fit = 1 / Math.max(Math.abs(sx) / halfW, Math.abs(sy) / halfH);
-    spotScratch.x = player.x + sx * fit * 0.9;
-    spotScratch.y = player.y + sy * fit * 0.9;
-    return spotScratch;
+    return viewEdge(Math.random() * Math.PI * 2, true, 0.6);
   }
 
   function leashBoss(en, dt) {
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
-    const reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
+    let reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
+    if (en.bossKind === 'warden') reach = Math.min(reach, BALANCE.wardenReach);
     let dx = en.x - player.x;
     let dy = en.y - player.y;
     let dist = len2(dx, dy) || 1;
@@ -1595,6 +1842,8 @@
           }
         }
       } else {
+        const x0 = s.x;
+        const y0 = s.y;
         if (s.kind !== 'ember') {
           s.x += s.vx * dt;
           s.y += s.vy * dt;
@@ -1615,12 +1864,13 @@
             continue;
           }
           if (s.kind === 'pierce') {
-            if (en._pierce === s.seq || sd2 > hit2) continue;
+            if (en._pierce === s.seq || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
             en._pierce = s.seq;
             damageEnemy(en, s.dmg);
             continue;
           }
-          if (sd2 <= hit2) {
+          const boltHit = s.kind === 'ember' ? sd2 <= hit2 : sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach);
+          if (boltHit) {
             if (s.pierce > 0 && s.hitFid === en.fid) continue;
             damageEnemy(en, s.dmg);
             if (effectOn('chain') && s.kind === 'nova' && en.life <= 0 && !s.chained) chainNova(en, s);
@@ -1653,9 +1903,12 @@
     for (let i = foeShots.length - 1; i >= 0; i--) {
       const s = foeShots[i];
       s.life -= dt;
+      const x0 = s.x;
+      const y0 = s.y;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (len2(s.x - player.x, s.y - player.y) < (player.moving ? 0.14 : 0.46)) {
+      const shotR = player.moving ? 0.22 : 0.46;
+      if (sweptHit(x0, y0, s.x, s.y, player.x, player.y, shotR)) {
         lastHit = 'shot';
         hurt(s.dmg, false);
         s.life = 0;
@@ -1703,6 +1956,155 @@
     if (box && typeof box.telegraphOff === 'function') box.telegraphOff(en.id || index);
   }
 
+  function fxSpawn(x, y) {
+    const box = fxBox();
+    if (box && typeof box.spawn === 'function') box.spawn(x, y);
+  }
+
+  function pushChat(text, color) {
+    if (!text) return;
+    chatLog.push({ text: text, color: color || '#f4efe0', t: time });
+    if (chatLog.length > 6) chatLog.shift();
+    const host = $('sv-chat');
+    if (!host) return;
+    const line = document.createElement('p');
+    line.textContent = text;
+    line.style.color = color || '#f4efe0';
+    host.appendChild(line);
+    while (host.childNodes && host.childNodes.length > 6) host.removeChild(host.firstChild);
+  }
+
+  function announceItem(item, x, y) {
+    if (!item) return;
+    let rarity = 'Common';
+    try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
+      const raw = item.rarity || 'common';
+      rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+    showToast(item);
+    pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
+  }
+
+  function sweptHit(x0, y0, x1, y1, tx, ty, rad) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const fx = tx - x0;
+    const fy = ty - y0;
+    const span = dx * dx + dy * dy;
+    let t = 0;
+    if (span > 1e-8) t = Math.max(0, Math.min(1, (fx * dx + fy * dy) / span));
+    const px = x0 + dx * t - tx;
+    const py = y0 + dy * t - ty;
+    return px * px + py * py <= rad * rad;
+  }
+
+  function viewEdge(ang, outside, minDist) {
+    const pad = outside ? 0.55 : -0.2;
+    const halfW = Math.max(BALANCE.minSpawn, viewHalfW() + pad);
+    const halfH = Math.max(BALANCE.minSpawn, viewHalfH() + pad);
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const fit = 1 / Math.max(Math.abs(c) / halfW, Math.abs(s) / halfH);
+    let x = player.x + c * fit;
+    let y = player.y + s * fit;
+    const dx = x - player.x;
+    const dy = y - player.y;
+    const dist = len2(dx, dy);
+    const need = minDist == null ? BALANCE.minSpawn : minDist;
+    if (dist < need) {
+      const k = need / (dist || 1);
+      x = player.x + dx * k;
+      y = player.y + dy * k;
+    }
+    spotScratch.x = x;
+    spotScratch.y = y;
+    return spotScratch;
+  }
+
+  function aheadAngle(wide) {
+    const head = Math.atan2(headY, headX);
+    const arcDeg = wide ? (90 + Math.random() * 50) : (100 + Math.random() * 40);
+    const arc = arcDeg * Math.PI / 180;
+    return head + (Math.random() - 0.5) * arc;
+  }
+
+  function breakDemonShield(en) {
+    if (!en) return;
+    const early = en.shieldT > 0.05;
+    en.shieldT = 0;
+    en.shieldLive = false;
+    if (early) shieldEarly += 1;
+    const box = fxBox();
+    if (box && typeof box.shieldBreak === 'function') box.shieldBreak(en.fid);
+  }
+
+  function onShieldAddDead(demonFid) {
+    let demon = null;
+    let alive = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind === 'demon' && en.fid === demonFid) demon = en;
+      if (en.shieldAdd === demonFid && en.life > 0 && !(en.dying > 0)) alive += 1;
+    }
+    if (demon && demon.shieldT > 0 && alive === 0) breakDemonShield(demon);
+  }
+
+  function spawnAddRing(en) {
+    const count = 8;
+    const dist = Math.max(BALANCE.minSpawn, 3.2);
+    let sx = 0;
+    let sy = 0;
+    en.shieldAdds = [];
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2;
+      const x = player.x + Math.cos(ang) * dist;
+      const y = player.y + Math.sin(ang) * dist;
+      const add = spawnEnemy(i % 2 ? 'imp' : 'skel', x, y);
+      if (!add) continue;
+      add.shieldAdd = en.fid;
+      add.maxLife = Math.max(add.maxLife, 90);
+      add.life = add.maxLife;
+      en.shieldAdds.push(add.fid);
+      sx += x;
+      sy += y;
+    }
+    fxSpawn(sx / count, sy / count);
+  }
+
+  function startDemonShield(en) {
+    if (!en || en.shieldUsed) return;
+    en.shieldUsed = true;
+    en.shieldLive = true;
+    en.shieldT = BALANCE.demonShield;
+    shieldSeen += 1;
+    const box = fxBox();
+    const rad = (en.radius || 0.8) + 0.9;
+    if (box && typeof box.shield === 'function') box.shield(en.fid, en.x, en.y, rad, en.shieldT * 1000);
+    spawnAddRing(en);
+  }
+
+  function tickDemonShield(en, dt) {
+    if (!en || !(en.shieldT > 0)) return;
+    en.shieldT -= dt;
+    let alive = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      const other = enemies[i];
+      if (other.shieldAdd === en.fid && other.life > 0 && !(other.dying > 0)) alive += 1;
+    }
+    if (en.shieldAdds && en.shieldAdds.length && alive === 0) {
+      breakDemonShield(en);
+      return;
+    }
+    if (en.shieldT <= 0) breakDemonShield(en);
+  }
+
+  function applyDemonFrac(en) {
+    if (!en || en.bossKind !== 'demon' || !(demonHpFrac >= 0)) return;
+    en.life = Math.max(1, Math.round(en.maxLife * demonHpFrac));
+    if (en.life <= en.maxLife * 0.5) startDemonShield(en);
+  }
+
   function tickCharger(en, dt) {
     const ai = en.ai;
     const dx = player.x - en.x;
@@ -1724,19 +2126,29 @@
       }
     } else if (ai.mode === 'tell') {
       ai.t -= dt;
-      en.facing = ai.vx >= 0 ? 1 : -1;
+      en.facing = dx >= 0 ? 1 : -1;
       if (ai.t <= 0) {
+        const look = 0.28;
+        const px = player.x + velX * look;
+        const py = player.y + velY * look;
+        const lx = px - en.x;
+        const ly = py - en.y;
+        const ld = len2(lx, ly) || 1;
+        ai.vx = lx / ld;
+        ai.vy = ly / ld;
         ai.mode = 'dash';
         ai.t = 0.38;
       }
     } else if (ai.mode === 'dash') {
       ai.t -= dt;
+      const x0 = en.x;
+      const y0 = en.y;
       en.x += ai.vx * 8.2 * dt;
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
-      const hit = len2(player.x - en.x, player.y - en.y);
       const hitR = player.moving ? en.radius + 0.12 : en.radius + 0.5;
-      if (hit < hitR && en.touchCd <= 0) {
+      const hit = sweptHit(x0, y0, en.x, en.y, player.x, player.y, hitR);
+      if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
         hurt(player.moving ? 4 : en.dmg + 3, false);
@@ -1762,7 +2174,8 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         const sp = 2.7;
-        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, 5);
+        const shot = 5 + lateT() * (BALANCE.lateShot - 5);
+        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -1794,6 +2207,7 @@
     const dy = player.y - en.y;
     const dist = len2(dx, dy) || 1;
     en.facing = dx >= 0 ? 1 : -1;
+    if (en.bossKind === 'demon') tickDemonShield(en, dt);
     if (ai.mode === 'tell') {
       ai.t -= dt;
       if (ai.t <= 0) {
@@ -1806,9 +2220,10 @@
           ai.t = 1.1;
         } else {
           const base = Math.atan2(dy, dx);
+          const volley = en.bossKind === 'warden' ? wardenShotDmg() : 7;
           for (let i = -1; i <= 1; i++) {
             const ang = base + i * 0.32;
-            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, 7);
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
           }
           ai.mode = 'recover';
           ai.t = 1.3;
@@ -1863,6 +2278,7 @@
         const dy = player.y - en.y;
         const dist = len2(dx, dy) || 1;
         let sp = en.speed;
+        if (!player.moving && !en.elite && !en.boss) sp *= BALANCE.idleClose;
         if (en.elite) {
           en.ai.t = (en.ai.t || 0) + dt;
           if (en.ai.t > 2.2) en.ai.t = 0;
@@ -1871,15 +2287,20 @@
           sp *= 0.2;
         }
         const stand = (en.radius || 0.32) + (en.elite ? 0.2 : 0.72);
-        if (player.moving && !en.elite && dist < stand) {
+        // Idle trash stops in the chip band. Stacking on the hero fed the level
+        // blast and made standing still a better farm than circling.
+        const chipBand = (en.radius || 0.32) + BALANCE.idleReach - 0.55;
+        const holdIdle = !player.moving && !en.elite && !en.boss && dist < chipBand;
+        if (!holdIdle && player.moving && !en.elite && dist < stand) {
           const push = Math.min(stand - dist, sp * dt * 4);
           en.x -= (dx / dist) * push;
           en.y -= (dy / dist) * push;
-        } else {
+        } else if (!holdIdle) {
           en.x += (dx / dist) * sp * dt;
           en.y += (dy / dist) * sp * dt;
         }
         en.facing = dx >= 0 ? 1 : -1;
+        if (stillRing() && !en.elite) biteIfStill(en);
         touchPlayer(en, len2(player.x - en.x, player.y - en.y), en.dmg, dt);
       }
     }
@@ -1967,7 +2388,14 @@
     for (let i = gems.length - 1; i >= 0; i--) {
       const g = gems[i];
       const kind = g.kind || 'gem';
-      const walked = kind === 'chest' || kind === 'item' || kind === 'heart';
+      if (kind === 'food') {
+        g.age = (g.age || 0) + dt;
+        if ((g.age || 0) >= BALANCE.foodLife) {
+          releaseGemAt(i);
+          continue;
+        }
+      }
+      const walked = kind === 'chest' || kind === 'item' || kind === 'heart' || kind === 'food';
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
@@ -1988,7 +2416,14 @@
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
-          openChest(g.x, g.y, chestItem());
+          openChest(g.x, g.y, chestItem(), g.withFood);
+        } else if (kind === 'food') {
+          const gain = player.maxLife * 0.25;
+          player.life = Math.min(player.maxLife, player.life + gain);
+          foodEaten += 1;
+          pushChat('You eat the roast meat.', '#e6c15a');
+          const box = fxBox();
+          if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
           try { SurvivorSave.addItem(g.item); } catch (e) {}
           showToast(g.item);
@@ -1997,9 +2432,9 @@
           info.rarity = g.item.rarity;
           fxCall('pickup', g.x, g.y, 'item', info);
         } else {
-          player.xp += g.value || 0;
+          grantXp(g.value || 0);
         }
-        if (kind !== 'chest') spark(player.x, player.y, '#ffffff', 3, 2.6);
+        if (kind !== 'chest' && kind !== 'food') spark(player.x, player.y, '#ffffff', 3, 2.6);
         if (kind === 'gem') {
           chainInfo.chain = bumpGemChain();
           fxCall('pickup', g.x, g.y, 'gem', chainInfo);
@@ -2189,6 +2624,13 @@
     bankedAmount = runGold;
   }
 
+  function persistRun() {
+    if (state !== 'playing' && state !== 'paused' && state !== 'levelup' && state !== 'hermit') return;
+    syncBank();
+    if (time <= 0 && runGold <= 0 && kills <= 0) return;
+    try { SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
+  }
+
   function sim(dt) {
     simTick += 1;
     spawnedThisFrame = 0;
@@ -2287,13 +2729,7 @@
       commitEvolve(evolvedId);
     }
     tickSweep(dt);
-    if (toastT > 0) {
-      toastT = Math.max(0, toastT - dt);
-      if (toastT <= 0) {
-        const toast = $('sv-toast');
-        if (toast) toast.classList.add('hidden');
-      }
-    }
+    tickToast(dt);
     evoWindow = slowLeft > 0 || sweepOn || showerLeft > 0;
     checkLevel();
   }
@@ -2322,6 +2758,12 @@
           steered = true;
         }
       }
+    }
+    if (!steered && walkKite) {
+      const aim = kiteVector();
+      sx = aim.x;
+      sy = aim.y;
+      steered = true;
     }
     if (!steered && walkCircle) {
       const radius = pxToWorld(120);
@@ -2372,6 +2814,8 @@
 
   function resetRun() {
     try { if (SurvivorSave.reload) SurvivorSave.reload(); } catch (e) {}
+    try { bestAtStart = SurvivorSave.bestTime(); } catch (e) { bestAtStart = 0; }
+    prevLabel = 'Previous best: none';
     clearPools();
     const fresh = blankPlayer();
     Object.assign(player, fresh);
@@ -2409,7 +2853,7 @@
     hermit.on = false;
     hermit.used = false;
     joy.on = false;
-    nextVowAt = 20 + Math.random() * 25;
+    nextVowAt = scheduleFirstVow();
     vowSeen = false;
     spawnSerial = 0;
     eliteWarned = false;
@@ -2425,6 +2869,7 @@
     evolveFreeze = 0;
     evoSlow = 0;
     evoHold = false;
+    evoIgnoreClock = false;
     evoPollAt = 1;
     evolvePending = '';
     evolveQueue.length = 0;
@@ -2439,6 +2884,7 @@
     ringAcc = 0;
     nextEliteAt = BALANCE.eliteFirst;
     itemDrops = 0;
+    nextDropAt = 15 + Math.random() * 10;
     rareAt = -1;
     epicAt = -1;
     legendAt = -1;
@@ -2450,6 +2896,10 @@
     evoWindow = false;
     toastT = 0;
     toastText = '';
+    toastQueue.length = 0;
+    chatLog.length = 0;
+    const chatHost = $('sv-chat');
+    if (chatHost) chatHost.textContent = '';
     castersCleared = 0;
     novaQueue = 0;
     regen = 0;
@@ -2639,7 +3089,7 @@
     clearPools();
     time = seconds;
     minuteMark = Math.floor(time / 60);
-    nextVowAt = time + 80;
+    nextVowAt = forceVow ? vowSpec().earliest : Math.max(vowSpec().earliest, time + 80);
     nextEliteAt = time + BALANCE.eliteEvery;
     const picks = picksForTime(seconds);
     picks.forEach((id) => {
@@ -2689,7 +3139,8 @@
       raiseBanner('Risen Demon approaches', true);
       bannerT = 2.4;
       const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      applyDemonFrac(demon);
     } else if (time >= 148) {
       eliteWarned = true;
       eliteSpawned = true;
@@ -2704,7 +3155,8 @@
     casterPlant = 0;
     for (let i = 0; i < n; i++) {
       const ang = (i / Math.max(1, n)) * Math.PI * 2;
-      spawnEnemy('shooter', player.x + Math.cos(ang) * 3.2, player.y + Math.sin(ang) * 3.2);
+      const spot = viewEdge(ang, true, 0.6);
+      spawnEnemy('shooter', spot.x, spot.y);
     }
     return n;
   }
@@ -2726,16 +3178,16 @@
     try { record = SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
     const title = $('sv-end-title');
     if (title) title.textContent = kind === 'won' ? 'You survived' : 'You fell';
+    const prior = Math.max(0, bestAtStart);
     const best = $('sv-best');
-    if (best) best.classList.toggle('hidden', !record.isBest);
+    if (best) best.classList.toggle('hidden', !(time > prior));
     const prev = $('sv-prev');
-    if (prev) {
-      if (record.previous > 0) {
-        const pm = Math.floor(record.previous / 60);
-        const ps = Math.floor(record.previous % 60);
-        prev.textContent = 'Previous best: ' + pm + ':' + String(ps).padStart(2, '0');
-      } else prev.textContent = 'Previous best: none';
-    }
+    if (prior > 0) {
+      const pm = Math.floor(prior / 60);
+      const ps = Math.floor(prior % 60);
+      prevLabel = 'Previous best: ' + pm + ':' + String(ps).padStart(2, '0');
+    } else prevLabel = 'Previous best: none';
+    if (prev) prev.textContent = prevLabel;
     const m = Math.floor(time / 60);
     const s = Math.floor(time % 60);
     const clock = m + ':' + String(s).padStart(2, '0');
@@ -3057,13 +3509,14 @@
   }
 
   // Single open hook. A later FX.chestOpen(x, y, rarity, onLand) roll can wrap this.
-  function openChest(x, y, item) {
+  function openChest(x, y, item, withFood) {
     const rarity = (item && item.rarity) || 'rare';
     const color = RARITY_FILL[rarity] || '#4c7cff';
     const box = (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
     if (box && typeof box.kill === 'function') box.kill(x, y, 'chest', { elite: true, color: color });
     grantGold(40 * vowMult());
     if (item) placePickup(x + 0.62, y, 'item', item);
+    if (withFood) placePickup(x - 0.75, y, 'food', null);
   }
 
   function queueEvolutions() {
@@ -3095,22 +3548,130 @@
     checkEvolutions();
   }
 
+  function evoRanksReady(w) {
+    if (!w || !w.evolvesWith || evolved[w.id]) return false;
+    const needRank = BALANCE.evoRank || w.maxLevel;
+    const needPartner = BALANCE.evoPartner || 1;
+    return (owned[w.id] || 0) >= needRank && (owned[w.evolvesWith] || 0) >= needPartner;
+  }
+
   function checkEvolutions() {
     if (state !== 'playing') {
       evoHold = true;
       return;
     }
     const weapons = SurvivorData.WEAPONS;
+    let waitingClock = false;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
-      if (!w.evolvesWith || evolved[w.id]) continue;
-      if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) {
-        evolved[w.id] = w.evolvesWith;
-        evoQueued[w.id] = false;
-        const evo = SurvivorData.evolutionFor(w.id);
-        grantEvolve(evo ? evo.id : w.id);
+      if (!evoRanksReady(w)) continue;
+      if (!evoIgnoreClock && time < BALANCE.evoAt) {
+        waitingClock = true;
+        continue;
+      }
+      evolved[w.id] = w.evolvesWith;
+      evoQueued[w.id] = false;
+      const evo = SurvivorData.evolutionFor(w.id);
+      grantEvolve(evo ? evo.id : w.id);
+    }
+    if (waitingClock) evoHold = true;
+  }
+
+  function kitePickIndex() {
+    const ids = offers.map((item) => item.id);
+    const order = [];
+    if ((owned.orbit || 0) < 5) order.push('orbit');
+    if ((owned.orbit || 0) >= 3 && (owned.tempo || 0) < (BALANCE.evoPartner || 1)) order.push('tempo');
+    if ((owned.tempo || 0) > 0 && (owned.orbit || 0) < 5) order.push('orbit');
+    order.push('bolt', 'might', 'vitality', 'pierce', 'haste', 'armor', 'nova', 'area');
+    if ((owned.nova || 0) >= 5 && !(owned.cinder > 0)) order.push('cinder');
+    if ((owned.cinder || 0) > 0 && (owned.nova || 0) < 5) order.push('nova');
+    if (player.life < player.maxLife * 0.28) order.unshift('heal');
+    let pick = 0;
+    for (let p = 0; p < order.length; p++) {
+      const at = ids.indexOf(order[p]);
+      if (at >= 0) { pick = at; break; }
+    }
+    return pick;
+  }
+
+  function kiteResolve() {
+    if (!walkKite) return;
+    if (state === 'hermit') {
+      declineHermit();
+      return;
+    }
+    if (state === 'levelup') {
+      uiGuardUntil = 0;
+      choose(kitePickIndex());
+    }
+  }
+
+  function kiteDanger(en) {
+    return !!(en && (en.boss || en.elite || en.eid === 'shooter' || en.eid === 'charger'));
+  }
+
+  function kiteVector() {
+    nearbyFill(player.x, player.y, 9);
+    let cx = 0;
+    let cy = 0;
+    let wsum = 0;
+    let nearest = 99;
+    for (let n = 0; n < nearCount; n++) {
+      const en = nearList[n];
+      if (!kiteDanger(en) || en.life <= 0 || en.dying > 0) continue;
+      const dx = en.x - player.x;
+      const dy = en.y - player.y;
+      const dist = len2(dx, dy) || 0.01;
+      if (dist < nearest) nearest = dist;
+      const weight = en.boss ? 8 : (en.eid === 'shooter' ? 5 : (en.elite ? 4 : 2));
+      cx += en.x * weight;
+      cy += en.y * weight;
+      wsum += weight;
+    }
+    let sx = 1;
+    let sy = 0;
+    if (wsum > 0) {
+      const ax = player.x - cx / wsum;
+      const ay = player.y - cy / wsum;
+      const ad = len2(ax, ay) || 1;
+      const prefer = 6.2;
+      sx = (ax / ad) * (prefer - ad) * 0.85;
+      sy = (ay / ad) * (prefer - ad) * 0.85;
+      sx += (-ay / ad) * 1.35;
+      sy += (ax / ad) * 1.35;
+    }
+    for (let i = 0; i < foeShots.length; i++) {
+      const shot = foeShots[i];
+      const dx = shot.x - player.x;
+      const dy = shot.y - player.y;
+      if (len2(dx, dy) > 3.2) continue;
+      const sp = len2(shot.vx, shot.vy) || 1;
+      sx += (-shot.vy / sp) * 2.4;
+      sy += (shot.vx / sp) * 2.4;
+    }
+    if (nearest > 4.2) {
+      let best = 5.5;
+      let gx = 0;
+      let gy = 0;
+      for (let i = 0; i < gems.length; i++) {
+        const gem = gems[i];
+        if (!gem || gem.kind === 'chest') continue;
+        const dx = gem.x - player.x;
+        const dy = gem.y - player.y;
+        const dist = len2(dx, dy);
+        if (dist < best && dist > 0.35) {
+          best = dist;
+          gx = dx;
+          gy = dy;
+        }
+      }
+      if (best < 5.5) {
+        sx += gx;
+        sy += gy;
       }
     }
+    return { x: sx, y: sy };
   }
 
   function choose(index) {
@@ -3159,19 +3720,15 @@
     joy.on = false;
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
+    paintHermitCard();
     show('sv-hermit');
     sfx('talk');
   }
 
   function acceptHermit() {
     hide('sv-hermit');
-    curse = 60;
+    curse = vowSpec().duration;
     vowPayout = true;
-    for (let i = 0; i < enemies.length; i++) {
-      const en = enemies[i];
-      en.maxLife = Math.round(en.maxLife * 1.5);
-      en.life = Math.round(en.life * 1.5);
-    }
     state = 'playing';
     releaseEvolution();
     vowCount += 1;
@@ -3183,10 +3740,61 @@
   }
 
   let vowSecShown = -1;
-  let vowBadgeShown = '';
+  let vowMarkReady = false;
+
+  function drawVowMark(canvas) {
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    canvas.width = 36;
+    canvas.height = 36;
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = '#24222a';
+    g.fillRect(0, 0, 36, 36);
+    g.fillStyle = '#9fb4c8';
+    const cells = [
+      1, 1, 2, 1, 3, 1,
+      1, 2, 3, 2,
+      1, 3, 3, 3,
+      1, 4, 2, 4, 3, 4,
+      7, 6, 8, 6, 9, 6,
+      7, 7, 9, 7,
+      7, 8, 9, 8,
+      7, 9, 8, 9, 9, 9,
+    ];
+    for (let i = 0; i < cells.length; i += 2) {
+      g.fillRect(cells[i] * 3, cells[i + 1] * 3, 3, 3);
+    }
+  }
+
+  function mountVowBadge() {
+    if (vowMarkReady) return;
+    const badge = $('sv-vow-badge');
+    if (!badge || !document.createElement) return;
+    vowMarkReady = true;
+    badge.textContent = '';
+    if (badge.setAttribute) badge.setAttribute('aria-label', 'Vow');
+    const canvas = document.createElement('canvas');
+    drawVowMark(canvas);
+    if (badge.appendChild) badge.appendChild(canvas);
+    const img = document.createElement('img');
+    img.alt = '';
+    img.width = 12;
+    img.height = 12;
+    img.draggable = false;
+    const showImage = () => {
+      if (!(img.naturalWidth > 0)) return;
+      if (canvas.parentNode && canvas.parentNode.removeChild) canvas.parentNode.removeChild(canvas);
+      if (badge.appendChild) badge.appendChild(img);
+    };
+    if (img.addEventListener) img.addEventListener('load', showImage);
+    img.src = 'assets/ui/vow_badge.png?v=6.1.1';
+    if (img.complete && img.naturalWidth > 0) showImage();
+  }
 
   function syncVowChrome() {
-    const active = curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title';
+    const alive = state !== 'dead' && state !== 'won' && state !== 'title';
+    const active = curse > 0 && alive;
+    const marked = vowCount > 0 && alive;
     const vow = $('sv-vow');
     if (vow) {
       vow.classList.toggle('hidden', !active);
@@ -3200,15 +3808,8 @@
     }
     const badge = $('sv-vow-badge');
     if (badge) {
-      badge.classList.toggle('hidden', !active);
-      if (active) {
-        const mult = vowMult();
-        const label = mult === 1.5 ? 'Vow x1.5' : mult === 2 ? 'Vow x2' : mult === 3 ? 'Vow x3' : ('Vow x' + mult);
-        if (label !== vowBadgeShown) {
-          vowBadgeShown = label;
-          badge.textContent = label;
-        }
-      } else vowBadgeShown = '';
+      badge.classList.toggle('hidden', !marked);
+      if (marked) mountVowBadge();
     }
   }
 
@@ -3236,6 +3837,7 @@
   }
 
   function onHardwareBack() {
+    persistRun();
     if (state === 'paused') { resumePlay(); return; }
     if (state === 'playing') openPause();
   }
@@ -3255,6 +3857,7 @@
     let ok = false;
     try { ok = window.confirm('Quit this run?'); } catch (e) { ok = false; }
     if (!ok) return;
+    persistRun();
     const app = capacitorApp();
     if (app && typeof app.exitApp === 'function') {
       try { app.exitApp(); return; } catch (e) {}
@@ -3273,6 +3876,7 @@
   }
 
   function onBackground() {
+    persistRun();
     if (backgrounded) return;
     backgrounded = true;
     try { GameAudio.holdMute(true); } catch (e) {}
@@ -3301,6 +3905,7 @@
       if (document.visibilityState === 'hidden') onBackground();
       else onForeground();
     });
+    window.addEventListener('pagehide', () => { persistRun(); });
     const app = capacitorApp();
     if (!app || typeof app.addListener !== 'function') return;
     try {
@@ -3833,8 +4438,15 @@
       );
     }
     drawArena();
-    drawFoes();
     for (let i = 0; i < gems.length; i++) drawGem(gems[i]);
+    drawFoes();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    camInfo.x = camX;
+    camInfo.y = camY;
+    camInfo.zoom = zoom;
+    fxCall('drawUnder', ctx, camInfo);
+    ctx.restore();
     drawHeroActor();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
@@ -4213,6 +4825,7 @@
     fxDrawMs = 0;
     if (bench && typeof performance !== 'undefined' && performance.memory) heapAt = performance.memory.usedJSHeapSize;
     const updateStart = nowMs();
+    if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
     if (state === 'playing') sim(dt);
     else animT += dt;
     const updateMs = nowMs() - updateStart;
@@ -4338,7 +4951,9 @@
       vow: vowPayout,
       vowCount: vowCount,
       vowsSurvived: vowsSurvived,
-      vowBadge: curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title',
+      vowBadge: vowCount > 0 && state !== 'dead' && state !== 'won' && state !== 'title',
+      vowRisk: vowLines().risk,
+      vowReward: vowLines().reward,
       warnOn: warnOn,
       doubled: doubled,
       doubleOffered: doubleOffered(),
@@ -4355,7 +4970,10 @@
       evolved: Object.keys(evolved),
       sweepKills: sweepKills,
       pending: pendingLevels,
+      prev: prevLabel,
       drops: itemDrops,
+      chat: chatLog.map((line) => line.text).join('\n'),
+      toastQueued: toastQueue.length,
       rareAt: rareAt,
       epicAt: epicAt,
       legendAt: legendAt,
@@ -4387,6 +5005,14 @@
     window.__svDouble = () => applyDoubleGold();
     window.__svOfferDouble = () => doubleOffered();
     window.__svAddGold = (n) => { grantGold(n || 0); return snapRun(); };
+    window.__svWardenHit = () => {
+      let dmg = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        if (enemies[i].bossKind === 'warden') dmg = enemies[i].dmg;
+      }
+      const base = hero.base.life || 90;
+      return { dmg: dmg, base: base, pct: base ? dmg / base : 0, shot: wardenShotDmg() };
+    };
     window.__svSpawn = (id, x, y, kind) => {
       const opts = kind ? { bossKind: kind, name: kind === 'warden' ? 'Grave Warden' : 'Risen Demon' } : null;
       spawnEnemy(id || 'skel', x || player.x + 2, y || player.y, opts);
@@ -4425,7 +5051,14 @@
       for (let i = 0; i < (n || 0); i++) grantGold(exact);
       return { gold: runGold, milli: goldMilli };
     };
+    window.__svBeamOff = (id) => { beamOff(id); };
+    window.__svBeamOn = (id, x, y, rarity) => { beamFx(id, x, y, rarity); };
+    window.__svDraw = () => {
+      draw();
+      return { w: canvas.width, h: canvas.height, zoom: zoom, tile: TILE, camX: camX, camY: camY };
+    };
     window.__svStep = (dt) => {
+      if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));
       return snapRun();
     };
@@ -4478,6 +5111,11 @@
       gems.push(g);
       if (rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
       return item.id;
+    };
+    window.__svPairToast = () => {
+      announceItem({ id: 'pair-a', name: 'Iron Blade', rarity: 'rare' }, player.x, player.y);
+      announceItem({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' }, player.x + 1, player.y);
+      return snapRun();
     };
     window.__svGround = () => {
       const out = [];
@@ -4557,6 +5195,11 @@
       if (state === 'hermit') declineHermit();
       return snapRun();
     };
+    window.__svQuit = () => { quitToTitle(); return snapRun(); };
+    window.__svHide = () => { onBackground(); return snapRun(); };
+    window.__svPageHide = () => { persistRun(); return snapRun(); };
+    window.__svBack = () => { onHardwareBack(); return snapRun(); };
+    window.__svBest = () => { try { return SurvivorSave.bestTime(); } catch (e) { return 0; } };
     window.__svPause = () => { openPause(); return snapRun(); };
     window.__svResume = () => { resumePlay(); return snapRun(); };
     window.__svReduce = (on) => { reduceMotion = !!on; syncReducedMotion(!!on); return snapRun(); };
@@ -4589,6 +5232,7 @@
       owned.nova = 5;
       owned.tempo = 1;
       owned.cinder = 1;
+      evoIgnoreClock = true;
       checkEvolutions();
       return snapRun();
     };
@@ -4658,7 +5302,8 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.1');
+    mountVowBadge();
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);
   }

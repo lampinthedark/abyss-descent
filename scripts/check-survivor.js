@@ -121,15 +121,15 @@ if ((again.SurvivorSave.loadProgress().upgrades || {}).vitality !== 1) fail('leg
 const html = fs.readFileSync(path.join(root, 'survivor.html'), 'utf8');
 if (!html.includes('id="sv-play"') || !html.includes('id="sv-restart"')) fail('missing play or restart');
 if (html.includes('click to move') || html.includes('Click / Tap')) fail('survivor should not teach click-to-move');
-if (!html.includes('survivor.js?v=6.1')) fail('cache bust');
+if (!html.includes('survivor.js?v=6.1.1')) fail('cache bust');
 if (!html.includes('survivor-fx.js')) fail('fx hooks should load');
 const fxSrc = fs.readFileSync(path.join(root, 'js/survivor-fx.js'), 'utf8');
 if (!fxSrc.includes('hit:') || !fxSrc.includes('evolve:') || !fxSrc.includes('draw:')) fail('fx stub is missing a hook');
 if (fxSrc.includes('localStorage') || fxSrc.includes('owned')) fail('fx file should not hold game logic');
-if (!html.includes('survivor-sprites.js?v=6.1')) fail('sprite module');
-if (!html.includes('survivor-items.js?v=6.1')) fail('items module');
+if (!html.includes('survivor-sprites.js?v=6.1.1')) fail('sprite module');
+if (!html.includes('survivor-items.js?v=6.1.1')) fail('items module');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-if (!index.includes('survivor.html?v=6.1')) fail('descent title is missing the survivor link');
+if (!index.includes('survivor.html?v=6.1.1')) fail('descent title is missing the survivor link');
 if (!index.includes('Try: Survivor mode (beta)')) fail('link label');
 
 const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
@@ -155,7 +155,12 @@ if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor red
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
 if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.includes("fxCall('cast', 'nova'") || !src.includes("fxCall('cast', 'blade'")) fail('fx hit, death, and cast hooks');
 if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
-if (!src.includes('dungeon-tileset-ii.png?v=6.1')) fail('tileset is not cache-busted');
+const drawAt = src.indexOf('function draw()');
+const drawBody = src.slice(drawAt, src.indexOf('function uiBlock', drawAt));
+const orderAt = ['drawArena()', 'drawGem(', 'drawFoes()', "fxCall('drawUnder'", 'drawHeroActor()', "fxCall('draw',"].map((mark) => drawBody.indexOf(mark));
+if (orderAt.some((at, i) => at < 0 || (i > 0 && at <= orderAt[i - 1]))) fail('draw order should be ground, gems, foes, drawUnder, hero, FX.draw');
+if (!src.includes('dungeon-tileset-ii.png?v=6.1.1')) fail('tileset is not cache-busted');
+if (!src.includes('assets/ui/vow_badge.png?v=6.1.1')) fail('vow badge is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 if ((src.match(/#ff8060/g) || []).length !== 1) fail('warm damage numbers should be the hero hit only');
 if (!src.includes("floatText(player.x, player.y - 0.4, ntext(dmg), '#ff8060'")) fail('hero damage should sit on the hero');
@@ -163,6 +168,8 @@ if (!src.includes("ntext(shown), '#ffffff'")) fail('dealt damage should be white
 if (src.includes('vis.n') || src.includes('vis.amount')) fail('damage numbers stay in floatText, not FX.hit');
 if (fxSrc.includes('fillText') || fxSrc.includes('strokeText')) fail('survivor-fx.js should not draw numbers');
 if (!src.includes("fxCall('reset')") || !src.includes("fxCall('vow', 0)")) fail('every run should reset fx and clear the vow tint');
+if (!src.includes("addEventListener('pagehide'") || !src.includes('function persistRun')) fail('runs should save on pagehide');
+if (!src.includes('persistRun();') || src.split('persistRun();').length < 5) fail('quit, hide, and back should each save the run');
 if (!src.includes("fxCall('setReducedMotion'")) fail('reduced motion should be passed to fx');
 if (!src.includes('setTransform(1, 0, 0, 1, 0, 0)')) fail('screen flash should draw in an unshaken canvas');
 if (!src.includes('if (!heavy || time >= (en.flashAt || 0))')) fail('boss and elite sprite flashes need a cooldown');
@@ -274,5 +281,15 @@ saved.SurvivorSave.rank('might');
 saved.SurvivorSave.gold();
 saved.SurvivorSave.itemBonus();
 if (store.gets !== reads) fail('cached stats touched storage again, +' + (store.gets - reads));
+
+const crypto = require('crypto');
+const vowPng = fs.readFileSync(path.join(root, 'assets/ui/vow_badge.png'));
+const vowHash = crypto.createHash('sha256').update(vowPng).digest('hex');
+if (vowHash !== '85d4e06351c4ecbcfa5ae9793bf9e5cbca78dc95efd1c40f07fcd1e0762a45c5') {
+  fail('vow badge sha256 ' + vowHash);
+}
+if (!fs.readFileSync(path.join(root, 'assets/CREDITS.md'), 'utf8').includes('Vow badge: original art by the team')) {
+  fail('credits missing the vow badge line');
+}
 
 console.log('survivor data ok, first hit ~' + hitIn.toFixed(2) + 's, first level ~' + killsForLevel + ' kills');
