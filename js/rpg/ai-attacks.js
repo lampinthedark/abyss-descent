@@ -354,14 +354,13 @@
       try { hero.takeHit(dmg, payload); } catch (err) {}
       return true;
     }
-    if (typeof hero.hp === 'number') {
-      hero.hp -= dmg;
-      return true;
+    if (typeof hero.hp === 'number') hero.hp -= dmg;
+    else if (typeof hero.life === 'number') hero.life -= dmg;
+    else return false;
+    if (RPG.deathRecap && typeof RPG.deathRecap.noteHurt === 'function') {
+      try { RPG.deathRecap.noteHurt(payload); } catch (err) {}
     }
-    if (typeof hero.life === 'number') {
-      hero.life -= dmg;
-      return true;
-    }
+    return true;
     return false;
   }
 
