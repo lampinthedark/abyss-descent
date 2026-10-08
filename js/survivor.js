@@ -887,6 +887,7 @@
     return Math.min(0.35, 0.1 + Math.min(5, owned.might || 0) * 0.02);
   }
   function beamFx(id, x, y, rarity) {
+    if (!rareBeam(rarity)) return;
     if (typeof FX === 'undefined' || typeof FX.beam !== 'function') return;
     FX.beam(id, x, y, rarity);
   }
@@ -943,7 +944,7 @@
         releaseGemAt(i);
         continue;
       }
-      if (g.item) beamFx(g.item.id, g.x, g.y, rarity);
+      if (rareBeam(rarity) && g.item) beamFx(g.item.id, g.x, g.y, rarity);
     }
     let guard = 0;
     while (guard++ < 12 && countGround() > 60) {
@@ -959,17 +960,12 @@
   function rareBeam(rarity) {
     return rarity === 'rare' || rarity === 'epic' || rarity === 'legendary';
   }
-  function gemReachMul() {
-    if (time <= 90) return 2;
-    if (time >= 105) return 1;
-    return 2 - (time - 90) / 15;
-  }
   function magnetR() {
     const ranks = (owned.magnet || 0) + shopRank('magnet');
-    return pxToWorld(150 + ranks * 40) * gemReachMul();
+    return pxToWorld(150 + ranks * 40);
   }
   function pickupR() {
-    return pxToWorld(36) * gemReachMul();
+    return pxToWorld(36);
   }
 
   function hurt(amount, heavy) {
@@ -1224,13 +1220,11 @@
   }
 
   function openingPack() {
-    const n = 16;
+    const n = 4;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
-      const spot = viewEdge(ang, false, BALANCE.minSpawn);
-      const x = spot.x;
-      const y = spot.y;
-      spawnEnemy(i % 5 === 0 ? 'imp' : 'skel', x, y);
+      const dist = 7.2;
+      spawnEnemy(i === 0 ? 'imp' : 'skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
     }
   }
 
@@ -1302,29 +1296,23 @@
 
   function spawnRing(pad) {
     spawnSerial += 1;
-    // One contact body keeps the idle chip on its clock. The rest of the
-    // wave stays on the view edge so the screen is not an empty kill counter.
-    if (stillRing() && spawnSerial % 7 === 0) {
-      spotScratch.x = player.x + 0.42;
-      spotScratch.y = player.y + (spawnSerial % 2 ? 0.18 : -0.18);
+    const ang = ringAngle + spawnSerial * 2.399963;
+    const half = Math.max(viewHalfW(), viewHalfH());
+    if (stillRing()) {
+      spotScratch.x = player.x + Math.cos(ang) * 0.58;
+      spotScratch.y = player.y + Math.sin(ang) * 0.58;
       return spotScratch;
     }
     const moving = player.moving && (headX * headX + headY * headY) > 0.01;
-    const anti = time >= MINI_AT && moving && (spawnSerial % 3 === 0);
-    let ang;
-    let outside = false;
-    if (anti) {
-      ang = aheadAngle(true);
-      outside = true;
-    } else if (time < 120 && moving) {
-      ang = aheadAngle(false);
-    } else {
-      ang = ringAngle + spawnSerial * 2.399963;
+    if (time >= MINI_AT && moving && spawnSerial % 3 === 0) {
+      return viewEdge(aheadAngle(true), true, Math.max(3, BALANCE.minSpawn));
     }
-    if (time >= BALANCE.edgeAt && !anti && !(time < 120 && moving)) {
-      return edgePoint(ang, 0.85 + (pad || 0));
-    }
-    return viewEdge(ang, outside, BALANCE.minSpawn);
+    if (time >= BALANCE.edgeAt) return edgePoint(ang, 0.85 + (pad || 0));
+    let ring = half + 0.9 + (pad || 0);
+    if (time < 3) ring = Math.max(2.3, half * 0.7);
+    spotScratch.x = player.x + Math.cos(ang) * ring;
+    spotScratch.y = player.y + Math.sin(ang) * ring;
+    return spotScratch;
   }
 
   function spawnForwardPack() {
@@ -1421,9 +1409,8 @@
   function spawnRate() {
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     let rate = 2.2;
-    if (time < 12) rate = 5.4;
-    else if (time < 22) rate = 4.6;
-    else if (time < 40) rate = 3.2;
+    if (time < 12) rate = 4;
+    else if (time < 40) rate = 2.6;
     else if (time < 70) rate = 3.4;
     else if (time < 120) rate = 12;
     else if (time < 180) rate = 26;
@@ -1438,9 +1425,8 @@
 
   function spawnCap() {
     let cap = 340;
-    if (time < 12) cap = 28;
-    else if (time < 22) cap = 40;
-    else if (time < 35) cap = 48;
+    if (time < 12) cap = 14;
+    else if (time < 35) cap = 32;
     else if (time < 70) cap = 72;
     else if (time < 120) cap = 140;
     else if (time < 200) cap = 220;
@@ -1454,17 +1440,16 @@
     const half = Math.max(viewHalfW(), viewHalfH());
     const count = (Math.floor(time / 15) % 2 === 1) ? 16 : 10;
     const cap = Math.min(LIVE_CAP, spawnCap());
+    const moving = player.moving && (headX * headX + headY * headY) > 0.01;
     for (let i = 0; i < count && enemies.length < cap; i++) {
       const a = ringAngle + (i / count) * Math.PI * 2;
       let x;
       let y;
-      if (stillRing() && i === 0) {
-        x = player.x + 0.42;
-        y = player.y;
-      } else if (time < 120 || time >= MINI_AT) {
-        const moving = player.moving && (headX * headX + headY * headY) > 0.01;
-        const ang = (time >= MINI_AT && moving) ? aheadAngle(true) : (moving && time < 120 ? aheadAngle(false) : a);
-        const spot = viewEdge(ang, time >= MINI_AT && moving, BALANCE.minSpawn);
+      if (stillRing()) {
+        x = player.x + Math.cos(a) * 0.58;
+        y = player.y + Math.sin(a) * 0.58;
+      } else if (time >= MINI_AT && moving && i % 3 === 0) {
+        const spot = viewEdge(aheadAngle(true), true, Math.max(3, BALANCE.minSpawn));
         x = spot.x;
         y = spot.y;
       } else if (time >= BALANCE.edgeAt) {
@@ -1968,7 +1953,7 @@
     }
     showToast(item);
     pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
-    if (item.id != null) beamFx(item.id, x, y, item.rarity);
+    if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
   }
 
   function sweptHit(x0, y0, x1, y1, tx, ty, rad) {
@@ -4404,8 +4389,15 @@
       );
     }
     drawArena();
-    drawFoes();
     for (let i = 0; i < gems.length; i++) drawGem(gems[i]);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    camInfo.x = camX;
+    camInfo.y = camY;
+    camInfo.zoom = zoom;
+    if (typeof FX !== 'undefined' && FX && typeof FX.drawUnder === 'function') FX.drawUnder(ctx, camInfo);
+    ctx.restore();
+    drawFoes();
     drawHeroActor();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
