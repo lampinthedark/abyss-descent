@@ -36,6 +36,15 @@
       const d = Math.max(0, dmg || 0);
       return { stat: d * XP.PER_DAMAGE, hitpoints: d * XP.HITPOINTS_PER_DAMAGE };
     },
+    /** Style splits of the per-damage style XP (sim STYLES). Default 'typical' until a style picker exists. */
+    STYLES: Object.freeze({
+      typical: { attack: 1 / 2, strength: 1 / 4, defence: 1 / 4 },
+      even: { attack: 1 / 3, strength: 1 / 3, defence: 1 / 3 },
+      attack: { attack: 1, strength: 0, defence: 0 },
+      strength: { attack: 0, strength: 1, defence: 0 },
+      defence: { attack: 0, strength: 0, defence: 1 },
+    }),
+    style: 'typical',
     DODGE_IFRAMES: 0.35,
     DODGE_COOLDOWN: 2,
     /** Chance (0..1) that the hero hits a target with defence `def`. D3 tunes this. */
@@ -81,7 +90,21 @@
       try { res = target.takeHit(dmg, { srcId: 'hero' }) || res; } catch (err) { if (root.console) console.error('[takeHit]', err); }
       if (dmg > 0) {
         const xp = RPG.combat.xpFor(dmg);
-        RPG.stats.addXp('attack', xp.stat);
+        const split = RPG.combat.STYLES[RPG.combat.style] || RPG.combat.STYLES.typical;
+        for (const k in split) if (split[k] > 0) RPG.stats.addXp(k, xp.stat * split[k]);
+        if (RPG.ui && RPG.ui.float) {
+          // One small float per hit, for the style stat that got the most XP (same style as skill floats).
+          let top = 'attack';
+          for (const k in split) if (split[k] > split[top]) top = k;
+          const n = xp.stat * split[top];
+          const LABEL = { attack: 'Attack', strength: 'Strength', defence: 'Defence' };
+          const col = '#9fd8ff'; // SQ.XP_COLOR
+          // Above the hero's head (not the mob), one size smaller; swings within 0.4 s merge into one float.
+          try {
+            RPG.ui.float(hero.x, hero.y - 0.3, '+' + Math.max(1, Math.round(n)) + ' ' + LABEL[top], col,
+              { small: true, key: 'cxp-' + top, n: n, label: LABEL[top] });
+          } catch (err) {}
+        }
         RPG.stats.addXp('hitpoints', xp.hitpoints);
         if (RPG.fx) RPG.fx('hit', target.x, target.y - 0.4, { elite: target.elite, boss: target.boss });
       }

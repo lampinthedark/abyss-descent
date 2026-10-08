@@ -162,8 +162,26 @@
       return t;
     },
 
-    float: function (x, y, text, color) {
-      floats.push({ x: x, y: y, text: String(text), color: color || '#f4efe0', t0: performance.now() });
+    /**
+     * float(x, y, text, color, opts). opts.small draws one size smaller; opts.key + opts.n + opts.label
+     * merge floats with the same key landing within 0.4 s into one "+<sum> <label>".
+     */
+    float: function (x, y, text, color, opts) {
+      const o = opts || {};
+      const now = performance.now();
+      if (o.key) {
+        for (let i = floats.length - 1; i >= 0; i--) {
+          const f = floats[i];
+          if (f.key === o.key && now - f.born < 400) {
+            f.n += o.n || 0;
+            f.text = '+' + Math.round(f.n) + ' ' + (o.label || '');
+            f.x = x; f.y = y; f.t0 = now;
+            return;
+          }
+        }
+      }
+      floats.push({ x: x, y: y, text: String(text), color: color || '#f4efe0', t0: now, born: now,
+        small: !!o.small, key: o.key || null, n: o.n || 0 });
       if (floats.length > 40) floats.shift();
     },
 
@@ -341,7 +359,7 @@
         if (age >= 1) { floats.splice(i, 1); continue; }
         const p = cam.toScreen(f.x, f.y);
         ctx.globalAlpha = 1 - age * age;
-        ctx.font = 'bold ' + Math.round(7 * s) + 'px ui-monospace, Menlo, monospace';
+        ctx.font = 'bold ' + Math.round((f.small ? 6 : 7) * s) + 'px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'center';
         ctx.lineWidth = Math.max(2, Math.round(s * 0.9));
         ctx.strokeStyle = INK;

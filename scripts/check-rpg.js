@@ -400,18 +400,18 @@ function coreCtx() {
   hits = 0;
   for (let i = 0; i < N; i++) { h.hp = 10; h.alive = true; if (h.damage(1, { atk: 1 }).hit) hits++; }
   ok(Math.abs(hits / N - 0.75) < 0.03, 'atk 1 vs defence 1 -> 0.75 (' + (hits / N).toFixed(3) + ')');
-  // Armour: dmg = round(raw*50/(50+armour)).
+  // Armour: dmg = raw*50/(50+armour), unrounded (0.1 steps); hp stays fractional.
   ctx.Equipment.getStats = () => ({ armour: 50, def: 0 });
   h.hp = 10; h.alive = true; h.lastHits = []; hurts.length = 0;
   for (let i = 0; i < 20 && !hurts.length; i++) r = h.damage(9, { srcId: 'mob_g', srcName: 'Goblin', kind: 'melee', atk: 1000 });
-  ok(r.hit && r.dmg === 5 && h.hp === 5, 'armour 50 halves 9 -> 5 (got ' + r.dmg + ')');
-  ok(hurts.length === 1 && hurts[0].dmg === 5 && hurts[0].srcName === 'Goblin', "'hurt' emitted");
+  ok(r.hit && r.dmg === 4.5 && h.hp === 5.5, 'armour 50 halves 9 -> 4.5 (got ' + r.dmg + ')');
+  ok(hurts.length === 1 && hurts[0].dmg === 4.5 && hurts[0].srcName === 'Goblin', "'hurt' emitted");
   ctx.Equipment.getStats = () => ({ armour: 0, def: 0 });
   // Regen: none for 4 s after damage, then 2 HP/s.
   for (let i = 0; i < 39; i++) h.update(0.1);
-  ok(h.hp === 5, 'no regen inside 4 s (' + h.hp + ')');
+  ok(h.hp === 5.5, 'no regen inside 4 s (' + h.hp + ')');
   for (let i = 0; i < 11; i++) h.update(0.1); // 5.0 s since hit -> ~2 HP
-  ok(h.hp === 7, 'regen 2 HP/s after 4 s (' + h.hp + ')');
+  ok(h.hp === 7.5, 'regen 2 HP/s after 4 s (' + h.hp + ')');
   for (let i = 0; i < 200; i++) h.update(0.1);
   ok(h.hp === h.maxHp, 'regen caps at maxHp');
   // Death after 3+ hits: lastHits keeps 3, 'death' {lastHits}.

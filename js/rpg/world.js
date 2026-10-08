@@ -180,10 +180,10 @@
     // No mob spawns or wanders within r tiles of the Ash Stair gate (UAT/PM rule).
     keepOut: [{ x0: 11, y0: 26, x1: 13, y1: 27, r: 5 }],
     spawns: [
-      { monsterId: 'rat', x: 9, y: 33, n: 3, leash: 4 },
-      { monsterId: 'rat', x: 4, y: 35, n: 2, leash: 4 },
-      { monsterId: 'goblin', x: 5, y: 31, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
-      { monsterId: 'goblin', x: 8, y: 32, n: 2, leash: 4, respawn: 10, area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
+      { monsterId: 'rat', x: 9, y: 33, n: 3, leash: 4, aggro: false },
+      { monsterId: 'rat', x: 4, y: 35, n: 2, leash: 4, aggro: false },
+      { monsterId: 'goblin', x: 5, y: 31, n: 2, leash: 4, respawn: 10, pull: 'self', area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
+      { monsterId: 'goblin', x: 8, y: 32, n: 2, leash: 4, respawn: 10, pull: 'self', area: { x0: 4, y0: 30, x1: 10, y1: 33 } },
     ],
   };
   // Forest ring so the town reads as a clearing (decor, blocks).
@@ -387,6 +387,10 @@
     const ay = ty * TILE_H;
     let best = null;
     let bestFoot = -Infinity;
+    // Mobs: the one whose sprite centre is closest to the tap; ties (within 2 art px) go to the quest's kill target.
+    let mob = null;
+    let mobD = Infinity;
+    const want = questKillTarget();
     ents.forEach(function (e) {
       if (kinds && kinds.indexOf(e.kind) < 0) return;
       if (e.pickable === false) return;
@@ -394,10 +398,32 @@
       const onTile = Math.floor(e.x) === Math.floor(tx) && Math.floor(e.y) === Math.floor(ty);
       const inRect = ax >= r.x0 && ax < r.x1 && ay >= r.y0 && ay < r.y1;
       if (!onTile && !inRect) return;
+      if (e.kind === 'mob') {
+        const d = Math.hypot(ax - (r.x0 + r.x1) / 2, ay - (r.y0 + r.y1) / 2);
+        const pref = want && mobId(e) === want;
+        const mobPref = want && mob && mobId(mob) === want;
+        if (d < mobD - 2 || (Math.abs(d - mobD) <= 2 && pref && !mobPref)) { mob = e; mobD = d; }
+        return;
+      }
       const foot = footPx(e).y + (onTile ? 0.5 : 0);
       if (foot > bestFoot) { best = e; bestFoot = foot; }
     });
-    return best;
+    return mob || best;
+  }
+
+  function mobId(e) { return e.monsterId || (e.def && e.def.id) || (e.spec && e.spec.id) || null; }
+
+  /** monsterId of the active quest's kill step, or null. */
+  function questKillTarget() {
+    try {
+      const Q = root.RPG && root.RPG.quests;
+      if (Q && typeof Q.wantKill === 'function') return Q.wantKill() || null;
+      const a = Q && Q.active && Q.active();
+      const C = (root.RPG && root.RPG.content) || root.RPGContent;
+      const q = a && C && C.quest && C.quest(a.questId);
+      const st = q && q.steps && q.steps[a.step];
+      return st && st.done && st.done.type === 'kill' ? st.done.target : null;
+    } catch (err) { return null; }
   }
 
   /** path({x,y}, {x,y}) in tiles -> [{x, y}] tile cells (start excluded, goal snapped). */

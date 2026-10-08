@@ -148,7 +148,9 @@
         HIT_BASE + HIT_PER_POINT * (atk - RPG.stats.level('defence') - (Number(g.def) || 0))));
       if (!(RPG.rng('combat')() < p)) return { hit: false, dodged: false, dmg: 0 };
       const armour = Math.max(0, Number(g.armour) || 0);
-      const dmg = Math.round((raw * ARMOUR_K) / (ARMOUR_K + armour));
+      // Unrounded (sim contract): hp stays fractional so low armour still counts; show Math.ceil(hero.hp).
+      const exact = (raw * ARMOUR_K) / (ARMOUR_K + armour);
+      const dmg = Math.round(exact * 10) / 10;
       hero.lastHurtT = hero.clock;
       hero.regenAcc = 0;
       hero.hp = Math.max(0, hero.hp - dmg);
