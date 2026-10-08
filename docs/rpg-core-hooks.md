@@ -99,3 +99,8 @@ Branch base: #28 FX head c39b8d2. All code lives in js/rpg/. Units are tiles (fl
 ## Hero sprite set
 - Core draws `hero_bare_*` whenever `Equipment.getStats().weapon` is null (fresh save, bread-only start) and `hero_rustbound_*` once a weapon is equipped (Q1's smithed sword). Re-checked every 250 ms. The current set is on `RPG.hero.spriteSet` ('hero_bare' | 'hero_rustbound') so combat can play `${spriteSet}_attack`.
 - Unarmed max hit is 1 (PM ruling): `RPG.combat.maxHit()` returns 1 while `Equipment.getStats().weapon` is null.
+
+## One-tap Wield (`js/rpg/wield-prompt.js`, core)
+- Until the bag/equip UI lands: whenever no weapon is worn and the backpack holds a weapon that `Equipment.canEquip(uid).ok` allows, a sheet titled with the item name offers Wield / Later. It re-checks on every items `inventory` event.
+- Wield calls `Equipment.equip(uid)`, toasts "<name> wielded" and emits `RPG.bus` `equip {slot:'weapon', itemId}`. The hero swaps to `hero_rustbound_*` within 250 ms.
+- Later waits 30 s before asking again (on the next backpack change). `RPG.wieldPrompt.check()` forces a check.
