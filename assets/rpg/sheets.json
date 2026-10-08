@@ -1,0 +1,49 @@
+{
+  "note": "Sheets load in order; a later sheet wins on key clashes. grade: apply the optional warm sunlit grade (?grade=0 turns it off). Swap a PNG+JSON pair to drop in new art.",
+  "sheets": [
+    {
+      "id": "phaseb",
+      "image": "phaseb_sheet_3x.png",
+      "json": "phaseb_sheet.json",
+      "scale": 3,
+      "grade": true
+    },
+    {
+      "id": "town",
+      "image": "town_sheet_3x.png",
+      "json": "town_sheet.json",
+      "scale": 3,
+      "grade": true
+    },
+    {
+      "id": "hero",
+      "image": "hero_sheet_3x.png",
+      "json": "hero_sheet.json",
+      "scale": 3,
+      "grade": false
+    },
+    {
+      "id": "mobs",
+      "image": "mobs_sheet_3x.png",
+      "json": "mobs_sheet.json",
+      "scale": 3,
+      "grade": false
+    },
+    {
+      "id": "icons",
+      "image": "icons_sheet_3x.png",
+      "json": "icons_sheet.json",
+      "scale": 3,
+      "grade": false,
+      "note": "32 px RPG item icons (rpg32): icon_shape_* (multiply by tint) + uniques"
+    },
+    {
+      "id": "icons_tinted",
+      "image": "icons_tinted_sheet_3x.png",
+      "json": "icons_tinted_sheet.json",
+      "scale": 3,
+      "grade": false,
+      "note": "pre-baked icon_<itemId>"
+    }
+  ]
+}

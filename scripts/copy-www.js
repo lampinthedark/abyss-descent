@@ -10,7 +10,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const www = path.join(root, 'www');
 
-const COPY = ['index.html', 'survivor.html', 'favicon.ico', 'favicon.svg', 'css', 'js', 'assets'];
+const COPY = ['index.html', 'survivor.html', 'rpg.html', 'favicon.ico', 'favicon.svg', 'css', 'js', 'assets'];
 
 fs.rmSync(www, { recursive: true, force: true });
 fs.mkdirSync(www, { recursive: true });

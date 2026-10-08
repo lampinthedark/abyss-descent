@@ -1,0 +1,756 @@
+{
+ "meta": {
+  "image": "sheet_tinted.png",
+  "cell": 32,
+  "note": "pre-baked icon_<itemId> = shape * tint + overlay (same maths as the game)"
+ },
+ "frames": {
+  "icon_rustbound_sword": {
+   "x": 0,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sword",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_sword": {
+   "x": 32,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sword",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_sword": {
+   "x": 64,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sword",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_sword": {
+   "x": 96,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sword",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_sword": {
+   "x": 128,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sword",
+   "tint": "#d8a83a"
+  },
+  "icon_rustbound_pickaxe": {
+   "x": 160,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_pickaxe",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_pickaxe": {
+   "x": 192,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_pickaxe",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_pickaxe": {
+   "x": 224,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_pickaxe",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_pickaxe": {
+   "x": 0,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_pickaxe",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_pickaxe": {
+   "x": 32,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_pickaxe",
+   "tint": "#d8a83a"
+  },
+  "icon_rustbound_hatchet": {
+   "x": 64,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_hatchet",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_hatchet": {
+   "x": 96,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_hatchet",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_hatchet": {
+   "x": 128,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_hatchet",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_hatchet": {
+   "x": 160,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_hatchet",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_hatchet": {
+   "x": 192,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_hatchet",
+   "tint": "#d8a83a"
+  },
+  "icon_rustbound_ore": {
+   "x": 224,
+   "y": 32,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ore",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_ore": {
+   "x": 0,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ore",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_ore": {
+   "x": 32,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ore",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_ore": {
+   "x": 64,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ore",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_ore": {
+   "x": 96,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ore",
+   "tint": "#d8a83a"
+  },
+  "icon_pine_logs": {
+   "x": 128,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_logs",
+   "tint": "#b08a5a"
+  },
+  "icon_ashwood_logs": {
+   "x": 160,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_logs",
+   "tint": "#cfc2a0"
+  },
+  "icon_raw_mudminnow": {
+   "x": 192,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_fish_raw",
+   "tint": "#8a8c70"
+  },
+  "icon_raw_brookfin": {
+   "x": 224,
+   "y": 64,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_fish_raw",
+   "tint": "#8fb0c8"
+  },
+  "icon_rustbound_bar": {
+   "x": 0,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_bar",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_bar": {
+   "x": 32,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_bar",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_bar": {
+   "x": 64,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_bar",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_bar": {
+   "x": 96,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_bar",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_bar": {
+   "x": 128,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_bar",
+   "tint": "#d8a83a"
+  },
+  "icon_mudminnow": {
+   "x": 160,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_fish_cooked",
+   "tint": "#b07a48"
+  },
+  "icon_brookfin": {
+   "x": 192,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_fish_cooked",
+   "tint": "#c89a5e"
+  },
+  "icon_rustbound_helm": {
+   "x": 224,
+   "y": 96,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_helm": {
+   "x": 0,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_helm": {
+   "x": 32,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_helm": {
+   "x": 64,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_helm": {
+   "x": 96,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_helm": {
+   "x": 128,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_helm",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_shield": {
+   "x": 160,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_shield": {
+   "x": 192,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_shield": {
+   "x": 224,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_shield": {
+   "x": 0,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_shield": {
+   "x": 32,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_shield": {
+   "x": 64,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_shield",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_cuirass": {
+   "x": 96,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_cuirass": {
+   "x": 128,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_cuirass": {
+   "x": 160,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_cuirass": {
+   "x": 192,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_cuirass": {
+   "x": 224,
+   "y": 160,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_cuirass": {
+   "x": 0,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_cuirass",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_greaves": {
+   "x": 32,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_greaves": {
+   "x": 64,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_greaves": {
+   "x": 96,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_greaves": {
+   "x": 128,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_greaves": {
+   "x": 160,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_greaves": {
+   "x": 192,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greaves",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_gauntlets": {
+   "x": 224,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_gauntlets": {
+   "x": 0,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_gauntlets": {
+   "x": 32,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_gauntlets": {
+   "x": 64,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_gauntlets": {
+   "x": 96,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_gauntlets": {
+   "x": 128,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_gauntlets",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_sabatons": {
+   "x": 160,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_sabatons": {
+   "x": 192,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_sabatons": {
+   "x": 224,
+   "y": 224,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_sabatons": {
+   "x": 0,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_sabatons": {
+   "x": 32,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#d8a83a"
+  },
+  "icon_wyrm_sabatons": {
+   "x": 64,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_sabatons",
+   "tint": "#b8323a"
+  },
+  "icon_rustbound_dirk": {
+   "x": 96,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_dirk",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_dirk": {
+   "x": 128,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_dirk",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_dirk": {
+   "x": 160,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_dirk",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_dirk": {
+   "x": 192,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_dirk",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_dirk": {
+   "x": 224,
+   "y": 256,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_dirk",
+   "tint": "#d8a83a"
+  },
+  "icon_rustbound_greataxe": {
+   "x": 0,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greataxe",
+   "tint": "#9b6a48"
+  },
+  "icon_cinderiron_greataxe": {
+   "x": 32,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greataxe",
+   "tint": "#7a5a5a"
+  },
+  "icon_verdite_greataxe": {
+   "x": 64,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greataxe",
+   "tint": "#4f9a6a"
+  },
+  "icon_tidesteel_greataxe": {
+   "x": 96,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greataxe",
+   "tint": "#4a86a8"
+  },
+  "icon_sunforged_greataxe": {
+   "x": 128,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_greataxe",
+   "tint": "#d8a83a"
+  },
+  "icon_plain_band": {
+   "x": 160,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ring",
+   "tint": "#b8a888"
+  },
+  "icon_garnet_band": {
+   "x": 192,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ring",
+   "tint": "#a8323a"
+  },
+  "icon_moonstone_band": {
+   "x": 224,
+   "y": 288,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_ring",
+   "tint": "#c8d8f0"
+  },
+  "icon_bone_charm": {
+   "x": 0,
+   "y": 320,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_amulet",
+   "tint": "#e0d6bc"
+  },
+  "icon_amber_pendant": {
+   "x": 32,
+   "y": 320,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_amulet",
+   "tint": "#e09a30"
+  },
+  "icon_starglass_pendant": {
+   "x": 64,
+   "y": 320,
+   "w": 32,
+   "h": 32,
+   "frames": 1,
+   "shape": "icon_shape_amulet",
+   "tint": "#a8c8ff"
+  }
+ }
+}
