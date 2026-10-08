@@ -9,48 +9,60 @@
   const RPG = root.RPG || (root.RPG = {});
   const ai = RPG.ai || (RPG.ai = {});
 
+  // Fallback when RPGContent.MONSTERS is not loaded. Numbers match that table.
   const SPECS = {
     rat: {
-      id: 'rat', label: 'Rat', hp: 14, dmg: 3, speed: 2.4,
-      sight: 3.6, leash: 7, melee: 0.72, radius: 0.28, color: '#8d7b5a',
+      id: 'rat', label: 'Plague Rat', hp: 10, def: 0, atk: 1, dmg: 1, speed: 2.4,
+      sight: 3, leash: 7, melee: 1, pack: [2, 3], radius: 0.28, color: '#8d7b5a',
       elite: false, boss: false, sprite: 'mob_rat', sheet: 'mobs',
-      attacks: { melee: { windupMs: 450 } },
+      attacks: {
+        melee: { kind: 'melee', dmg: 1, range: 1, windupMs: 400, cooldownMs: 1400, srcName: 'Plague Rat' },
+      },
     },
     goblin: {
-      id: 'goblin', label: 'Goblin', hp: 28, dmg: 6, speed: 2.05,
-      sight: 4.2, leash: 9, melee: 0.8, radius: 0.32, color: '#6f8f3a',
+      id: 'goblin', label: 'Ditch Goblin', hp: 22, def: 3, atk: 8, dmg: 2, speed: 2.0,
+      sight: 4, leash: 8, melee: 1, pack: [2, 3], radius: 0.32, color: '#6f8f3a',
       elite: false, boss: false, sprite: 'mob_goblin', sheet: 'mobs',
-      attacks: { melee: { windupMs: 480 } },
+      attacks: {
+        melee: { kind: 'melee', dmg: 2, range: 1, windupMs: 500, cooldownMs: 2300, srcName: 'Ditch Goblin' },
+        ranged: { kind: 'ranged', dmg: 2, range: 4, windupMs: 700, cooldownMs: 7000, minRange: 2, projectile: 'rock', srcName: 'Ditch Goblin' },
+      },
     },
     skeleton: {
-      id: 'skeleton', label: 'Skeleton', hp: 40, dmg: 8, speed: 1.7,
-      sight: 4.6, leash: 10, melee: 0.85, radius: 0.32, color: '#d9d3c4',
+      id: 'skeleton', label: 'Rattlebone Skeleton', hp: 100, def: 10, atk: 14, dmg: 2, speed: 1.6,
+      sight: 5, leash: 9, melee: 1, pack: [2, 3], radius: 0.32, color: '#d9d3c4',
       elite: false, boss: false, sprite: 'mob_skeleton', sheet: 'mobs2',
-      attacks: { melee: { windupMs: 520 } },
+      attacks: {
+        melee: { kind: 'melee', dmg: 2, range: 1, windupMs: 550, cooldownMs: 2600, srcName: 'Rattlebone Skeleton' },
+      },
     },
     imp: {
-      id: 'imp', label: 'Imp', hp: 22, dmg: 5, speed: 2.5,
-      sight: 5, leash: 10, melee: 0.7, radius: 0.26, color: '#d15a34',
+      id: 'imp', label: 'Cinder Imp', hp: 65, def: 8, atk: 18, dmg: 3, speed: 2.4,
+      sight: 6, leash: 10, melee: 5, pack: [2, 3], radius: 0.26, color: '#d15a34',
       elite: false, boss: false, sprite: 'mob_imp', sheet: 'mobs2', style: 'ranged',
-      attacks: { ranged: { windupMs: 420 } },
+      attacks: {
+        ranged: { kind: 'ranged', dmg: 3, range: 5, windupMs: 600, cooldownMs: 2600, projectile: 'ember', srcName: 'Cinder Imp' },
+      },
     },
     brute: {
-      id: 'brute', label: 'Brute', hp: 96, dmg: 14, speed: 1.25,
-      sight: 4.4, leash: 8, melee: 1.0, radius: 0.46, color: '#6b5246',
+      id: 'brute', label: 'Grave Brute', hp: 300, def: 14, atk: 24, dmg: 3, speed: 1.4,
+      sight: 6, leash: 12, melee: 1, pack: [1, 1], radius: 0.46, color: '#6b5246',
       elite: true, boss: false, sprite: 'mob_brute', sheet: 'mobs2',
       attacks: {
-        melee: { windupMs: 560 },
-        slam: { windupMs: 640, radius: 2.1 },
+        slam: { kind: 'slam', dmg: 22, range: 1.5, radius: 1.5, windupMs: 800, cooldownMs: 7000, telegraph: 'ring', srcName: 'Grave Brute' },
+        charge: { kind: 'charge', dmg: 18, range: 5, windupMs: 700, cooldownMs: 9000, telegraph: 'line', dashMs: 240, srcName: 'Grave Brute' },
+        melee: { kind: 'melee', dmg: 3, range: 1, windupMs: 600, cooldownMs: 1800, srcName: 'Grave Brute' },
       },
     },
     ashmaw: {
-      id: 'ashmaw', label: 'Ashmaw', hp: 320, dmg: 18, speed: 1.7,
-      sight: 8, leash: 16, melee: 1.3, radius: 0.7, color: '#8e2e2e',
+      id: 'ashmaw', label: 'Ashmaw the Wyrmling', hp: 960, def: 8, atk: 30, dmg: 5, speed: 1.6,
+      sight: 8, leash: 99, melee: 1.2, pack: [1, 1], radius: 0.7, color: '#8e2e2e',
       elite: false, boss: true, sprite: 'mob_ashmaw', sheet: 'mobs2',
+      enrage: { belowHpPct: 30, cooldownMult: 0.75 },
       attacks: {
-        melee: { windupMs: 480 },
-        slam: { windupMs: 720, radius: 2.25 },
-        charge: { windupMs: 780, dashMs: 240 },
+        slam: { kind: 'slam', dmg: 24, range: 2.5, radius: 2.5, windupMs: 1000, cooldownMs: 8000, telegraph: 'ring', name: 'Cinder Ring', srcName: 'Ashmaw the Wyrmling' },
+        charge: { kind: 'charge', dmg: 20, range: 7, windupMs: 900, cooldownMs: 11000, telegraph: 'line', name: 'Ash Rush', dashMs: 240, srcName: 'Ashmaw the Wyrmling' },
+        melee: { kind: 'melee', dmg: 5, range: 1.2, windupMs: 650, cooldownMs: 2000, name: 'Claw', srcName: 'Ashmaw the Wyrmling' },
       },
     },
   };
@@ -93,9 +105,9 @@
     return s / 4294967296;
   }
 
-  function externalRow(id) {
+  function contentOverride(id) {
     const content = RPG.content;
-    if (!content) return null;
+    if (!content || !id) return null;
     const bag = content.monsters || content.mobs;
     if (!bag) return null;
     if (Array.isArray(bag)) {
@@ -106,6 +118,77 @@
       return null;
     }
     return bag[id] || null;
+  }
+
+  function liveRow(id) {
+    const bag = root.RPGContent && root.RPGContent.MONSTERS;
+    if (!bag || !id) return null;
+    return bag[id] || null;
+  }
+
+  function firstNum() {
+    for (let i = 0; i < arguments.length; i++) {
+      if (typeof arguments[i] === 'number') return arguments[i];
+    }
+    return 0;
+  }
+
+  function mergedSpec(id) {
+    const base = SPECS[id];
+    const live = liveRow(id);
+    const over = contentOverride(id);
+    if (!base && !live && !over) return null;
+    const src = live || {};
+    const o = over || {};
+    const seed = base || {
+      id: id,
+      label: id,
+      hp: 10,
+      def: 0,
+      atk: 1,
+      dmg: 1,
+      speed: 1.6,
+      sight: 4,
+      leash: 8,
+      melee: 1,
+      pack: [1, 1],
+      radius: 0.32,
+      color: '#888888',
+      elite: false,
+      boss: false,
+      sprite: 'mob_' + id,
+      sheet: id === 'rat' || id === 'goblin' ? 'mobs' : 'mobs2',
+      attacks: {},
+    };
+    const atkApi = attacks();
+    const rows = atkApi && typeof atkApi.attacksOf === 'function' ? atkApi.attacksOf(id) : (seed.attacks || {});
+    const meleeRange = rows.melee && typeof rows.melee.range === 'number'
+      ? rows.melee.range
+      : (rows.ranged && typeof rows.ranged.range === 'number' ? rows.ranged.range : seed.melee);
+    const style = rows.melee ? 'melee' : (rows.ranged ? 'ranged' : (seed.style || 'melee'));
+    const primary = rows.melee || rows.ranged || rows.slam || rows.charge;
+    return {
+      id: id,
+      label: o.name || src.name || seed.label,
+      hp: firstNum(o.hp, src.hp, seed.hp),
+      def: firstNum(o.def, src.def, seed.def),
+      atk: firstNum(o.atk, src.atk, seed.atk),
+      dmg: primary && typeof primary.dmg === 'number' ? primary.dmg : seed.dmg,
+      speed: firstNum(o.speed, src.speed, seed.speed),
+      sight: firstNum(o.aggro, src.aggro, o.sight, src.sight, seed.sight),
+      leash: firstNum(o.leash, src.leash, seed.leash),
+      melee: meleeRange,
+      pack: o.pack || src.pack || seed.pack,
+      radius: seed.radius,
+      color: seed.color,
+      elite: typeof o.elite === 'boolean' ? o.elite : (typeof src.elite === 'boolean' ? src.elite : !!seed.elite),
+      boss: typeof o.boss === 'boolean' ? o.boss : (typeof src.boss === 'boolean' ? src.boss : !!seed.boss),
+      sprite: o.sprite || src.sprite || seed.sprite,
+      sheet: o.sheet || o.atlas || src.sheet || src.atlas || seed.sheet,
+      style: style,
+      enrage: o.enrage || src.enrage || seed.enrage || null,
+      attacks: rows,
+    };
   }
 
   function attacksOf(spec) {
@@ -243,6 +326,8 @@
   function startReturn(mob) {
     const atk = attacks();
     if (mob.state === 'windup' && atk && atk.cancelMelee) atk.cancelMelee(mob);
+    if (mob.state === 'slam' && atk && atk.cancelSlam) atk.cancelSlam(mob);
+    if ((mob.state === 'charge' || mob.state === 'dash') && atk && atk.cancelCharge) atk.cancelCharge(mob);
     if (mob.tellId && atk && atk.clearTell) atk.clearTell(mob.tellId);
     mob.tellId = null;
     mob.state = 'return';
@@ -310,10 +395,9 @@
   }
 
   function decorate(mob, spec) {
-    const ext = externalRow(spec.id);
     const attacks = attacksOf(spec);
-    const sprite = (ext && ext.sprite) || spec.sprite || ('mob_' + spec.id);
-    const pack = (ext && (ext.sheet || ext.atlas)) || spec.sheet || (spec.id === 'rat' || spec.id === 'goblin' ? 'mobs' : 'mobs2');
+    const sprite = spec.sprite || ('mob_' + spec.id);
+    const pack = spec.sheet || (spec.id === 'rat' || spec.id === 'goblin' ? 'mobs' : 'mobs2');
     const keys = sheetKeysFor(sprite, attacks);
     const atk = ai.attacks;
     const ready = atk && typeof atk.clipReady === 'function' ? atk.clipReady(pack, keys.attack) : false;
@@ -352,6 +436,8 @@
       spawnY: y,
       hp: spec.hp,
       maxHp: spec.hp,
+      def: spec.def || 0,
+      atk: spec.atk || 0,
       dmg: spec.dmg,
       speed: spec.speed,
       sight: spec.sight,
@@ -360,6 +446,7 @@
       radius: spec.radius,
       elite: !!spec.elite,
       boss: !!spec.boss,
+      enrage: spec.enrage || null,
       packId: packId,
       state: 'wander',
       aggro: false,
@@ -370,6 +457,9 @@
     };
     decorate(mob, spec);
     mob.takeHit = function (dmg, info) { return takeHit(mob, dmg, info); };
+    if (mob.boss && RPG.boss && typeof RPG.boss.canDropPanel === 'function') {
+      try { mob.canDrop = RPG.boss.canDropPanel(mob.monsterId); } catch (err) {}
+    }
     return mob;
   }
 
@@ -380,7 +470,7 @@
   }
 
   function spawnPack(monsterId, x, y, n, leash) {
-    const spec = SPECS[monsterId];
+    const spec = mergedSpec(monsterId);
     if (!spec || typeof x !== 'number' || typeof y !== 'number') return [];
     const count = Math.max(1, n == null ? 1 : Math.floor(n));
     const leashR = typeof leash === 'number' ? leash : spec.leash;
@@ -448,19 +538,31 @@
       return;
     }
     const atk = attacks();
-    if (mob.state === 'windup' || mob.state === 'slam') {
+    const busy = mob.state === 'windup' || mob.state === 'slam' || mob.state === 'charge' || mob.state === 'dash';
+    if (busy) {
       if (homeDist(mob) > mob.leash) {
-        if (mob.state === 'slam' && atk && atk.cancelSlam) atk.cancelSlam(mob);
         startReturn(mob);
+      } else if (mob.state === 'dash' && atk && atk.advanceDash) {
+        atk.advanceDash(mob, dt);
+        return;
+      } else if (mob.state === 'charge' && atk && atk.advanceCharge) {
+        atk.advanceCharge(mob, dt);
+        return;
       } else if (mob.state === 'slam' && atk && atk.advanceSlam) {
         atk.advanceSlam(mob, dt);
         return;
-      } else if (atk && atk.advanceMelee) {
+      } else if (mob.state === 'windup' && atk && atk.advanceMelee) {
         atk.advanceMelee(mob, dt);
         return;
       }
     }
-    if (mob.state !== 'windup' && mob.state !== 'slam' && mob.cdMs > 0) mob.cdMs -= dt * 1000;
+    if (!busy && mob.cdMs > 0) mob.cdMs -= dt * 1000;
+    if (!busy && mob.cds) {
+      const dtMs = dt * 1000;
+      for (const key in mob.cds) {
+        if (mob.cds[key] > 0) mob.cds[key] = Math.max(0, mob.cds[key] - dtMs);
+      }
+    }
 
     if (mob.state === 'return' || (mob.aggro && homeDist(mob) > mob.leash)) {
       if (mob.state !== 'return') startReturn(mob);
@@ -479,16 +581,28 @@
 
     const hero = heroPos();
     if (mob.aggro && hero && !hero.dead) {
-      mob.state = 'chase';
-      if (atk && mob.cdMs <= 0 && typeof atk.inReach === 'function' && atk.inReach(mob, hero)) {
-        atk.startMelee(mob, dt);
+      const picked = atk && typeof atk.chooseAttack === 'function' ? atk.chooseAttack(mob, hero) : null;
+      if (picked === 'melee' || picked === 'ranged') {
+        atk.startMelee(mob, dt, picked);
         return;
       }
-      if (atk && mob.cdMs <= 0 && mob.slamR && typeof atk.inSlam === 'function' && atk.inSlam(mob, hero)) {
+      if (picked === 'slam' && atk.startSlam) {
         atk.startSlam(mob, dt);
         return;
       }
-      moveToward(mob, dt, hero.x, hero.y);
+      if (picked === 'charge' && atk.startCharge) {
+        atk.startCharge(mob, dt);
+        return;
+      }
+      mob.state = 'chase';
+      if (atk && typeof atk.shouldKite === 'function' && atk.shouldKite(mob, hero)) {
+        const dx = mob.x - hero.x;
+        const dy = mob.y - hero.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        moveToward(mob, dt, mob.x + (dx / d) * 1.5, mob.y + (dy / d) * 1.5);
+      } else {
+        moveToward(mob, dt, hero.x, hero.y);
+      }
       if (homeDist(mob) > mob.leash) startReturn(mob);
       return;
     }
