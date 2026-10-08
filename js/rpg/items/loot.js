@@ -284,6 +284,54 @@
     return best;
   }
 
+  /**
+   * Notable drops for UI copy ("Can drop: Wyrmfang"): Very Rare and Legendary
+   * entries plus any guaranteed Rare-or-better. Labels are honest flavour
+   * ('legendary' | 'very rare' | 'guaranteed'), never exact odds.
+   * Monster-specific entries come first; shared-rare-table legendaries are
+   * marked source:'shared' so the UI can leave them out.
+   * Each entry: { key, kind:'item'|'gear', base, name, rarity, beamColor, icon, label, source }.
+   * `icon` is the per-item key from docs/rpg-item-icons.json (icon_<itemId>).
+   */
+  function preview(monsterId) {
+    var m = MONSTERS[monsterId];
+    if (!m) return [];
+    var out = [], seen = {};
+    function beam(r) { var b = Db.beamFor(r); return b ? b.color : Db.colorFor(r); }
+    function add(e) { if (!seen[e.key]) { seen[e.key] = true; out.push(e); } }
+    function tierName(tiers) {
+      return tiers.map(function (t) { return Db.TIER_BY_ID[t].name; }).join(' or ');
+    }
+    function fromEntry(e, source, guaranteed) {
+      if (e.legendary) {
+        var L = Db.getBase(e.legendary);
+        add({ key: L.id, kind: 'item', base: L.id, name: L.name, rarity: 'legendary', beamColor: beam('legendary'),
+          icon: 'icon_' + L.id, label: 'legendary', source: source });
+        return;
+      }
+      var rarity = e.rarity || (e.base ? Db.defaultRarity(Db.getBase(e.base)) : 'normal');
+      if (!guaranteed && rarity !== 'very_rare') return;
+      if (e.gear) {
+        var tiers = e.gear.tiers;
+        var rep = tiers[tiers.length - 1] + '_cuirass';
+        if (!Db.hasBase(rep)) rep = gearPool(tiers)[0];
+        add({ key: 'gear:' + tiers.join('+') + ':' + rarity + (guaranteed ? ':g' : ''), kind: 'gear', base: rep,
+          name: tierName(tiers) + ' gear', rarity: rarity, beamColor: beam(rarity), icon: 'icon_' + rep,
+          label: guaranteed ? 'guaranteed' : 'very rare', source: source });
+      } else if (e.base) {
+        var b = Db.getBase(e.base);
+        add({ key: b.id + ':' + rarity, kind: 'item', base: b.id, name: b.name, rarity: rarity, beamColor: beam(rarity),
+          icon: 'icon_' + b.id, label: guaranteed ? 'guaranteed' : 'very rare', source: source });
+      }
+    }
+    (m.chase || []).filter(function (e) { return e.legendary; }).forEach(function (e) { fromEntry(e, 'monster', false); });
+    m.always.forEach(function (e) { if (e.rarity && rarityRank(e.rarity) >= 1) fromEntry(e, 'monster', true); });
+    (m.chase || []).filter(function (e) { return !e.legendary; }).forEach(function (e) { fromEntry(e, 'monster', false); });
+    (m.table.very_rare || []).forEach(function (e) { fromEntry(e, 'monster', false); });
+    if (m.rareTable) SHARED_RARE.forEach(function (e) { if (e.legendary || e.rarity === 'very_rare') fromEntry(e, 'shared', false); });
+    return out;
+  }
+
   /** Static sanity checks used by tests. Returns [] or a list of problems. */
   function sanity() {
     var errs = [];
@@ -318,6 +366,6 @@
   RPG.Loot = {
     MONSTERS: MONSTERS, SHARED_RARE: SHARED_RARE, PITY_KILLS: PITY_KILLS, FIRST_RARE: FIRST_RARE,
     firstRareChance: firstRareChance, nextFirstRare: nextFirstRare,
-    rollDrop: rollDrop, bestRarity: bestRarity, rarityRank: rarityRank, sanity: sanity, gearPool: gearPool,
+    rollDrop: rollDrop, preview: preview, bestRarity: bestRarity, rarityRank: rarityRank, sanity: sanity, gearPool: gearPool,
   };
 });

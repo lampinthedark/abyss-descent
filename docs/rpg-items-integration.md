@@ -46,6 +46,7 @@ RPGItems.installGlobals(Items);                    // window.Loot, Inventory, Eq
 | Call | When | Returns |
 |---|---|---|
 | `Loot.rollDrop(monsterId, rng?, x, y)` | On kill (rat/goblin packs, skeleton, imp, elite `brute`, boss `ashmaw`) | `{ ok, drops:[{ gid, kind:'item'|'gold', name, rarity, color, beam, qty, amount, x, y }], best, firstRareUsed, pityUsed }` |
+| `Loot.preview(monsterId)` | Boss nameplate and the questgiver's rumour line: "Can drop: Wyrmfang" | `[{ name, base, rarity, beamColor, icon, label:'legendary'|'very rare'|'guaranteed', source:'monster'|'shared' }]`. Monster-specific entries come first. No exact odds. |
 | `Ground.pickup(gid, { goldMult })` | Walk-over auto-pickup | `{ ok, kind, slot, uid, amount }` or `{ ok:false, reason:'inventory_full' }`. The item stays on the ground. |
 | `Ground.tick()` | Every few seconds | Removes drops older than 3 min |
 | `Equipment.getStats()` | Combat maths (hit chance, damage) | `{ aim, power, armour, maxHp, attackSpeed, crit, lifesteal, cooldown, gather, specials:[{id, skill, text}], weapon, tools, legacy }` |
@@ -77,6 +78,17 @@ const p = Ground.pickup(drop.gid, { goldMult: stats.goldMult || 1 });
 if (p.ok) { removeDropSprite(drop.gid); FX.pickup(...); /* or lootPull */ }
 else if (p.reason === 'inventory_full') UI.log('Your backpack is full.', 'warn');
 ```
+
+### "Can drop" copy
+
+```js
+const notable = Loot.preview('ashmaw').filter((e) => e.source === 'monster');
+// [{ name:'Wyrmfang', rarity:'legendary', label:'legendary', beamColor:'#ff9a2e', icon:'icon_wyrmfang' }, ...]
+nameplate.sub = 'Can drop: ' + notable.filter((e) => e.label !== 'guaranteed').map((e) => e.name).join(', ');
+rumour = `They say ${monsterName} guards ${notable[0].name}.`;   // icon from the sheet by e.icon, text tinted e.beamColor
+```
+
+The labels are flavour on purpose. Exact rates live only in `docs/rpg-items.md` and the sim.
 
 ### Combat (replaces the gear part of `Entities.playerStats`)
 
@@ -121,5 +133,5 @@ Icon list: `docs/rpg-item-icons.md` / `.json` (37 drawings, 15 top priority for 
 - **Equipment:** 9 slots (weapon, offhand, head, body, legs, hands, feet, ring, amulet) from `Equipment.list()`. Grey an item out and show the unmet level from `Equipment.canEquip(uid).unmet`.
 - **Tooltip:** `get(slot)` / `Bank.get(uid)` / `Ground.describe(gid)` return `{ name, rarityName, color, lines:[{kind, text}] }`. Draw lines in order and style by `kind`: `type` (dim), `base` (white), `signature` (orange), `special` (orange italic), `affix` (rarity colour), `req` (red when unmet), `bound` (dim red), `flavor` (italic dim). The name uses the rarity colour.
 - **Bank:** `Bank.view(tab)` gives `{cap, used, tabs, items}`. Use a search box (`Bank.search(text)` matches names, rarity and affix text), tabs 0-8 (`Bank.setTab`), Deposit-all (`Bank.depositAll()`) and withdraw with a quantity (`Bank.withdraw(uid, qty)`).
-- **Shop:** `Shop.open(id)` gives `{name, items:[{base, name, qty, buy}]}`. The sell side shows `Shop.sellQuote(shopId, uid, qty)`, where null means "won't buy". Rare and bound items sold to a shop are destroyed, so ask the player to confirm first.
+- **Shop:** `Shop.open(id)` gives `{name, items:[{base, name, qty, buy}]}`. The sell side shows `Shop.sellQuote(shopId, uid, qty)`, where null means "won't buy". Hide Sell when `Shop.isSellable(uid)` is false: Legendary and chase items (Wyrmfang and the other legendaries) are refused with `{ ok:false, reason:'not_sellable' }` and nothing changes. Show "This can't be sold. Bank it." if the call is made anyway. Other Rare and bound items sold to a shop are destroyed, so ask the player to confirm first. There is no sell-all.
 - **Rarity beams:** `ItemsDb.RARITIES[r].beam` is `{color, height, pulse, sfx}`. Normal has none. Rare is `#5aa0ff` (2.5), Very Rare is `#c070ff` (3.5, pulse), Legendary is `#ff9a2e` (5, pulse, `lootLegendary`).

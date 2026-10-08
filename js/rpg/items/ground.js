@@ -147,8 +147,8 @@
             if (r.ok) { r.best = d.best; r.pityUsed = d.pityUsed; r.firstRareUsed = !!d.firstRareUsed; }
             return r;
           },
-          /** Pure roll, nothing spawned (previews, server parity checks, the sim). */
-          preview: function (monsterId, rng, opts) { return RPG.Loot.rollDrop(monsterId, rng, opts); },
+          /** Notable drops for UI copy ("Can drop: Wyrmfang"); see RPGItems.Loot.preview. */
+          preview: function (monsterId) { return RPG.Loot.preview(monsterId); },
           firstRare: function () { return Core.clone(w.state().firstRare); },
         },
       };

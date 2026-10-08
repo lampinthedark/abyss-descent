@@ -60,10 +60,16 @@ Owner: Senior Game Dev (items). Code: `js/rpg/items/`. Tests: `npm run test:item
 | Emberheart Pendant | amulet, Defence 5 | +6 Strength, +3% life steal | Sigil Bolt bursts into embers | shared rare table |
 | Tinker's Oath | ring, Attack 5 | +25% gathering | 10% double yield (items-side) | shared rare table |
 
+### Why Wyrmfang stays at Attack 40 (1/150 from Ashmaw)
+
+Kept on purpose. Wyrmfang is the long-term chase: a week-1 player can see it drop (a pulsing orange beam, show-off value) but can't wield it until Attack 40. That gives a reason to keep training after week 1. At 1/150 per boss kill, the median player needs about 102 kills (about 34 h of 20-min runs), so it stays rare in the shared town and on the market. It's bound, so it can't be bought. And because shops refuse it, a player who can't wield it yet can't sell it by accident; they bank it.
+
 ## Bound rules
 
 - `bound` is set at creation for legendaries, chase items and quest items. `boundTo` is set to the first owner on pickup. **Neither is ever unset**: no op clears them, and the server trigger from the online design enforces this.
-- Bound items can be equipped, banked, dropped (they stay bound to the owner) and sold to a shop (destroyed, never restocked). They can never be traded or listed on the market.
+- Bound items can be equipped, banked and dropped (they stay bound to the owner). They can never be traded or listed on the market.
+- **Legendary and chase items can't be sold to any shop.** `Shop.sell` refuses with `not_sellable` and changes nothing; `sellQuote` returns null and `Shop.isSellable(uid)` returns false, so the UI hides Sell. A chase item is any base with `chase: true` (every legendary today). There is no bulk sell-all; if one is added, it must skip these (a test guards it).
+- Other bound items (quest items aside) and Rare+ items can be sold; they are destroyed, never restocked.
 - Very Rare and below are tradeable. Quest items can't be traded, sold or dropped, only destroyed.
 
 ## Drop tables (`loot.js`)
@@ -124,7 +130,7 @@ town_only_no_pity               16.0 min 52.0 min    2.9 h    59.6% |      1.3 h
 - Unit buy is at least the value (up to +30% when stock is scarce). Unit sell is at most 0.6 × value (down to half that when stock is glutted). Both are checked on load and tested.
 - Selling and rebuying can never create gold. A test also shows that buying inputs and selling crafted output always loses gold.
 - Stock drifts 1 step toward its target every `restockMs`. A backwards clock gives 0 steps and never double-restocks.
-- Normal, unbound items a player sells join the stock. Rare+ or bound items sold are destroyed.
+- Normal, unbound items a player sells join the stock. Rare+ or bound items sold are destroyed. Legendary and chase items are refused (`not_sellable`).
 
 ## Skilling (`crafting.js`; XP is returned for core's stats.js)
 

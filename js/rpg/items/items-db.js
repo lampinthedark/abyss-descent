@@ -227,7 +227,7 @@
   Object.keys(LEGENDARIES).forEach(function (k) {
     var L = LEGENDARIES[k];
     def({ id: L.id, name: L.name, cat: 'gear', kind: L.kind, slot: L.slot, group: L.slot === 'weapon' ? 'weapon' : L.slot,
-      tier: L.tier, req: L.req, stats: L.stats, value: L.value, unique: true, legendary: L.id });
+      tier: L.tier, req: L.req, stats: L.stats, value: L.value, unique: true, legendary: L.id, chase: !!L.chase });
   });
 
   /* ------------------------------------------------------------- affix pool */

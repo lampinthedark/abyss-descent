@@ -4,8 +4,10 @@
  * Pricing guarantees (tested): for any item and any stock level
  *   unit sell price <= floor(0.6 * value) < value <= unit buy price
  * so selling and buying back can never create gold. Shops are a gold sink.
- * Rare+ and bound items sold to a shop are destroyed (never restocked), so a
- * shop can't be used to strip the bound flag or launder rolls.
+ * Shops REFUSE Legendary and chase items (reason 'not_sellable') so nobody
+ * loses one by accident. Other Rare+ or bound items sold to a shop are
+ * destroyed (never restocked), so a shop can't strip the bound flag or
+ * launder rolls.
  */
 (function (root, factory) {
   'use strict';
@@ -89,6 +91,11 @@
     return sum;
   }
 
+  /** Legendary or chase-flagged: no shop will ever take it. */
+  function notSellable(inst, base) {
+    return inst.rarity === 'legendary' || !!base.chase || !!base.legendary;
+  }
+
   function shopBuys(def, base) {
     if (base.quest || !base.tradeable) return false;
     return def.buys === 'all' || def.buys.indexOf(base.cat) >= 0;
@@ -152,6 +159,7 @@
       if (i < 0) S.fail('no_item');
       var it = s.inv[i];
       var base = Db.getBase(it.base);
+      if (notSellable(it, base)) S.fail('not_sellable');
       if (!shopBuys(def, base)) S.fail('shop_wont_buy');
       var st = settle(s, p.shop, p.at);
       var qty = p.qty == null ? it.qty : p.qty;
@@ -205,9 +213,14 @@
           return w.commit('shop.sell', { shop: shopId, uid: uid, qty: qty, at: w.now() });
         },
         /** Quote for the tooltip: what this shop pays for qty of the item (null = won't buy). */
+        /** True if no shop will buy it (Legendary / chase). UI hides "Sell" for these. */
+        isSellable: function (uid) {
+          var f = S.findItem(w.state(), uid);
+          return !!f && !notSellable(f.item, Db.getBase(f.item.base)) && !Db.getBase(f.item.base).quest && Db.getBase(f.item.base).tradeable;
+        },
         sellQuote: function (shopId, uid, qty) {
           var f = S.findItem(w.state(), uid), def = SHOPS[shopId];
-          if (!f || !def || !shopBuys(def, Db.getBase(f.item.base))) return null;
+          if (!f || !def || notSellable(f.item, Db.getBase(f.item.base)) || !shopBuys(def, Db.getBase(f.item.base))) return null;
           var s = Core.clone({ shops: w.state().shops });
           var st = settle(s, shopId, w.now());
           return sellTotal(def, f.item, st.stock[f.item.base] || 0, qty == null ? f.item.qty : qty);
@@ -224,7 +237,7 @@
       };
       return api;
     },
-    SHOPS: SHOPS, unitBuy: unitBuy, unitSell: unitSell, checkShopDefs: checkShopDefs, shopBuys: shopBuys,
+    SHOPS: SHOPS, unitBuy: unitBuy, unitSell: unitSell, checkShopDefs: checkShopDefs, shopBuys: shopBuys, notSellable: notSellable,
     MAX_SELL_MULT: MAX_SELL_MULT, MIN_BUY_MULT: MIN_BUY_MULT,
   };
 });

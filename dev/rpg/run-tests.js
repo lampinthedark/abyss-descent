@@ -128,6 +128,29 @@ test('rollDrop: valid items, non-negative gold, boss always Rare+', () => {
     }
   });
 });
+test("Loot.preview('ashmaw') lists Wyrmfang with its icon key; labels are flavour, not odds", () => {
+  const icons = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/rpg-item-icons.json'), 'utf8'));
+  const keys = new Set();
+  icons.icons.forEach((i) => { keys.add(i.key); (i.items || []).forEach((x) => keys.add(x.key)); });
+  const w = mkWorld();
+  const p = w.Loot.preview('ashmaw');
+  const wf = p.find((e) => e.base === 'wyrmfang');
+  ok(wf, 'Wyrmfang missing');
+  eq(wf.name, 'Wyrmfang'); eq(wf.rarity, 'legendary'); eq(wf.label, 'legendary');
+  eq(wf.icon, 'icon_wyrmfang'); ok(keys.has(wf.icon), 'icon key not in rpg-item-icons.json');
+  eq(wf.beamColor, Db.RARITIES.legendary.beam.color);
+  eq(p[0].base, 'wyrmfang', 'boss legendary listed first');
+  ok(p.some((e) => e.label === 'guaranteed' && e.rarity === 'rare'), 'guaranteed boss Rare tier');
+  Object.keys(Loot.MONSTERS).forEach((m) => Loot.preview(m).forEach((e) => {
+    ok(['legendary', 'very rare', 'guaranteed'].includes(e.label), m + ' label ' + e.label);
+    ok(keys.has(e.icon), m + ' icon ' + e.icon);
+    ok(e.rarity === 'legendary' || e.rarity === 'very_rare' || e.label === 'guaranteed', m + ' not notable');
+    ok(!/\d|%|1\//.test(e.label), 'odds leaked');
+    eq(Banned.check(e.name)[0], 'OK');
+  }));
+  ok(!Loot.preview('rat').some((e) => e.base === 'wyrmfang'));
+  deq(Loot.preview('nope'), []);
+});
 test('rollDrop is deterministic for a seed', () => {
   deq(Loot.rollDrop('imp', Core.makeRng(77)), Loot.rollDrop('imp', Core.makeRng(77)));
 });
@@ -333,15 +356,57 @@ test('buy -> sell back cycles never profit (random, 2000 cycles)', () => {
   }
   noInv(w);
 });
-test('bound / Rare+ items sold to a shop are destroyed, never restocked', () => {
+test('Rare+ / bound (non-legendary) items sold to a shop are destroyed, never restocked', () => {
   const w = mkWorld();
   give(w, 'cinderiron_sword', 1, 'rare');
-  give(w, 'emberheart_pendant', 1, 'legendary');
-  const [a, b] = w.Inventory.list().filter(Boolean);
+  give(w, 'cracked_sigil');
+  const a = w.Inventory.list().filter(Boolean)[0];
   const r1 = w.Shop.sell('general_store', a.uid); ok(r1.ok && !r1.restocked, JSON.stringify(r1));
-  const r2 = w.Shop.sell('general_store', b.uid); ok(r2.ok && !r2.restocked, JSON.stringify(r2));
-  ok(!w.Shop.open('general_store').items.some((e) => e.base === 'emberheart_pendant' || e.base === 'cinderiron_sword'));
+  ok(!w.Shop.open('general_store').items.some((e) => e.base === 'cinderiron_sword'));
   noInv(w);
+});
+test('every shop refuses every Legendary / chase item with not_sellable and changes nothing', () => {
+  const chase = Db.ORDER.filter((id) => Db.BASES[id].chase || Db.BASES[id].legendary);
+  ok(chase.includes('wyrmfang') && chase.length === Object.keys(Db.LEGENDARIES).length);
+  chase.forEach((id) => {
+    Object.keys(R.Modules.shop.SHOPS).forEach((sid) => {
+      const w = mkWorld();
+      give(w, id, 1, 'legendary');
+      const uid = w.Inventory.item(0).uid;
+      const before = w.snapshot();
+      const r = w.Shop.sell(sid, uid);
+      eq(r.reason, 'not_sellable', id + ' @ ' + sid);
+      deq(w.snapshot(), before, 'refused sell changed state');
+      eq(w.ItemSave.pendingOps().length, 1, 'refused sell was logged');
+      eq(w.Shop.sellQuote(sid, uid), null);
+      eq(w.Shop.isSellable(uid), false);
+      ok(w.Inventory.has(id));
+    });
+  });
+  const w = mkWorld(); give(w, 'rustbound_sword');
+  eq(w.Shop.isSellable(w.Inventory.item(0).uid), true);
+});
+test('chase flag alone (non-legendary rarity) is enough to refuse', () => {
+  const M = R.Modules.shop;
+  const fake = Gen.createInstance('rustbound_sword', { seed: 1 });
+  ok(M.notSellable(fake, Object.assign({}, Db.getBase('rustbound_sword'), { chase: true })));
+  ok(!M.notSellable(fake, Db.getBase('rustbound_sword')));
+});
+test('bulk sell path: none exists; selling a whole backpack slot-by-slot never takes a legendary', () => {
+  const w = mkWorld();
+  ok(!('sellAll' in w.Shop) && !Object.keys(R.Modules.shop.reducers).some((k) => /all/i.test(k)), 'a bulk sell path appeared: add it to this test');
+  give(w, 'wyrmfang', 1, 'legendary'); give(w, 'rustbound_sword'); give(w, 'rat_tail', 5); give(w, 'tinkers_oath', 1, 'legendary');
+  const results = w.Inventory.list().filter(Boolean).map((it) => w.Shop.sell('general_store', it.uid));
+  eq(results.filter((r) => r.ok).length, 2);
+  eq(results.filter((r) => r.reason === 'not_sellable').length, 2);
+  ok(w.Inventory.has('wyrmfang') && w.Inventory.has('tinkers_oath'));
+  noInv(w);
+});
+test('Wyrmfang stays Attack 40 at 1/150 from Ashmaw (documented design choice)', () => {
+  eq(Db.getBase('wyrmfang').req.attack, 40);
+  const c = Loot.MONSTERS.ashmaw.chase.find((e) => e.legendary === 'wyrmfang');
+  eq(c.chance, 1 / 150);
+  ok(fs.readFileSync(path.join(ROOT, 'docs/rpg-items.md'), 'utf8').includes('Why Wyrmfang stays at Attack 40'));
 });
 test('quest items cannot be sold or dropped', () => {
   const w = mkWorld();
