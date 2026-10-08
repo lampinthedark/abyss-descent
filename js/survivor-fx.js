@@ -32,7 +32,6 @@ const FX = (function () {
   const VOW_CAP = 8;
   const CD_N = 24;
   const BEAM_N = 64;
-  const NUM_N = 24;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
@@ -136,29 +135,6 @@ const FX = (function () {
     b.x = 0;
     b.y = 0;
     b.age = 0;
-  }
-
-  const nums = new Array(NUM_N);
-  const digScratch = [0, 0, 0, 0];
-  const DIGIT = [
-    [0x7, 0x5, 0x5, 0x5, 0x7],
-    [0x2, 0x6, 0x2, 0x2, 0x7],
-    [0x7, 0x1, 0x7, 0x4, 0x7],
-    [0x7, 0x1, 0x7, 0x1, 0x7],
-    [0x5, 0x5, 0x7, 0x1, 0x1],
-    [0x7, 0x4, 0x7, 0x1, 0x7],
-    [0x7, 0x4, 0x7, 0x5, 0x7],
-    [0x7, 0x1, 0x1, 0x1, 0x1],
-    [0x7, 0x5, 0x7, 0x5, 0x7],
-    [0x7, 0x5, 0x7, 0x1, 0x7],
-  ];
-  for (let i = 0; i < NUM_N; i++) {
-    const n = nums[i] = { on: 0, x: 0.5, y: 0.5, v: 0, crit: 0, age: 0.5, life: 0.5, vy: 0.5 };
-    n.x = 0;
-    n.y = 0;
-    n.age = 0;
-    n.life = 0.55;
-    n.vy = 0;
   }
 
   const shakeOut = { x: 0.5, y: 0.5 };
@@ -583,34 +559,6 @@ const FX = (function () {
     }
   }
 
-  function spawnNum(x, y, amount, crit) {
-    let slot = -1;
-    let oldest = 0;
-    let age = -1;
-    for (let i = 0; i < NUM_N; i++) {
-      if (!nums[i].on) {
-        slot = i;
-        break;
-      }
-      if (nums[i].age > age) {
-        age = nums[i].age;
-        oldest = i;
-      }
-    }
-    const n = slot >= 0 ? nums[slot] : nums[oldest];
-    let v = amount | 0;
-    if (v < 0) v = 0;
-    if (v > 9999) v = 9999;
-    n.on = 1;
-    n.x = x;
-    n.y = y - 0.15;
-    n.v = v;
-    n.crit = crit ? 1 : 0;
-    n.age = 0;
-    n.life = 0.55;
-    n.vy = -0.95;
-  }
-
   function tryShake(amp) {
     if (reducedNow()) return;
     if (clock - shakeAt < 0.5) return;
@@ -982,13 +930,6 @@ const FX = (function () {
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on) beams[i].age += dt;
     }
-    for (let i = 0; i < NUM_N; i++) {
-      const n = nums[i];
-      if (!n.on) continue;
-      n.age += dt;
-      n.y += n.vy * dt;
-      if (n.age > n.life) n.on = 0;
-    }
   }
 
   function diamondPx(ctx, x, y, r, color) {
@@ -1063,58 +1004,6 @@ const FX = (function () {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(img, Math.round(-dw / 2), Math.round(-dh / 2), dw, dh);
     ctx.restore();
-  }
-
-  function paintNums(ctx, zoom, tile, camX, camY) {
-    for (let i = 0; i < NUM_N; i++) {
-      const n = nums[i];
-      if (!n.on) continue;
-      let scale = 1;
-      if (n.age < 0.12) scale = 1.4 - (0.4 * (n.age / 0.12));
-      if (n.crit) scale *= 1.5;
-      const cell = Math.max(1, Math.round(zoom * scale));
-      let v = n.v | 0;
-      let nd = 0;
-      if (v <= 0) {
-        digScratch[0] = 0;
-        nd = 1;
-      } else {
-        while (v > 0 && nd < 4) {
-          digScratch[nd] = v % 10;
-          nd += 1;
-          v = (v / 10) | 0;
-        }
-      }
-      const glyphW = cell * 3;
-      const total = nd * glyphW + (nd - 1) * cell;
-      let sx = Math.round(n.x * tile + camX) - (total >> 1);
-      const sy = Math.round(n.y * tile + camY);
-      let fade = 1;
-      if (n.age > 0.4) fade = (n.life - n.age) / 0.15;
-      if (fade < 0) fade = 0;
-      if (fade > 1) fade = 1;
-      for (let d = nd - 1; d >= 0; d--) {
-        const g = DIGIT[digScratch[d]];
-        for (let row = 0; row < 5; row++) {
-          const bits = g[row];
-          for (let col = 0; col < 3; col++) {
-            if (((bits >> (2 - col)) & 1) === 0) continue;
-            const px = sx + col * cell;
-            const py = sy + row * cell;
-            if (n.crit) {
-              ctx.globalAlpha = fade;
-              ctx.fillStyle = '#14120f';
-              ctx.fillRect(px - 1, py - 1, cell + 2, cell + 2);
-            }
-            ctx.globalAlpha = fade;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(px, py, cell, cell);
-          }
-        }
-        sx += glyphW + cell;
-      }
-    }
-    ctx.globalAlpha = 1;
   }
 
   function beamAlpha() {
@@ -1376,7 +1265,6 @@ const FX = (function () {
       }
     }
     ctx.globalAlpha = 1;
-    paintNums(ctx, zoom, tile, camX, camY);
     for (let i = 0; i < RING_CAP; i++) {
       const r = rings[i];
       if (!r.on) continue;
@@ -1449,13 +1337,10 @@ const FX = (function () {
     hit: function (x, y, vis) {
       if (!ok(x) || !ok(y)) return;
       const heavy = !!(vis && (vis.boss || vis.elite));
-      if (heavy) spray(x, y, 6, 0.16, 5.6, 5, 5, true);
-      else spray(x, y, 4, 0.12, 4.4, 3, 3, true);
+      const crit = !!(vis && vis.crit);
+      if (heavy) spray(x, y, crit ? 7 : 6, 0.16, 5.6, crit ? 6 : 5, crit ? 6 : 5, true);
+      else spray(x, y, crit ? 5 : 4, crit ? 0.14 : 0.12, crit ? 4.8 : 4.4, crit ? 4 : 3, crit ? 4 : 3, true);
       if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 0.6);
-      if (vis && (ok(vis.n) || ok(vis.amount))) {
-        const amount = ok(vis.n) ? vis.n : vis.amount;
-        spawnNum(x, y, amount, !!vis.crit);
-      }
     },
 
     death: function (x, y, type, vis) {
@@ -1579,7 +1464,6 @@ const FX = (function () {
       for (let i = 0; i < RING_CAP; i++) rings[i].on = 0;
       for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
-      for (let i = 0; i < NUM_N; i++) nums[i].on = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
