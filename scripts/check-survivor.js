@@ -155,6 +155,10 @@ if (!src.includes('prefers-reduced-motion')) fail('screen shake should honor red
 if (!src.includes('SurvivorSprites.drawHero')) fail('hero should draw through the sprite module');
 if (!src.includes("fxCall('hit'") || !src.includes("fxCall('death'") || !src.includes("fxCall('cast', 'nova'") || !src.includes("fxCall('cast', 'blade'")) fail('fx hit, death, and cast hooks');
 if (!src.includes("fxCall('pickup'") || !src.includes("fxCall('levelUp'") || !src.includes("fxCall('evolve'") || !src.includes("fxCall('vow'") || !src.includes("fxCall('update'") || !src.includes("fxCall('draw'")) fail('fx lifecycle hooks');
+const drawAt = src.indexOf('function draw()');
+const drawBody = src.slice(drawAt, src.indexOf('function uiBlock', drawAt));
+const orderAt = ['drawArena()', 'drawGem(', "fxCall('drawUnder'", 'drawFoes()', 'drawHeroActor()', "fxCall('draw',"].map((mark) => drawBody.indexOf(mark));
+if (orderAt.some((at, i) => at < 0 || (i > 0 && at <= orderAt[i - 1]))) fail('draw order should be ground, gems, drawUnder, foes, hero, FX.draw');
 if (!src.includes('dungeon-tileset-ii.png?v=6.1')) fail('tileset is not cache-busted');
 if (src.includes('#ffe08a') || src.includes('#fff4e0')) fail('crowd damage numbers should stay white');
 if ((src.match(/#ff8060/g) || []).length !== 1) fail('warm damage numbers should be the hero hit only');

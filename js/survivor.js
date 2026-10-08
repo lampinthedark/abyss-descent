@@ -791,7 +791,7 @@
     else if (n === 4) fn.call(box, a, b, c);
     else fn.call(box, a, b, c, d);
     const spent = nowMs() - t0;
-    if (name === 'draw') fxDrawMs += spent;
+    if (name === 'draw' || name === 'drawUnder') fxDrawMs += spent;
     else fxUpdateMs += spent;
   }
 
@@ -4395,7 +4395,7 @@
     camInfo.x = camX;
     camInfo.y = camY;
     camInfo.zoom = zoom;
-    if (typeof FX !== 'undefined' && FX && typeof FX.drawUnder === 'function') FX.drawUnder(ctx, camInfo);
+    fxCall('drawUnder', ctx, camInfo);
     ctx.restore();
     drawFoes();
     drawHeroActor();
