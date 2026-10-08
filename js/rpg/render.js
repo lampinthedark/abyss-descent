@@ -210,7 +210,7 @@
     if (!this._armAt || t - this._armAt > 250 || t < this._armAt) {
       this._armAt = t;
       let armed = false;
-      try { const st = root.Equipment && root.Equipment.getStats && root.Equipment.getStats(); armed = !!(st && st.weapon); } catch (e) { armed = false; }
+      try { const st = root.Equipment && root.Equipment.getStats && root.Equipment.getStats(); armed = !!(st && st.weapon) && !(root.RPG.isToolItem && root.RPG.isToolItem(st.weapon.base)); } catch (e) { armed = false; }
       this._armed = armed;
     }
     const set = (!this._armed && Sheet.has('hero_bare_idle')) ? 'hero_bare' : 'hero_rustbound';

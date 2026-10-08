@@ -101,6 +101,6 @@ Branch base: #28 FX head c39b8d2. All code lives in js/rpg/. Units are tiles (fl
 - Unarmed max hit is 1 (PM ruling): `RPG.combat.maxHit()` returns 1 while `Equipment.getStats().weapon` is null.
 
 ## One-tap Wield (`js/rpg/wield-prompt.js`, core)
-- Until the bag/equip UI lands: whenever no weapon is worn and the backpack holds a weapon that `Equipment.canEquip(uid).ok` allows, a sheet titled with the item name offers Wield / Later. It re-checks on every items `inventory` event.
+- Until the bag/equip UI lands: tools (`group:"tool"`, e.g. pickaxe, hatchet) are never offered and work from the bag; a worn tool counts as bare hands. Whenever no weapon is worn, or a new item matches `RPG.quests.wantEquip()`, and the backpack holds a weapon that `Equipment.canEquip(uid).ok` allows, a sheet titled with the item name offers Wield / Later. It re-checks on every items `inventory` event.
 - Wield calls `Equipment.equip(uid)`, toasts "<name> wielded" and emits `RPG.bus` `equip {slot:'weapon', itemId}`. The hero swaps to `hero_rustbound_*` within 250 ms.
 - Later waits 30 s before asking again (on the next backpack change). `RPG.wieldPrompt.check()` forces a check.

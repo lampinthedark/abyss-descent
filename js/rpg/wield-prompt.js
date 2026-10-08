@@ -13,13 +13,25 @@
   let open = false;
   let laterAt = -1e9;
 
+  function baseOf(id) {
+    const Db = root.RPGItems && root.RPGItems.ItemsDb;
+    try { return Db && Db.getBase ? Db.getBase(id) : null; } catch (e) { return null; }
+  }
+  // Tools (pickaxe, hatchet, rod...) work from the bag and never go in the weapon slot.
+  function isTool(id) { const b = baseOf(id); return !!(b && (b.group === 'tool' || b.cat === 'tool')); }
+  RPG.isToolItem = isTool;
+
   function candidate(Items) {
     const st = Items.Equipment.getStats();
-    if (st && st.weapon) return null;
+    const worn = st && st.weapon && !isTool(st.weapon.base) ? st.weapon.base : null;
+    let want = null;
+    try { want = RPG.quests && RPG.quests.wantEquip ? RPG.quests.wantEquip() : null; } catch (e) { want = null; }
     const list = Items.Inventory.list() || [];
     for (let i = 0; i < list.length; i++) {
       const v = list[i];
-      if (!v || v.equipSlot !== 'weapon') continue;
+      if (!v || v.equipSlot !== 'weapon' || isTool(v.base)) continue;
+      // Prompt when the hands are empty, or when a quest step wants this exact item.
+      if (worn && !(want && v.base === want && worn !== want)) continue;
       const ce = Items.Equipment.canEquip(v.uid);
       if (ce && ce.ok) return v;
     }
@@ -33,8 +45,12 @@
     const v = candidate(Items);
     if (!v) return;
     open = true;
-    Promise.resolve(RPG.ui.dialog('wield', ['Your hands are empty. Wield the ' + v.name + '?'],
-      [{ id: 'wield', label: 'Wield' }, { id: 'later', label: 'Later' }], { title: v.name }))
+    const st0 = Items.Equipment.getStats();
+    const line = st0 && st0.weapon && !isTool(st0.weapon.base) ? 'Wield the ' + v.name + '?' : 'Your hands are empty. Wield the ' + v.name + '?';
+    // Wield is first = primary button; the item's rpg32 icon + name via drawDropRows.
+    Promise.resolve(RPG.ui.dialog('wield', [line],
+      [{ id: 'wield', label: 'Wield' }, { id: 'later', label: 'Later' }],
+      { title: v.name, drops: [{ itemId: v.base, name: v.name, color: v.color || null, rarity: v.rarity }] }))
       .then(function (choice) {
         open = false;
         if (choice !== 'wield') { laterAt = performance.now(); return; }
@@ -52,6 +68,7 @@
       if (hooked || !RPG.items || !RPG.items.on) return;
       hooked = true;
       RPG.items.on('inventory', function () { setTimeout(check, 400); });
+      if (RPG.bus) RPG.bus.on('quest', function () { setTimeout(check, 400); });
       setTimeout(check, 400);
     },
   });
