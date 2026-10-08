@@ -551,7 +551,7 @@ async function pageWith(browser, url, viewport) {
     if (phoneDead.__errors.length) fail('portrait death errors: ' + phoneDead.__errors.join(' | '));
     await phoneDead.close();
 
-    const ward = await pageWith(browser, base + 'survivor.html?headless=1&debug=1&t=150&walk=circle', desk);
+    const ward = await pageWith(browser, base + 'survivor.html?debug=1&t=150&walk=circle', desk);
     await ward.click('#sv-play');
     await ward.waitForFunction(() => {
       const bar = document.getElementById('sv-boss');
@@ -596,7 +596,7 @@ async function pageWith(browser, url, viewport) {
     if (ward.__errors.length) fail('warden errors: ' + ward.__errors.join(' | '));
     await ward.close();
 
-    const chance = await pageWith(browser, base + 'survivor.html?headless=1&debug=1', desk);
+    const chance = await pageWith(browser, base + 'survivor.html?debug=1', desk);
     await chance.click('#sv-play');
     await chance.waitForFunction(() => window.__sv && window.__sv().state === 'playing');
     await chance.evaluate(() => { window.__svArmRevival(); window.__svHurt(9999); });
@@ -607,13 +607,26 @@ async function pageWith(browser, url, viewport) {
     if (chance.__errors.length) fail('second chance errors: ' + chance.__errors.join(' | '));
     await chance.close();
 
-    const evo = await pageWith(browser, base + 'survivor.html?headless=1&debug=1&t=100&walk=circle', desk);
+    const evo = await pageWith(browser, base + 'survivor.html?debug=1&t=100&walk=circle', desk);
     await evo.click('#sv-play');
-    await evo.waitForFunction(() => {
-      const snap = window.__svSnap && window.__svSnap();
-      return snap && snap.evolved && snap.evolved.length > 0;
-    }, { timeout: 45000 });
-    const evoSnap = await evo.evaluate(() => window.__svSnap());
+    const evoDeadline = Date.now() + 50000;
+    let evoSnap = await evo.evaluate(() => window.__svSnap());
+    while (!(evoSnap.evolved && evoSnap.evolved.length) && Date.now() < evoDeadline) {
+      if (evoSnap.state === 'levelup' || evoSnap.state === 'hermit') {
+        await new Promise(r => setTimeout(r, 360));
+        await evo.evaluate(() => {
+          const level = document.getElementById('sv-level');
+          const hermitBox = document.getElementById('sv-hermit');
+          const card = document.querySelector('#sv-cards .sv-card');
+          const no = document.getElementById('sv-hermit-no');
+          if (level && !level.classList.contains('hidden') && card) card.click();
+          else if (hermitBox && !hermitBox.classList.contains('hidden') && no) no.click();
+        });
+      }
+      await new Promise(r => setTimeout(r, 250));
+      evoSnap = await evo.evaluate(() => window.__svSnap());
+    }
+    if (!(evoSnap.evolved && evoSnap.evolved.length)) fail('no evolution: ' + JSON.stringify(evoSnap));
     if (!(evoSnap.time < 135)) fail('first evolution after 2:15: ' + JSON.stringify(evoSnap));
     await evo.screenshot({ path: path.join(shots, 'survivor-evo.png') });
     console.log('browser evolution at ' + evoSnap.time.toFixed(1) + 's ' + evoSnap.evolved.join(','));

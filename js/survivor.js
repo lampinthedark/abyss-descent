@@ -3085,6 +3085,22 @@
         art: SurvivorSprites.ready(),
         vow: vowPayout, curse, vowCount,
       });
+      window.__svSnap = () => snapRun();
+      window.__svCount = (id) => {
+        let n = 0;
+        for (let i = 0; i < enemies.length; i++) {
+          if (enemies[i].eid === id && enemies[i].life > 0 && enemies[i].dying <= 0) n += 1;
+        }
+        return n;
+      };
+      window.__svChestAt = () => {
+        for (let i = 0; i < gems.length; i++) {
+          if (gems[i].kind === 'chest') return { x: gems[i].x, y: gems[i].y };
+        }
+        return null;
+      };
+      window.__svChestArrow = () => chestArrowOn();
+      window.__svArmRevival = () => { revivalLeft = 1; player.life = player.maxLife; return snapRun(); };
       window.__svSetVows = (n) => {
         vowCount = Math.max(0, n | 0);
         curse = vowCount > 0 ? 60 : 0;
