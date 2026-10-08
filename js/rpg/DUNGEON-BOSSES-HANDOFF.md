@@ -44,7 +44,7 @@ RPG.dungeon.load(RPG.dungeon.sample());
 // and a 0/1 grid (legend.walk false, or walkable(), plus blocking props).
 ```
 
-Load the content scripts with the items scripts, before or after this slice. `RPGContent.MONSTERS` supplies hp, def, atk, speed, aggro, leash, pack, and `attacks[]` (`melee` | `ranged` | `charge` | `slam`, `windupMs`, `cooldownMs`, telegraph `ring` | `line`). One spawn row is one pack; size is `pack:[min,max]` when `n` is omitted. Ashmaw is already in the stair spawns, so the boss-room rect is not a second spawn.
+Load the content scripts with the items scripts, before or after this slice. Read `RPGContent` at call time and follow Senior commit `343f4e9`: `RPGContent.MONSTERS[id]` is `{ hp, def, atk, speed, aggro, leash, pack, name, attacks:[{ kind, dmg, range, windupMs, cooldownMs, srcName, telegraph }] }`, and `RPGContent.Dungeon` is the Ash Stair (`rows`, `legend`, `props`, `spawns`, `entry`, `exits`, `bossRoom`, `rooms`). `srcName` on each attack is the monster display name (`Grave Brute`, `Ashmaw the Wyrmling`). If a record omits it, this slice fills it from `name`. `windupMs` is the tell: brute charge stays 700, and a floor never replaces a higher content value. One spawn row is one pack; size is `pack:[min,max]` when `n` is omitted. Ashmaw is already in the stair spawns, so the boss-room rect is not a second spawn.
 
 Atk on the mob (core's hit chance reads `mob.atk`): rat 1, goblin 8, skeleton 14, imp 18, brute 24, ashmaw 30.
 
@@ -65,9 +65,9 @@ RPG.ui.drawDropRows(ctx, x, y, Loot.preview('ashmaw'));
 
 1. **Bus before these scripts.** `RPG.on` / `RPG.emit`, or `RPG.bus.on` / `RPG.bus.emit`. This slice emits `kill` `{monsterId, x, y, elite, boss}` once per mob and `enter` `{zone}` from `RPG.dungeon.load`. It listens for `hurt` and `death`. It does **not** emit `hurt` or `death` (core owns those). Do not also emit `kill` from combat or the kill is doubled.
 
-2. **`hurt` shape** for the recap: `{ amount, name, srcId, crit, target: 'hero' }`. Only hero hits are kept. On `death` with a hero target, the last 3 are passed to `RPG.ui.showDeathRecap(recap)` (else `showDeath`, else `death`). If none of those exist, read `RPG.deathRecap.last` (`hits`, `lines`, `revive`).
+2. **`hurt` shape** for the recap: `{ amount, srcName, name, srcId, crit, target: 'hero' }`. `srcName` is the monster display name from the attack record. The recap shows that name (it wins over `name` when both are set). Only hero hits are kept. On `death` with a hero target, the last 3 are passed to `RPG.ui.showDeathRecap(recap)` (else `showDeath`, else `death`). If none of those exist, read `RPG.deathRecap.last` (`lastHits`, `hits`, `lines`, `revive`).
 
-3. **Hero incoming damage.** Attacks call `RPG.hero.takeHit(dmg, info)`. That is where core should emit `hurt`. If `takeHit` is missing, `hp` or `life` is reduced so a headless stub still sees the hit. `RPG.hero.damage` is treated as the hero's outgoing number; combat should pass it into `mob.takeHit(dmg, {crit, srcId, knock})`.
+3. **Hero incoming damage.** Attacks call `RPG.hero.damage(amount, info)` when that is a function, with `info.srcName` set from the attack (`Grave Brute`, `Ashmaw the Wyrmling`). Core should emit `hurt` from there, copying `srcName` onto the event. If `damage` is not a function, the same `info` is passed to `hero.takeHit(amount, info)`. A numeric `RPG.hero.damage` is still the hero's outgoing number and is not called. If neither function exists, `hp` or `life` is reduced. Outgoing hero hits stay `mob.takeHit(dmg, {crit, srcId, knock})`.
 
 4. **`RPG.rng('ai' | 'loot')`** returns `function () { return 0..1 }`. Called often; must not reset. These files never call `Math.random`.
 

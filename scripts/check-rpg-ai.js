@@ -78,8 +78,16 @@ const hero = {
   radius: 0.3,
   dead: false,
   inventory: [],
-  takeHit(dmg) { this.hp -= dmg; },
+  takeHit(dmg, info) {
+    this.hp -= dmg;
+    heroHits.push(info || {});
+  },
+  damage(amount, info) {
+    this.hp -= amount;
+    heroHits.push(info || {});
+  },
 };
+const heroHits = [];
 
 context.RPG = {
   hero,
@@ -276,6 +284,7 @@ assert(boss.state === 'slam', 'slam still winding');
 assert(boss.animFrame === 0, 'slam frame stays 0 for the whole tell');
 RPG.ai.tick(0.08);
 assert(hero.hp < hpSlam, 'slam hits after the tell');
+assert(heroHits[heroHits.length - 1].srcName === 'Ashmaw the Wyrmling', 'ashmaw slam passes srcName');
 assert(fxLog.some((e) => e.name === 'telegraphOff'), 'slam clears with telegraphOff');
 
 resetHero(1.2, 0);
@@ -341,7 +350,7 @@ const [chargeBrute] = RPG.ai.spawnPack('brute', 90, 0, 1, 20);
 hero.x = chargeBrute.x + 3;
 hero.y = chargeBrute.y;
 const bruteCharge = RPG.ai.attacks.windupFor('brute', 'charge');
-assert(bruteCharge >= 600, 'brute charge windup >= 600');
+assert(bruteCharge === 700, 'brute charge windup is the content 700ms, got ' + bruteCharge);
 RPG.ai.tick(0.016);
 assert(chargeBrute.state === 'charge', 'brute charge, state=' + chargeBrute.state);
 assert(chargeBrute.animKey === 'mob_brute_charge' && chargeBrute.animFrame === 0, 'brute charge clip frame 0');
@@ -351,6 +360,7 @@ RPG.ai.tick((bruteCharge - 50) / 1000);
 assert(hero.hp === hpBruteCharge && chargeBrute.animFrame === 0, 'brute charge holds frame 0');
 RPG.ai.tick(0.08);
 assert(hero.hp < hpBruteCharge, 'brute charge hits after the tell');
+assert(heroHits[heroHits.length - 1].srcName === 'Grave Brute', 'brute charge passes srcName Grave Brute');
 assert(chargeBrute.state === 'dash' && chargeBrute.animFrame === 1 && chargeBrute.animKey === 'mob_brute_charge', 'brute charge holds frame 1 for the dash');
 chargeBrute.takeHit(99999, {});
 
@@ -424,6 +434,14 @@ assert(uiRecap && uiRecap.hits.length === 3, 'recap shows 3 hits');
 assert(uiRecap.hits.map((h) => h.name).join(',') === 'Goblin,Goblin,Skeleton', 'recap is the last three hero hits');
 assert(uiRecap.hits[1].crit === true, 'crit is kept');
 assert(uiRecap.lines[0] === 'Goblin 2', 'recap line');
+RPG.deathRecap.resetRun();
+uiRecap = null;
+RPG.emit('hurt', { amount: 3, name: 'charge', srcName: 'Grave Brute', target: 'hero' });
+RPG.emit('hurt', { amount: 5, name: 'Claw', srcName: 'Ashmaw the Wyrmling', target: 'hero' });
+RPG.emit('hurt', { amount: 8, name: 'Cinder Ring', srcName: 'Ashmaw the Wyrmling', target: 'hero' });
+RPG.emit('death', { target: 'hero' });
+assert(uiRecap && uiRecap.lastHits.map((h) => h.name).join(',') === 'Grave Brute,Ashmaw the Wyrmling,Ashmaw the Wyrmling', 'recap shows attack srcName');
+assert(uiRecap.lines[0] === 'Grave Brute 3', 'recap line uses the display name');
 
 // Revive cap: one accept per dungeon load.
 let ads = 0;
@@ -473,6 +491,10 @@ context.RPGContent = {
       id: 'skeleton', name: 'Rattlebone Skeleton', hp: 123, def: 10, atk: 14, speed: 1.6, aggro: 5, leash: 9, pack: [2, 3], sprite: 'mob_skeleton',
       attacks: [{ kind: 'melee', dmg: 2, range: 1, windupMs: 640, cooldownMs: 2600, srcName: 'Rattlebone Skeleton' }],
     },
+    brute: {
+      id: 'brute', name: 'Grave Brute', hp: 300, def: 14, atk: 24, speed: 1.4, aggro: 6, leash: 12, pack: [1, 1], elite: true, sprite: 'mob_brute',
+      attacks: [{ kind: 'charge', dmg: 18, range: 5, windupMs: 700, cooldownMs: 9000, telegraph: 'line' }],
+    },
     ashmaw: {
       id: 'ashmaw', name: 'Ashmaw the Wyrmling', hp: 961, def: 8, atk: 30, speed: 1.6, aggro: 8, leash: 99, pack: [1, 1], boss: true, sprite: 'mob_ashmaw',
       attacks: [
@@ -502,6 +524,8 @@ context.RPGContent = {
   },
 };
 assert(RPG.ai.attacks.windupFor('skeleton', 'melee') === 640, 'live monster windup replaces the fallback');
+assert(RPG.ai.attacks.windupFor('brute', 'charge') === 700, 'live brute charge windup stays 700');
+assert(RPG.ai.attacks.attacksOf('brute').charge.srcName === 'Grave Brute', 'live brute srcName comes from the monster name');
 const stair = RPG.dungeon.sample();
 assert(stair.id === 'ash_stair' && stair.name === 'The Ash Stair', 'sample loads Ash Stair');
 assert(stair.entry.x === 11 && stair.entry.y === 3, 'Ash Stair entry');
