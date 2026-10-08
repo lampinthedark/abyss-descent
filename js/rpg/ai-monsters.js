@@ -16,7 +16,7 @@
       sight: 3, leash: 7, melee: 1, pack: [2, 3], radius: 0.28, color: '#8d7b5a',
       elite: false, boss: false, sprite: 'mob_rat', sheet: 'mobs',
       attacks: {
-        melee: { kind: 'melee', dmg: 1, range: 1, windupMs: 400, cooldownMs: 1400, srcName: 'Plague Rat' },
+        melee: { kind: 'melee', anim: 'mob_rat_attack', dmg: 1, range: 1, windupMs: 400, cooldownMs: 1400, srcName: 'Plague Rat' },
       },
     },
     goblin: {
@@ -24,8 +24,8 @@
       sight: 4, leash: 8, melee: 1, pack: [2, 3], radius: 0.32, color: '#6f8f3a',
       elite: false, boss: false, sprite: 'mob_goblin', sheet: 'mobs',
       attacks: {
-        melee: { kind: 'melee', dmg: 2, range: 1, windupMs: 500, cooldownMs: 2300, srcName: 'Ditch Goblin' },
-        ranged: { kind: 'ranged', dmg: 2, range: 4, windupMs: 700, cooldownMs: 7000, minRange: 2, projectile: 'rock', srcName: 'Ditch Goblin' },
+        melee: { kind: 'melee', anim: 'mob_goblin_attack', dmg: 2, range: 1, windupMs: 500, cooldownMs: 2300, srcName: 'Ditch Goblin' },
+        ranged: { kind: 'ranged', anim: 'mob_goblin_attack', dmg: 2, range: 4, windupMs: 700, cooldownMs: 7000, minRange: 2, projectile: 'rock', srcName: 'Ditch Goblin' },
       },
     },
     skeleton: {
@@ -33,7 +33,7 @@
       sight: 5, leash: 9, melee: 1, pack: [2, 3], radius: 0.32, color: '#d9d3c4',
       elite: false, boss: false, sprite: 'mob_skeleton', sheet: 'mobs2',
       attacks: {
-        melee: { kind: 'melee', dmg: 2, range: 1, windupMs: 550, cooldownMs: 2600, srcName: 'Rattlebone Skeleton' },
+        melee: { kind: 'melee', anim: 'mob_skeleton_attack', dmg: 2, range: 1, windupMs: 550, cooldownMs: 2600, srcName: 'Rattlebone Skeleton' },
       },
     },
     imp: {
@@ -41,7 +41,7 @@
       sight: 6, leash: 10, melee: 5, pack: [2, 3], radius: 0.26, color: '#d15a34',
       elite: false, boss: false, sprite: 'mob_imp', sheet: 'mobs2', style: 'ranged',
       attacks: {
-        ranged: { kind: 'ranged', dmg: 3, range: 5, windupMs: 600, cooldownMs: 2600, projectile: 'ember', srcName: 'Cinder Imp' },
+        ranged: { kind: 'ranged', anim: 'mob_imp_attack', dmg: 3, range: 5, windupMs: 600, cooldownMs: 2600, projectile: 'ember', srcName: 'Cinder Imp' },
       },
     },
     brute: {
@@ -49,9 +49,9 @@
       sight: 6, leash: 12, melee: 1, pack: [1, 1], radius: 0.46, color: '#6b5246',
       elite: true, boss: false, sprite: 'mob_brute', sheet: 'mobs2',
       attacks: {
-        slam: { kind: 'slam', dmg: 22, range: 1.5, radius: 1.5, windupMs: 800, cooldownMs: 7000, telegraph: 'ring', srcName: 'Grave Brute' },
-        charge: { kind: 'charge', dmg: 18, range: 5, windupMs: 700, cooldownMs: 9000, telegraph: 'line', dashMs: 240, srcName: 'Grave Brute' },
-        melee: { kind: 'melee', dmg: 3, range: 1, windupMs: 600, cooldownMs: 1800, srcName: 'Grave Brute' },
+        slam: { kind: 'slam', anim: 'mob_brute_slam', dmg: 22, range: 1.5, radius: 1.5, windupMs: 800, cooldownMs: 7000, telegraph: 'ring', srcName: 'Grave Brute' },
+        charge: { kind: 'charge', anim: 'mob_brute_charge', dmg: 18, range: 5, windupMs: 700, cooldownMs: 9000, telegraph: 'line', dashMs: 240, srcName: 'Grave Brute' },
+        melee: { kind: 'melee', anim: 'mob_brute_attack', dmg: 3, range: 1, windupMs: 600, cooldownMs: 1800, srcName: 'Grave Brute' },
       },
     },
     ashmaw: {
@@ -60,9 +60,9 @@
       elite: false, boss: true, sprite: 'mob_ashmaw', sheet: 'mobs2',
       enrage: { belowHpPct: 30, cooldownMult: 0.75 },
       attacks: {
-        slam: { kind: 'slam', dmg: 24, range: 2.5, radius: 2.5, windupMs: 1000, cooldownMs: 8000, telegraph: 'ring', name: 'Cinder Ring', srcName: 'Ashmaw the Wyrmling' },
-        charge: { kind: 'charge', dmg: 20, range: 7, windupMs: 900, cooldownMs: 11000, telegraph: 'line', name: 'Ash Rush', dashMs: 240, srcName: 'Ashmaw the Wyrmling' },
-        melee: { kind: 'melee', dmg: 5, range: 1.2, windupMs: 650, cooldownMs: 2000, name: 'Claw', srcName: 'Ashmaw the Wyrmling' },
+        slam: { kind: 'slam', anim: 'mob_ashmaw_slam', dmg: 24, range: 2.5, radius: 2.5, windupMs: 1000, cooldownMs: 8000, telegraph: 'ring', name: 'Cinder Ring', srcName: 'Ashmaw the Wyrmling' },
+        charge: { kind: 'charge', anim: 'mob_ashmaw_charge', dmg: 20, range: 7, windupMs: 900, cooldownMs: 11000, telegraph: 'line', name: 'Ash Rush', dashMs: 240, srcName: 'Ashmaw the Wyrmling' },
+        melee: { kind: 'melee', anim: 'mob_ashmaw_attack', dmg: 5, range: 1.2, windupMs: 650, cooldownMs: 2000, name: 'Claw', srcName: 'Ashmaw the Wyrmling' },
       },
     },
   };
@@ -399,11 +399,29 @@
   function poseLife(mob, which) {
     const idle = (mob.sheet && mob.sheet.idle) || ((mob.sprite || 'mob') + '_idle');
     const key = mob.sheet && mob.sheet[which];
+    const clip = !!(key && key !== idle);
+    mob.attacking = false;
+    mob.corpse = false;
+    if (!clip) {
+      mob.anim = 'idle';
+      mob.animKey = idle;
+      mob.animFrame = 0;
+      mob.holdFrame = 0;
+      if (which === 'death' && mob.render) mob.render.mode = 'box';
+      return;
+    }
     mob.anim = which;
-    mob.animKey = key || idle;
+    mob.animKey = key;
+    if (which === 'death') {
+      const atk = ai.attacks;
+      const last = atk && typeof atk.corpseFrame === 'function' ? atk.corpseFrame(key) : 0;
+      mob.animFrame = last;
+      mob.holdFrame = last;
+      mob.corpse = true;
+      return;
+    }
     mob.animFrame = 0;
     mob.holdFrame = 0;
-    mob.attacking = false;
   }
 
   function takeHit(mob, dmg, info) {
