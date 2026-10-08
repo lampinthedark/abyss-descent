@@ -176,7 +176,31 @@
     function marker(npcId) { return C().giverMarker(SQ.npcKey(npcId), log()); }
     function wantRecipe() { var st = step(); return st && st.done.type === 'craft' ? st.done.target : null; }
 
+    /**
+     * Would this kill finish the active quest's kill step? Order-proof: the answer is taken
+     * from the count *before* this kill, whether quests or drops hears the kill first.
+     * Pass the bus payload as `ev` for an exact match (two kills in one frame); without it
+     * we fall back to the last kill of that monster this frame.
+     */
+    var frame = 0, killMemo = typeof WeakMap === 'function' ? new WeakMap() : null, lastKill = null;
+    function finishesKill(id) {
+      var a = state().active; if (!a || !id) return false;
+      return !!C().advance(a, { type: 'kill', target: id }).stepDone;
+    }
+    function completesOnKill(id, ev) {
+      if (ev && typeof ev === 'object' && killMemo && killMemo.has(ev)) return killMemo.get(ev);
+      if (!ev && lastKill && lastKill.id === id && lastKill.frame === frame) return lastKill.v;
+      return finishesKill(id);
+    }
+    function onKill(d) {
+      if (!d || !d.monsterId) return;
+      var v = finishesKill(d.monsterId);
+      if (killMemo && typeof d === 'object') killMemo.set(d, v);
+      lastKill = { id: d.monsterId, frame: frame, v: v };
+      feed({ type: 'kill', target: d.monsterId });
+    }
     function update(dt) {
+      frame++;
       checkArea();
       refreshT -= dt;
       if (refreshT <= 0) { refreshT = SQ.TRACKER_REFRESH_S; refresh(); }
@@ -186,7 +210,7 @@
       RPG.bus.on('talk', function (d) { talk(d && d.npcId); });
       RPG.bus.on('gather', function (d) { if (d && d.itemId) feed({ type: 'gather', target: d.itemId }); });
       RPG.bus.on('craft', function (d) { if (d && d.recipeId) feed({ type: 'craft', target: d.recipeId }); });
-      RPG.bus.on('kill', function (d) { if (d && d.monsterId) feed({ type: 'kill', target: d.monsterId }); });
+      RPG.bus.on('kill', onKill);
       RPG.bus.on('enter', function (d) { if (d && d.zone) { feed({ type: 'enter', target: d.zone }); lastTracker = null; } });
       RPG.bus.on('equip', function (d) {
         if (!d) return;
@@ -198,7 +222,7 @@
     RPG.registerSystem({ id: 'sq-quests', update: update, draw: function () {} });
 
     RPG.quests = { state: state, active: function () { return state().active; }, current: current, refresh: refresh,
-      marker: marker, wantRecipe: wantRecipe, talk: talk, feed: feed, update: update, _accept: accept };
+      marker: marker, wantRecipe: wantRecipe, talk: talk, feed: feed, update: update, completesOnKill: completesOnKill, _accept: accept };
     refresh();
     return RPG.quests;
   };

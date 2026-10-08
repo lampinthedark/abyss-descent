@@ -176,8 +176,16 @@ async function playQ1(seed) {
         eq(RPG.quests.active().step, 3, 'area enter detected');
         for (let i = 0; i < 4; i++) RPG.bus.emit('kill', { monsterId: i % 2 ? 'goblin' : 'rat' });
         eq(RPG.quests.active().n, 2, 'only goblins count');
-        for (let i = 0; i < 2; i++) RPG.bus.emit('kill', { monsterId: 'goblin' });
+        ok(!RPG.quests.completesOnKill('goblin'), '3rd goblin does not finish');
+        ok(!RPG.quests.completesOnKill('rat'), 'rat never finishes');
+        RPG.bus.emit('kill', { monsterId: 'goblin' });
+        s.tick(0.05); ok(RPG.quests.completesOnKill('goblin'), 'drops-first: 4th goblin finishes');
+        const ev = { monsterId: 'goblin' };
+        RPG.bus.emit('kill', ev);
         eq(RPG.quests.active().step, 4);
+        ok(RPG.quests.completesOnKill('goblin', ev), 'quests-first: same kill still reads true via payload');
+        ok(RPG.quests.completesOnKill('goblin'), 'quests-first: same frame, no payload, still true');
+        s.tick(0.05); ok(!RPG.quests.completesOnKill('goblin'), 'later kills read false');
         s.log.dialog.length = 0;
         const def0 = s.xp.defence;
         await s.talk('questgiver');

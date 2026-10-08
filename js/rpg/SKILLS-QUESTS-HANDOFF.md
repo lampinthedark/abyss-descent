@@ -36,3 +36,9 @@ Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests`
 3. Tap the furnace: smelts both bars. Tap the anvil: smiths the sword (quest recipe picked, no menu).
 4. Wield the sword, tap Ilse (`?`): 25 gold, 3 Hearth Bread, Mining and Smithing XP, then `!` for Q2.
 5. Q2: fish at the pond, cook at the range (burnt counts), walk into the Goblin Field, kill 4 goblins, hand in, rumour shows the "Can drop" list, Wyrmfang first in `#ff9a2e`.
+
+## Q2-completion Rare
+`RPG.quests.completesOnKill(monsterId, ev?)` returns true when this kill finishes the active quest's kill step
+(Q2: the 4th goblin). It reads the count from before this kill, so it gives the same answer whether quests or drops
+hears the `kill` event first. Pass the bus payload as `ev` for an exact match when two kills land in one frame.
+D&B: `Loot.rollDrop(id, rng, x, y, { questFinish: !!(RPG.quests && RPG.quests.completesOnKill(id, ev)) })`.
