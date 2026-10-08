@@ -20,7 +20,7 @@ Each file installs itself on `window.RPG` at load. `RPG.skills` and `RPG.quests`
 - `equip {slot, itemId}`: I look up the base via `Equipment.list()[slot].base`; passing `base` in the event is welcome.
 - `Store.get('quests')` is read first (GD confirmed for D1); the mirror is only a fallback.
 - Markers use `RPG.camera.toScreen(x, y)` (GD confirmed for D1).
-- Rumour screen: I call `RPG.ui.dialog(npcId, lines, choices, { showDrops:'ashmaw', title:'Can drop', drops: Loot.preview('ashmaw') })`, built from `Loot.preview('ashmaw')` at runtime (same order and colours as the boss panel). Core draws them with `RPG.ui.drawDropRows`.
+- Rumour screen: I call `RPG.ui.dialog(npcId, lines, choices, { showDrops:'ashmaw', drops: Loot.preview('ashmaw') })`, built from `Loot.preview('ashmaw')` at runtime (same order and colours as the boss panel). Core draws them with `RPG.ui.drawDropRows`.
 - `RPG.ui.dialog(npcId, lines, choices)` should resolve to the chosen `id` (or the choice object). `null` for a closed dialog means decline.
 
 ## What I emit / call

@@ -113,7 +113,7 @@
     /** Rumour screen: 3 lines + the same Loot.preview list as the boss "Can drop" panel (order and colours). */
     function rumourOpts(r) {
       var L = S.items().Loot, drops = r.showDrops && L && L.preview ? L.preview(r.showDrops) : [];
-      return { showDrops: r.showDrops || null, title: drops.length ? 'Can drop' : null,
+      return { showDrops: r.showDrops || null, // no title: core uses it as the header, which must stay the NPC name
         drops: drops }; // raw Loot.preview entries, as RPG.ui.drawDropRows expects
     }
     function showRumour(id, r) { return ask(id, r.lines.slice(0, 4), [{ id: 'ok', label: 'Okay' }], rumourOpts(r)); }

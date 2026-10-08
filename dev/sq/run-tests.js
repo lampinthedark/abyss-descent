@@ -199,6 +199,7 @@ async function playQ1(seed) {
         eq(w.Gold.balance(), 85); ok(w.Inventory.has('rustbound_shield'));
         const rum = s.log.dialog.find(d => d.lines.some(l => /Ashmaw/.test(l)));
         ok(rum && rum.opts && rum.opts.drops.length, 'rumour carries the drop list');
+        ok(!('title' in rum.opts), 'no title: header stays the NPC name');
         const pv = w.Loot.preview('ashmaw');
         eq(rum.opts.drops.map(d => d.name).join('|'), pv.map(d => d.name).join('|'), 'same list and order as Loot.preview');
         eq(rum.opts.drops[0].name, 'Wyrmfang'); eq(rum.opts.drops[0].beamColor, '#ff9a2e'); eq(rum.opts.drops[0].icon, 'icon_wyrmfang');
