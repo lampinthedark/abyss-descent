@@ -754,10 +754,45 @@ const pairIds = [...new Set(townMobs.map((m) => m.packId))];
 assert(pairIds.length === 2, 'each spawn entry is its own pair');
 const pairA = townMobs.filter((m) => m.packId === pairIds[0]);
 const pairB = townMobs.filter((m) => m.packId === pairIds[1]);
+assert(townMobs.every((m) => m.sight === 4 && m.townAggro === 2), 'town aggro is a 2-tile override; content sight stays 4');
+const near = pairA[0];
+hero.x = near.x;
+hero.y = near.y + 3;
+RPG.ai.tick(0.05);
+assert(townMobs.every((m) => !m.aggro), 'a goblin 3 tiles away does not aggro');
+hero.y = near.y + 2;
+RPG.ai.tick(0.05);
+assert(pairA.every((m) => m.aggro), 'a goblin at 2 tiles pulls its pair');
+assert(pairB.every((m) => !m.aggro), 'the other pair stays idle at 2 tiles from the first');
+for (const m of townMobs) { m.aggro = false; m.state = 'wander'; }
+hero.x = 80;
+hero.y = 80;
+RPG.ai.tick(0.05);
+assert(townMobs.every((m) => !m.aggro), 'no proximity aggro from across town');
 pairA[0].takeHit(1, { srcId: 'hero' });
-assert(pairA.every((m) => m.aggro), 'hitting one goblin pulls its partner');
+assert(pairA.every((m) => m.aggro), 'a hit from range pulls that goblin and its partner');
 assert(pairB.every((m) => !m.aggro), 'the other pair stays idle');
 for (const m of townMobs) { m.aggro = false; m.state = 'wander'; }
+
+const townRats = RPG.ai.spawnZone({
+  id: 'town',
+  spawns: [{ monsterId: 'rat', x: 20, y: 20, n: 2, leash: 4 }],
+});
+assert(townRats.every((m) => m.townAggro === 2 && m.sight === 3), 'town rats keep content sight and the 2-tile override');
+hero.x = 20;
+hero.y = 23;
+RPG.ai.tick(0.05);
+assert(townRats.every((m) => !m.aggro), 'a town rat 3 tiles away does not aggro');
+hero.y = 22;
+RPG.ai.tick(0.05);
+assert(townRats.every((m) => m.aggro), 'a town rat at 2 tiles aggros its spawn entry');
+for (const m of townRats) m.takeHit(99999, {});
+
+resetHero(0, 3);
+const [stairGob] = RPG.ai.spawnPack('goblin', 0, 0, 1, 8);
+RPG.ai.tick(0.05);
+assert(stairGob.townAggro == null && stairGob.aggro === true, 'dungeon goblin still uses content aggro past 2 tiles');
+stairGob.takeHit(99999, {});
 
 resetHero(1, 0);
 const tight = RPG.ai.spawnZone({
