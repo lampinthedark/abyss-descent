@@ -135,8 +135,8 @@ context.RPG = {
 };
 
 context.Loot = {
-  rollDrop(monsterId, rng, x, y) {
-    lootCalls.push({ monsterId, x, y, sample: rng() });
+  rollDrop(monsterId, rng, x, y, opts) {
+    lootCalls.push({ monsterId, x, y, sample: rng(), opts: opts || null });
     if (monsterId === 'ashmaw') return { name: 'Scrap', rarity: 'common', beam: false };
     return { name: 'Goblin Fang', rarity: 'rare', beam: true };
   },
@@ -519,11 +519,36 @@ assert(dead && dead.dead === true, 'takeHit reports dead');
 assert(kills.length === 1, 'one kill event');
 assert(kills[0].monsterId === 'goblin' && kills[0].elite === false && kills[0].boss === false, 'kill payload');
 assert(lootCalls.length === 1 && lootCalls[0].monsterId === 'goblin', 'Loot.rollDrop(goblin)');
+assert(lootCalls[0].opts && lootCalls[0].opts.questFinish === false, 'missing quests passes questFinish false');
 assert(typeof lootCalls[0].sample === 'number', 'loot rng was invoked');
 assert(fxLog.some((e) => e.name === 'beam'), 'beam when d.beam');
 assert(entities.some((e) => e.kind === 'drop' && e._tappable), 'drop entity is tappable');
 gob.takeHit(50, {});
 assert(kills.length === 1, 'kill is not emitted twice');
+
+// Q2 Rare contract: one roll, questFinish from completesOnKill, no extra drop or beam.
+fxLog.length = 0;
+lootCalls.length = 0;
+let questEv = null;
+RPG.quests = {
+  completesOnKill(id, ev) {
+    questEv = ev;
+    return id === 'rat';
+  },
+};
+const dropsBefore = entities.filter((e) => e.kind === 'drop').length;
+const [questRat] = RPG.ai.spawnPack('rat', 6, 6, 1, 4);
+questRat.takeHit(9999, {});
+assert(lootCalls.length === 1 && lootCalls[0].opts && lootCalls[0].opts.questFinish === true, 'completesOnKill true is passed as questFinish');
+assert(questEv && questEv === kills[kills.length - 1] && questEv.monsterId === 'rat', 'completesOnKill receives the emitted kill payload');
+assert(entities.filter((e) => e.kind === 'drop').length === dropsBefore + 1, 'quest finish does not spawn a second drop');
+assert(fxLog.filter((e) => e.name === 'beam').length === 1, 'quest finish does not add a second beam');
+RPG.quests = {};
+lootCalls.length = 0;
+const [noQuest] = RPG.ai.spawnPack('rat', 8, 6, 1, 4);
+noQuest.takeHit(9999, {});
+assert(lootCalls.length === 1 && lootCalls[0].opts && lootCalls[0].opts.questFinish === false, 'missing completesOnKill passes questFinish false');
+RPG.quests = null;
 
 // Ashmaw guarantee when the items table returns a common with no beam.
 fxLog.length = 0;

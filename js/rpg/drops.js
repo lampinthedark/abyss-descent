@@ -149,14 +149,31 @@
     }
   }
 
+  function questFinishFor(monsterId, ev) {
+    const quests = RPG.quests;
+    if (!quests || typeof quests.completesOnKill !== 'function') return false;
+    try { return !!quests.completesOnKill(monsterId, ev); } catch (err) { return false; }
+  }
+
   function onKill(mob) {
     if (!mob || mob._killEmitted) return [];
     mob._killEmitted = true;
+    const ev = {
+      monsterId: mob.monsterId,
+      x: mob.x,
+      y: mob.y,
+      elite: !!mob.elite,
+      boss: !!mob.boss,
+    };
     const rng = lootRng();
     let rolled = null;
     const api = lootApi();
     if (api) {
-      try { rolled = api.rollDrop(mob.monsterId, rng, mob.x, mob.y); } catch (err) { rolled = null; }
+      try {
+        rolled = api.rollDrop(mob.monsterId, rng, mob.x, mob.y, {
+          questFinish: questFinishFor(mob.monsterId, ev),
+        });
+      } catch (err) { rolled = null; }
     }
     const list = ensureBossDrop(asList(rolled), mob);
     const spawned = [];
@@ -164,13 +181,7 @@
       if (!list[i]) continue;
       spawned.push(spawnDrop(list[i], mob, i));
     }
-    emit('kill', {
-      monsterId: mob.monsterId,
-      x: mob.x,
-      y: mob.y,
-      elite: !!mob.elite,
-      boss: !!mob.boss,
-    });
+    emit('kill', ev);
     if (RPG.ai && typeof RPG.ai.forget === 'function') {
       try { RPG.ai.forget(mob); } catch (err) {}
     }
