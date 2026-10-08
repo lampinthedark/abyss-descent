@@ -184,19 +184,28 @@ function vows() {
     const game = boot(20 + n * 17);
     game.__svStart();
     let seen = false;
-    for (let i = 0; i < 1400; i++) {
-      let snap = game.__svStep(0.05);
+    let snap = game.__svSnap();
+    if (snap.vowRisk !== 'Risk: enemies hit 1.5\u00d7 harder') fail('risk line: ' + snap.vowRisk);
+    if (snap.vowReward !== 'Reward: +50% XP and gold') fail('reward line: ' + snap.vowReward);
+    for (let i = 0; i < 2800; i++) {
+      game.__svMove(Math.cos(snap.time * 0.7), Math.sin(snap.time * 0.55));
+      snap = game.__svStep(0.05);
       if (snap.state === 'levelup') snap = game.__svChoose(0);
+      if (snap.time < 90 && (snap.vowSeen || snap.state === 'hermit')) {
+        fail('vow before 1:30 in run ' + (n + 1) + ': ' + snap.time);
+      }
       if (snap.vowSeen || snap.state === 'hermit') {
         seen = snap.time;
         break;
       }
-      if (snap.time > 60 || snap.state === 'dead') break;
+      if (snap.time > 130 || snap.state === 'dead') break;
     }
     if (!seen) fail('vow missing in run ' + (n + 1));
-    if (seen < 20 || seen > 45) fail('vow outside 0:20-0:45 in run ' + (n + 1) + ': ' + seen);
+    if (seen < 90 || seen > 116) fail('vow outside 1:30-1:55 in run ' + (n + 1) + ': ' + seen);
+    if (snap.vowRisk !== 'Risk: enemies hit 1.5\u00d7 harder') fail('offer risk: ' + snap.vowRisk);
+    if (snap.vowReward !== 'Reward: +50% XP and gold') fail('offer reward: ' + snap.vowReward);
   }
-  console.log('vow offered within 60s in 3 runs');
+  console.log('vow offered at or after 1:30 in 3 runs');
 }
 
 function novas() {
@@ -307,7 +316,7 @@ function hermitTwice() {
     if (snap.state === 'dead' || snap.time > 320) break;
   }
   if (times.length !== 2) fail('hermit offers ' + times.join(', ') + ' (want exactly two)');
-  if (times[0] < 20 || times[0] > 45) fail('first hermit at ' + times[0]);
+  if (times[0] < 90 || times[0] > 116) fail('first hermit at ' + times[0]);
   const gap = times[1] - times[0];
   if (gap < 70 || gap > 85) fail('second hermit gap ' + gap.toFixed(1));
   console.log('hermit offers', times.join(', '));
@@ -317,11 +326,12 @@ function vowRevive() {
   const game = boot(5);
   game.__svStart();
   let snap = game.__svSnap();
-  for (let i = 0; i < 2000; i++) {
+  for (let i = 0; i < 2800; i++) {
+    game.__svMove(Math.cos(snap.time * 0.7), Math.sin(snap.time * 0.55));
     snap = game.__svStep(0.05);
     if (snap.state === 'levelup') snap = game.__svChoose(0);
     if (snap.state === 'hermit') break;
-    if (snap.time > 50) fail('vow revive never saw the hermit');
+    if (snap.time > 130) fail('vow revive never saw the hermit');
   }
   snap = game.__svAccept();
   if (!snap.vow || !(snap.curse > 0)) fail('accept did not start the vow');
@@ -565,11 +575,12 @@ function vowsCompletedOnly() {
   const dead = boot(5);
   dead.__svStart();
   let snap = dead.__svSnap();
-  for (let i = 0; i < 2000; i++) {
+  for (let i = 0; i < 2800; i++) {
+    dead.__svMove(Math.cos(snap.time * 0.7), Math.sin(snap.time * 0.55));
     snap = dead.__svStep(0.05);
     if (snap.state === 'levelup') snap = dead.__svChoose(0);
     if (snap.state === 'hermit') break;
-    if (snap.time > 50) fail('vow-death run missed the hermit');
+    if (snap.time > 130) fail('vow-death run missed the hermit');
   }
   snap = dead.__svAccept();
   const started = snap.time;
@@ -587,11 +598,12 @@ function vowsCompletedOnly() {
   const lived = boot(5);
   lived.__svStart();
   snap = lived.__svSnap();
-  for (let i = 0; i < 2000; i++) {
+  for (let i = 0; i < 2800; i++) {
+    lived.__svMove(Math.cos(snap.time * 0.7), Math.sin(snap.time * 0.55));
     snap = lived.__svStep(0.05);
     if (snap.state === 'levelup') snap = lived.__svChoose(0);
     if (snap.state === 'hermit') break;
-    if (snap.time > 50) fail('vow-clear run missed the hermit');
+    if (snap.time > 130) fail('vow-clear run missed the hermit');
   }
   snap = lived.__svAccept();
   if (!snap.vowBadge) fail('badge missing during the vow');
@@ -608,8 +620,30 @@ function vowsCompletedOnly() {
   }
   if (!cleared) fail('completed vow did not count');
   snap = lived.__svSnap();
-  if (snap.vowBadge) fail('badge stayed after the vow ended');
+  if (!snap.vowBadge) fail('badge left before the run ended');
   console.log('completed vow counted ' + snap.vowsSurvived);
+}
+
+function forcedVow() {
+  const game = boot(4, '?headless=1&debug=1&vow=1&walk=circle');
+  game.__svStart();
+  let snap = game.__svSnap();
+  if (snap.vowCount) fail('forced vow was already on');
+  for (let i = 0; i < 4000; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.time < 90 && (snap.vowCount > 0 || snap.state === 'hermit')) {
+      fail('forced vow before 1:30 at ' + snap.time);
+    }
+    if (snap.time >= 90 && snap.vowCount >= 1) break;
+    if (snap.state === 'dead') fail('forced vow died at ' + snap.time.toFixed(1));
+  }
+  if (snap.vowCount < 1) fail('forced vow did not accept');
+  if (snap.state === 'hermit') fail('forced vow opened the card');
+  if (!(snap.curse > 0)) fail('forced vow has no curse');
+  if (snap.time < 90 || snap.time > 90.2) fail('forced vow time ' + snap.time);
+  if (!snap.vowBadge) fail('forced vow badge missing');
+  console.log('forced vow accepted at ' + snap.time.toFixed(2));
 }
 
 function bossWarning() {
@@ -1454,6 +1488,7 @@ casterClearPaths();
 bossOutlinePixels();
 telegraphHook();
 vows();
+forcedVow();
 hermitTwice();
 vowRevive();
 twoEvos();

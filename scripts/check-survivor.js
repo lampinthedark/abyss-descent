@@ -275,4 +275,14 @@ saved.SurvivorSave.gold();
 saved.SurvivorSave.itemBonus();
 if (store.gets !== reads) fail('cached stats touched storage again, +' + (store.gets - reads));
 
+const crypto = require('crypto');
+const vowPng = fs.readFileSync(path.join(root, 'assets/ui/vow_badge.png'));
+const vowHash = crypto.createHash('sha256').update(vowPng).digest('hex');
+if (vowHash !== '85d4e06351c4ecbcfa5ae9793bf9e5cbca78dc95efd1c40f07fcd1e0762a45c5') {
+  fail('vow badge sha256 ' + vowHash);
+}
+if (!fs.readFileSync(path.join(root, 'assets/CREDITS.md'), 'utf8').includes('Vow badge: original art by the team')) {
+  fail('credits missing the vow badge line');
+}
+
 console.log('survivor data ok, first hit ~' + hitIn.toFixed(2) + 's, first level ~' + killsForLevel + ' kills');

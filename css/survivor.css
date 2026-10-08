@@ -47,15 +47,24 @@ body.survivor .sv-vitals .bar-wrap span {
 }
 #sv-vow { color: #e0c080; }
 #sv-vow-badge {
+  align-self: center;
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: #1a2433;
-  color: #d5e4ff;
-  border: 1px solid #7f9cc4;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #24222a;
+  line-height: 0;
+  flex: 0 0 12px;
+  overflow: hidden;
+}
+#sv-vow-badge img,
+#sv-vow-badge canvas {
+  width: 12px;
+  height: 12px;
+  display: block;
+  image-rendering: pixelated;
 }
 #sv-vow-badge.hidden { display: none; }
 #sv-pause-btn {

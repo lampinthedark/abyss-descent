@@ -579,8 +579,23 @@ async function pageWith(browser, url, viewport) {
     await new Promise(r => setTimeout(r, 250));
     await ward.screenshot({ path: path.join(shots, 'survivor-joystick-vows-3.png') });
     await ward.mouse.up();
-    const vowBadge = await ward.$eval('#sv-vow-badge', (el) => ({ hidden: el.classList.contains('hidden'), text: el.textContent }));
-    if (vowBadge.hidden || vowBadge.text !== 'Vow x3') fail('vow badge: ' + JSON.stringify(vowBadge));
+    const vowBadge = await ward.$eval('#sv-vow-badge', (el) => {
+      const img = el.querySelector('img');
+      const canvas = el.querySelector('canvas');
+      const shown = img && img.complete && img.naturalWidth > 0 ? img : canvas;
+      const box = el.getBoundingClientRect();
+      return {
+        hidden: el.classList.contains('hidden'),
+        w: Math.round(box.width),
+        h: Math.round(box.height),
+        rendering: shown ? getComputedStyle(shown).imageRendering : '',
+        kind: img && img.complete && img.naturalWidth > 0 ? 'img' : (canvas ? 'canvas' : 'none'),
+      };
+    });
+    if (vowBadge.hidden || vowBadge.w !== 12 || vowBadge.h !== 12 || vowBadge.kind === 'none') {
+      fail('vow badge: ' + JSON.stringify(vowBadge));
+    }
+    if (vowBadge.rendering !== 'pixelated') fail('vow badge rendering: ' + vowBadge.rendering);
     await ward.screenshot({ path: path.join(shots, 'survivor-floor-vows-3.png') });
     await ward.evaluate(() => window.__svSetVows(5));
     await new Promise(r => setTimeout(r, 200));

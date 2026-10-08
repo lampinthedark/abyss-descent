@@ -36,7 +36,7 @@
         </div>
         <div class="sv-stats">
           <span id="sv-time">0:00</span>
-          <span id="sv-vow-badge" class="hidden">Vow x1.5</span>
+          <span id="sv-vow-badge" class="hidden" aria-label="Vow"></span>
           <span id="sv-kills">Kills 0</span>
           <span id="sv-gold">Gold 0</span>
           <span id="sv-vow" class="hidden">Vow</span>
@@ -82,7 +82,8 @@
     <div id="sv-hermit" class="overlay hidden">
       <div class="panel">
         <h2>The Hermit</h2>
-        <p class="lore">Enemies gain 50% life for 60 seconds. Then you pick two upgrades.</p>
+        <p id="sv-hermit-risk" class="lore"></p>
+        <p id="sv-hermit-reward" class="lore"></p>
         <button type="button" id="sv-hermit-yes" class="big-btn">Take the vow</button>
         <button type="button" id="sv-hermit-no" class="big-btn secondary">Walk away</button>
       </div>

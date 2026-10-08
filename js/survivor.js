@@ -39,6 +39,11 @@
     lateHpScale: 16,
     lateShooter: 6,
     lateShot: 9,
+    demonShield: 4,
+    foodChance: 0.3,
+    foodLife: 30,
+    wardenReach: 3.05,
+    minSpawn: 3,
   };
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
@@ -63,6 +68,11 @@
   const walkMatch = toolDebug && /(?:^|[?&])walk=(circle|kite)(?:&|$)/.exec(search);
   const walkCircle = !!(walkMatch && walkMatch[1] === 'circle');
   const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
+  const fpsMatch = /(?:^|[?&])fps=(\d+)(?:&|$)/.exec(search);
+  const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
+  const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
+  const demonHpFrac = demonHpMatch ? Math.max(0, Math.min(1, Number(demonHpMatch[1]))) : -1;
+  const forceVow = toolDebug && /(?:^|[?&])vow=1(?:&|$)/.test(search);
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
     Math.random = () => {
@@ -164,6 +174,25 @@
   let ringAngle = 0;
   let nextEliteAt = 45;
   let stillT = 0;
+  let velX = 0;
+  let velY = 0;
+  let headX = 1;
+  let headY = 0;
+  let frameDt = 1 / 60;
+  let nextDropAt = 18;
+  let foodEaten = 0;
+  let shieldEarly = 0;
+  let shieldSeen = 0;
+  let lastPrevious = 0;
+  let lastBest = 0;
+  let hpBar = -1;
+  let hpFrom = 0;
+  let hpTo = 0;
+  let hpTween = 1;
+  let kiteSide = 1;
+  let kiteSideAt = 2.6;
+  let forwardAcc = 0;
+  const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
   let rareAt = -1;
@@ -300,11 +329,64 @@
     return s;
   }
 
+  function vowSpec() {
+    const spec = (typeof SurvivorData !== 'undefined' && SurvivorData.VOW) ? SurvivorData.VOW : null;
+    if (spec && spec.hit > 0 && spec.gold && spec.xp) return spec;
+    return { earliest: 90, duration: 60, window: 25, hit: 1.5, xp: [1, 1.5, 2, 3], gold: [1, 1.5, 2, 3] };
+  }
+
+  function vowFrom(table, count) {
+    const n = count < 0 ? 0 : count;
+    const i = n >= table.length ? table.length - 1 : n;
+    return table[i];
+  }
+
   function vowMult() {
-    if (vowCount >= 3) return 3;
-    if (vowCount === 2) return 2;
-    if (vowCount === 1) return 1.5;
-    return 1;
+    return vowFrom(vowSpec().gold, vowCount);
+  }
+
+  function vowXpMul() {
+    return vowFrom(vowSpec().xp, vowCount);
+  }
+
+  function vowNum(n) {
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function vowLines() {
+    const spec = vowSpec();
+    const gold = vowFrom(spec.gold, vowCount + 1);
+    const xp = vowFrom(spec.xp, vowCount + 1);
+    const goldPct = Math.round((gold - 1) * 100);
+    const xpPct = Math.round((xp - 1) * 100);
+    const reward = xpPct === goldPct
+      ? ('Reward: +' + goldPct + '% XP and gold')
+      : ('Reward: +' + xpPct + '% XP and +' + goldPct + '% gold');
+    return {
+      risk: 'Risk: enemies hit ' + vowNum(spec.hit) + '\u00d7 harder',
+      reward: reward,
+    };
+  }
+
+  function paintHermitCard() {
+    const lines = vowLines();
+    const risk = $('sv-hermit-risk');
+    const reward = $('sv-hermit-reward');
+    if (risk) risk.textContent = lines.risk;
+    if (reward) reward.textContent = lines.reward;
+  }
+
+  function scheduleFirstVow() {
+    const spec = vowSpec();
+    const span = spec.window == null ? 25 : spec.window;
+    if (forceVow) return spec.earliest;
+    return spec.earliest + Math.random() * span;
+  }
+
+  function grantXp(amount) {
+    const n = amount || 0;
+    if (!(n > 0)) return;
+    player.xp += n * vowXpMul();
   }
 
   let clockMs = -1;
@@ -429,7 +511,6 @@
       if (u > 0) div = BALANCE.hpScale + (BALANCE.lateHpScale - BALANCE.hpScale) * u;
       hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / div));
     }
-    if (curse > 0) hp = Math.round(hp * 1.35);
     return Math.max(1, hp);
   }
 
@@ -450,6 +531,7 @@
     en.radius = type.radius || 0.32;
     en.speed = (type.speed || 1) * (bossFlag ? 0.58 : 0.5);
     en.dmg = bossFlag ? 18 : (type.id === 'charger' ? 6 : BALANCE.chip);
+    if (bossKind === 'warden') en.dmg = Math.max(1, Math.round(en.dmg * 0.7));
     en.maxLife = bench ? 99999 : hpFor(type.id, bossKind || (bossFlag ? 'demon' : ''));
     en.life = en.maxLife;
     en.boss = bossFlag;
@@ -551,7 +633,7 @@
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
       if ((g.kind || 'gem') !== 'gem') continue;
-      player.xp += g.value || 0;
+      grantXp(g.value || 0);
       releaseGemAt(i);
       return true;
     }
@@ -574,8 +656,13 @@
     g.shower = 0;
     gems.push(g);
     if (sweepOn) markShowerGem(g);
-    if (en.boss) dropPickup(en, 'chest', null);
-    else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
+    if (en.boss) {
+      const chest = dropPickup(en, 'chest', null);
+      if (chest && en.bossKind === 'warden') chest.withFood = 1;
+    } else if (en.elite && (en.fid % 4 === 0)) dropPickup(en, 'heart', null);
+    if (en.elite && !en.boss && Math.random() < BALANCE.foodChance) {
+      placePickup(en.x + 0.45, en.y - 0.15, 'food', null);
+    }
     try { maybeDropItem(en); } catch (e) {}
   }
 
@@ -620,7 +707,10 @@
     g.big = false;
     g.shower = 0;
     gems.push(g);
-    if (kind === 'item' && item && rareBeam(item.rarity)) beamFx(item.id, g.x, g.y, item.rarity);
+    if (kind === 'item' && item) {
+      if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
+      announceItem(item, g.x, g.y);
+    }
     return g;
   }
 
@@ -758,7 +848,8 @@
     const rank = Math.min(5, owned.might || 0);
     let itemMight = 0;
     try { itemMight = itemStats().might; } catch (e) {}
-    return (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
+    const scale = (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
+    return scale;
   }
   function haste() {
     const steps = [1, 0.94, 0.9, 0.78, 0.74, 0.62];
@@ -852,7 +943,7 @@
         releaseGemAt(i);
         continue;
       }
-      if (rareBeam(rarity) && g.item) beamFx(g.item.id, g.x, g.y, rarity);
+      if (g.item) beamFx(g.item.id, g.x, g.y, rarity);
     }
     let guard = 0;
     while (guard++ < 12 && countGround() > 60) {
@@ -868,17 +959,23 @@
   function rareBeam(rarity) {
     return rarity === 'rare' || rarity === 'epic' || rarity === 'legendary';
   }
+  function gemReachMul() {
+    if (time <= 90) return 2;
+    if (time >= 105) return 1;
+    return 2 - (time - 90) / 15;
+  }
   function magnetR() {
     const ranks = (owned.magnet || 0) + shopRank('magnet');
-    return pxToWorld(150 + ranks * 40);
+    return pxToWorld(150 + ranks * 40) * gemReachMul();
   }
   function pickupR() {
-    return pxToWorld(36);
+    return pxToWorld(36) * gemReachMul();
   }
 
   function hurt(amount, heavy) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    const dmg = Math.max(1, amount - armorCut());
+    const incoming = curse > 0 ? amount * vowSpec().hit : amount;
+    const dmg = Math.max(1, incoming - armorCut());
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -904,12 +1001,23 @@
 
   function damageEnemy(en, amount, tick) {
     if (!en || en.life <= 0 || en.dying > 0) return;
+    if (en.bossKind === 'demon' && en.shieldT > 0) {
+      const box = fxBox();
+      if (box && typeof box.shieldHit === 'function' && time - (en.shieldHitAt || -1) >= 0.1) {
+        en.shieldHitAt = time;
+        box.shieldHit(en.fid, en.x, en.y);
+      }
+      return;
+    }
     let crit = false;
     if (!tick && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
     }
     en.life -= amount;
+    if (en.bossKind === 'demon' && !en.shieldUsed && en.life > 0 && en.life <= en.maxLife * 0.5) {
+      startDemonShield(en);
+    }
     if (!tick) {
       const heavy = !!(en.boss || en.elite);
       if (!heavy || time >= (en.flashAt || 0)) {
@@ -946,6 +1054,13 @@
       en.life = 0;
       en.dying = 0.22;
       telegraphOff(en);
+      if (en.bossKind === 'demon' && (en.shieldT > 0 || en.shieldLive)) {
+        en.shieldT = 0;
+        en.shieldLive = false;
+        const box = fxBox();
+        if (box && typeof box.shieldOff === 'function') box.shieldOff(en.fid);
+      }
+      if (en.shieldAdd) onShieldAddDead(en.shieldAdd);
       if (en.bossKind === 'warden') wardenCleared = true;
       else if (en.boss) demonCleared = true;
       if (!(en.boss || en.elite) || time >= (en.flashAt || 0)) {
@@ -1109,11 +1224,13 @@
   }
 
   function openingPack() {
-    const n = 4;
+    const n = 16;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
-      const dist = 7.2;
-      spawnEnemy(i === 0 ? 'imp' : 'skel', Math.cos(ang) * dist, Math.sin(ang) * dist);
+      const spot = viewEdge(ang, false, BALANCE.minSpawn);
+      const x = spot.x;
+      const y = spot.y;
+      spawnEnemy(i % 5 === 0 ? 'imp' : 'skel', x, y);
     }
   }
 
@@ -1185,19 +1302,68 @@
 
   function spawnRing(pad) {
     spawnSerial += 1;
-    const ang = ringAngle + spawnSerial * 2.399963;
-    const half = Math.max(viewHalfW(), viewHalfH());
-    if (stillRing()) {
-      spotScratch.x = player.x + Math.cos(ang) * 0.58;
-      spotScratch.y = player.y + Math.sin(ang) * 0.58;
+    // One contact body keeps the idle chip on its clock. The rest of the
+    // wave stays on the view edge so the screen is not an empty kill counter.
+    if (stillRing() && spawnSerial % 7 === 0) {
+      spotScratch.x = player.x + 0.42;
+      spotScratch.y = player.y + (spawnSerial % 2 ? 0.18 : -0.18);
       return spotScratch;
     }
-    if (time >= BALANCE.edgeAt) return edgePoint(ang, 0.85 + (pad || 0));
-    let ring = half + 0.9 + (pad || 0);
-    if (time < 3) ring = Math.max(2.3, half * 0.7);
-    spotScratch.x = player.x + Math.cos(ang) * ring;
-    spotScratch.y = player.y + Math.sin(ang) * ring;
-    return spotScratch;
+    const moving = player.moving && (headX * headX + headY * headY) > 0.01;
+    const anti = time >= MINI_AT && moving && (spawnSerial % 3 === 0);
+    let ang;
+    let outside = false;
+    if (anti) {
+      ang = aheadAngle(true);
+      outside = true;
+    } else if (time < 120 && moving) {
+      ang = aheadAngle(false);
+    } else {
+      ang = ringAngle + spawnSerial * 2.399963;
+    }
+    if (time >= BALANCE.edgeAt && !anti && !(time < 120 && moving)) {
+      return edgePoint(ang, 0.85 + (pad || 0));
+    }
+    return viewEdge(ang, outside, BALANCE.minSpawn);
+  }
+
+  function spawnForwardPack() {
+    const cap = Math.min(LIVE_CAP, spawnCap());
+    const count = 5;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (let i = 0; i < count && enemies.length < cap; i++) {
+      const ang = aheadAngle(true);
+      const spot = viewEdge(ang, true, BALANCE.minSpawn);
+      const x = spot.x;
+      const y = spot.y;
+      spawnEnemy(spawnKind(), x, y);
+      sx += x;
+      sy += y;
+      n += 1;
+      spawnedThisFrame += 1;
+    }
+    if (n) fxSpawn(sx / n, sy / n);
+  }
+
+  function dropWorldItem(forced) {
+    let kind = forced || 'mob';
+    if (!forced && rareAt < 0 && time >= 78) kind = 'rare';
+    let item = null;
+    try { item = SurvivorSave.mintDrop(kind); } catch (e) { item = null; }
+    if (!item) return;
+    const ang = player.moving ? aheadAngle(false) : Math.random() * Math.PI * 2;
+    const dist = Math.max(BALANCE.minSpawn, 3.4);
+    const x = player.x + Math.cos(ang) * dist;
+    const y = player.y + Math.sin(ang) * dist;
+    if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') {
+      if (rareAt < 0) rareAt = time;
+      rareSeen = true;
+    }
+    if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
+    itemDrops += 1;
+    placePickup(x, y, 'item', item);
   }
 
   function wardenAlive() {
@@ -1255,8 +1421,9 @@
   function spawnRate() {
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     let rate = 2.2;
-    if (time < 12) rate = 4;
-    else if (time < 40) rate = 2.6;
+    if (time < 12) rate = 5.4;
+    else if (time < 22) rate = 4.6;
+    else if (time < 40) rate = 3.2;
     else if (time < 70) rate = 3.4;
     else if (time < 120) rate = 12;
     else if (time < 180) rate = 26;
@@ -1271,8 +1438,9 @@
 
   function spawnCap() {
     let cap = 340;
-    if (time < 12) cap = 14;
-    else if (time < 35) cap = 32;
+    if (time < 12) cap = 28;
+    else if (time < 22) cap = 40;
+    else if (time < 35) cap = 48;
     else if (time < 70) cap = 72;
     else if (time < 120) cap = 140;
     else if (time < 200) cap = 220;
@@ -1290,9 +1458,15 @@
       const a = ringAngle + (i / count) * Math.PI * 2;
       let x;
       let y;
-      if (stillRing()) {
-        x = player.x + Math.cos(a) * 0.58;
-        y = player.y + Math.sin(a) * 0.58;
+      if (stillRing() && i === 0) {
+        x = player.x + 0.42;
+        y = player.y;
+      } else if (time < 120 || time >= MINI_AT) {
+        const moving = player.moving && (headX * headX + headY * headY) > 0.01;
+        const ang = (time >= MINI_AT && moving) ? aheadAngle(true) : (moving && time < 120 ? aheadAngle(false) : a);
+        const spot = viewEdge(ang, time >= MINI_AT && moving, BALANCE.minSpawn);
+        x = spot.x;
+        y = spot.y;
       } else if (time >= BALANCE.edgeAt) {
         const spot = edgePoint(a, 0.7);
         x = spot.x;
@@ -1348,15 +1522,32 @@
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
       const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      applyDemonFrac(demon);
     }
-    if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt) {
+    if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt && time >= vowSpec().earliest) {
       hermit.x = player.x + 2.4;
       hermit.y = player.y + 1.2;
       vowSeen = true;
       fxCall('vow', vowCount);
+      if (forceVow) {
+        hermit.used = true;
+        acceptHermit();
+        return;
+      }
       openHermit();
       return;
+    }
+    if (time >= nextDropAt && state === 'playing') {
+      nextDropAt = time + 15 + Math.random() * 10;
+      dropWorldItem(rareAt < 0 && time >= 78 ? 'rare' : '');
+    }
+    if (time >= MINI_AT && player.moving) {
+      forwardAcc += dt;
+      if (forwardAcc >= 3.4) {
+        forwardAcc = 0;
+        spawnForwardPack();
+      }
     }
     if (time >= RUN_SECONDS) {
       runGold += SurvivorData.REWARDS.gold.win;
@@ -1414,7 +1605,8 @@
   function leashBoss(en, dt) {
     const halfW = canvas.width / (TILE * 2);
     const halfH = canvas.height / (TILE * 2);
-    const reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
+    let reach = Math.max(5.5, Math.min(halfW, halfH) * 0.7);
+    if (en.bossKind === 'warden') reach = Math.min(reach, BALANCE.wardenReach);
     let dx = en.x - player.x;
     let dy = en.y - player.y;
     let dist = len2(dx, dy) || 1;
@@ -1635,6 +1827,8 @@
           }
         }
       } else {
+        const x0 = s.x;
+        const y0 = s.y;
         if (s.kind !== 'ember') {
           s.x += s.vx * dt;
           s.y += s.vy * dt;
@@ -1655,12 +1849,13 @@
             continue;
           }
           if (s.kind === 'pierce') {
-            if (en._pierce === s.seq || sd2 > hit2) continue;
+            if (en._pierce === s.seq || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
             en._pierce = s.seq;
             damageEnemy(en, s.dmg);
             continue;
           }
-          if (sd2 <= hit2) {
+          const boltHit = s.kind === 'ember' ? sd2 <= hit2 : sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach);
+          if (boltHit) {
             if (s.pierce > 0 && s.hitFid === en.fid) continue;
             damageEnemy(en, s.dmg);
             if (effectOn('chain') && s.kind === 'nova' && en.life <= 0 && !s.chained) chainNova(en, s);
@@ -1693,9 +1888,12 @@
     for (let i = foeShots.length - 1; i >= 0; i--) {
       const s = foeShots[i];
       s.life -= dt;
+      const x0 = s.x;
+      const y0 = s.y;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (len2(s.x - player.x, s.y - player.y) < (player.moving ? 0.14 : 0.46)) {
+      const shotR = player.moving ? 0.22 : 0.46;
+      if (sweptHit(x0, y0, s.x, s.y, player.x, player.y, shotR)) {
         lastHit = 'shot';
         hurt(s.dmg, false);
         s.life = 0;
@@ -1743,6 +1941,155 @@
     if (box && typeof box.telegraphOff === 'function') box.telegraphOff(en.id || index);
   }
 
+  function fxSpawn(x, y) {
+    const box = fxBox();
+    if (box && typeof box.spawn === 'function') box.spawn(x, y);
+  }
+
+  function pushChat(text, color) {
+    if (!text) return;
+    chatLog.push({ text: text, color: color || '#f4efe0', t: time });
+    if (chatLog.length > 6) chatLog.shift();
+    const host = $('sv-chat');
+    if (!host) return;
+    const line = document.createElement('p');
+    line.textContent = text;
+    line.style.color = color || '#f4efe0';
+    host.appendChild(line);
+    while (host.childNodes && host.childNodes.length > 6) host.removeChild(host.firstChild);
+  }
+
+  function announceItem(item, x, y) {
+    if (!item) return;
+    let rarity = 'Common';
+    try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
+      const raw = item.rarity || 'common';
+      rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+    showToast(item);
+    pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    if (item.id != null) beamFx(item.id, x, y, item.rarity);
+  }
+
+  function sweptHit(x0, y0, x1, y1, tx, ty, rad) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const fx = tx - x0;
+    const fy = ty - y0;
+    const span = dx * dx + dy * dy;
+    let t = 0;
+    if (span > 1e-8) t = Math.max(0, Math.min(1, (fx * dx + fy * dy) / span));
+    const px = x0 + dx * t - tx;
+    const py = y0 + dy * t - ty;
+    return px * px + py * py <= rad * rad;
+  }
+
+  function viewEdge(ang, outside, minDist) {
+    const pad = outside ? 0.55 : -0.2;
+    const halfW = Math.max(BALANCE.minSpawn, viewHalfW() + pad);
+    const halfH = Math.max(BALANCE.minSpawn, viewHalfH() + pad);
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const fit = 1 / Math.max(Math.abs(c) / halfW, Math.abs(s) / halfH);
+    let x = player.x + c * fit;
+    let y = player.y + s * fit;
+    const dx = x - player.x;
+    const dy = y - player.y;
+    const dist = len2(dx, dy);
+    const need = minDist == null ? BALANCE.minSpawn : minDist;
+    if (dist < need) {
+      const k = need / (dist || 1);
+      x = player.x + dx * k;
+      y = player.y + dy * k;
+    }
+    spotScratch.x = x;
+    spotScratch.y = y;
+    return spotScratch;
+  }
+
+  function aheadAngle(wide) {
+    const head = Math.atan2(headY, headX);
+    const arcDeg = wide ? (90 + Math.random() * 50) : (100 + Math.random() * 40);
+    const arc = arcDeg * Math.PI / 180;
+    return head + (Math.random() - 0.5) * arc;
+  }
+
+  function breakDemonShield(en) {
+    if (!en) return;
+    const early = en.shieldT > 0.05;
+    en.shieldT = 0;
+    en.shieldLive = false;
+    if (early) shieldEarly += 1;
+    const box = fxBox();
+    if (box && typeof box.shieldBreak === 'function') box.shieldBreak(en.fid);
+  }
+
+  function onShieldAddDead(demonFid) {
+    let demon = null;
+    let alive = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind === 'demon' && en.fid === demonFid) demon = en;
+      if (en.shieldAdd === demonFid && en.life > 0 && !(en.dying > 0)) alive += 1;
+    }
+    if (demon && demon.shieldT > 0 && alive === 0) breakDemonShield(demon);
+  }
+
+  function spawnAddRing(en) {
+    const count = 8;
+    const dist = Math.max(BALANCE.minSpawn, 3.2);
+    let sx = 0;
+    let sy = 0;
+    en.shieldAdds = [];
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2;
+      const x = player.x + Math.cos(ang) * dist;
+      const y = player.y + Math.sin(ang) * dist;
+      const add = spawnEnemy(i % 2 ? 'imp' : 'skel', x, y);
+      if (!add) continue;
+      add.shieldAdd = en.fid;
+      add.maxLife = Math.max(add.maxLife, 90);
+      add.life = add.maxLife;
+      en.shieldAdds.push(add.fid);
+      sx += x;
+      sy += y;
+    }
+    fxSpawn(sx / count, sy / count);
+  }
+
+  function startDemonShield(en) {
+    if (!en || en.shieldUsed) return;
+    en.shieldUsed = true;
+    en.shieldLive = true;
+    en.shieldT = BALANCE.demonShield;
+    shieldSeen += 1;
+    const box = fxBox();
+    const rad = (en.radius || 0.8) + 0.9;
+    if (box && typeof box.shield === 'function') box.shield(en.fid, en.x, en.y, rad, en.shieldT * 1000);
+    spawnAddRing(en);
+  }
+
+  function tickDemonShield(en, dt) {
+    if (!en || !(en.shieldT > 0)) return;
+    en.shieldT -= dt;
+    let alive = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      const other = enemies[i];
+      if (other.shieldAdd === en.fid && other.life > 0 && !(other.dying > 0)) alive += 1;
+    }
+    if (en.shieldAdds && en.shieldAdds.length && alive === 0) {
+      breakDemonShield(en);
+      return;
+    }
+    if (en.shieldT <= 0) breakDemonShield(en);
+  }
+
+  function applyDemonFrac(en) {
+    if (!en || en.bossKind !== 'demon' || !(demonHpFrac >= 0)) return;
+    en.life = Math.max(1, Math.round(en.maxLife * demonHpFrac));
+    if (en.life <= en.maxLife * 0.5) startDemonShield(en);
+  }
+
   function tickCharger(en, dt) {
     const ai = en.ai;
     const dx = player.x - en.x;
@@ -1764,19 +2111,29 @@
       }
     } else if (ai.mode === 'tell') {
       ai.t -= dt;
-      en.facing = ai.vx >= 0 ? 1 : -1;
+      en.facing = dx >= 0 ? 1 : -1;
       if (ai.t <= 0) {
+        const look = 0.28;
+        const px = player.x + velX * look;
+        const py = player.y + velY * look;
+        const lx = px - en.x;
+        const ly = py - en.y;
+        const ld = len2(lx, ly) || 1;
+        ai.vx = lx / ld;
+        ai.vy = ly / ld;
         ai.mode = 'dash';
         ai.t = 0.38;
       }
     } else if (ai.mode === 'dash') {
       ai.t -= dt;
+      const x0 = en.x;
+      const y0 = en.y;
       en.x += ai.vx * 8.2 * dt;
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
-      const hit = len2(player.x - en.x, player.y - en.y);
       const hitR = player.moving ? en.radius + 0.12 : en.radius + 0.5;
-      if (hit < hitR && en.touchCd <= 0) {
+      const hit = sweptHit(x0, y0, en.x, en.y, player.x, player.y, hitR);
+      if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
         hurt(player.moving ? 4 : en.dmg + 3, false);
@@ -1835,6 +2192,7 @@
     const dy = player.y - en.y;
     const dist = len2(dx, dy) || 1;
     en.facing = dx >= 0 ? 1 : -1;
+    if (en.bossKind === 'demon') tickDemonShield(en, dt);
     if (ai.mode === 'tell') {
       ai.t -= dt;
       if (ai.t <= 0) {
@@ -1847,9 +2205,10 @@
           ai.t = 1.1;
         } else {
           const base = Math.atan2(dy, dx);
+          const volley = en.bossKind === 'warden' ? 5 : 7;
           for (let i = -1; i <= 1; i++) {
             const ang = base + i * 0.32;
-            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, 7);
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
           }
           ai.mode = 'recover';
           ai.t = 1.3;
@@ -2008,7 +2367,14 @@
     for (let i = gems.length - 1; i >= 0; i--) {
       const g = gems[i];
       const kind = g.kind || 'gem';
-      const walked = kind === 'chest' || kind === 'item' || kind === 'heart';
+      if (kind === 'food') {
+        g.age = (g.age || 0) + dt;
+        if ((g.age || 0) >= BALANCE.foodLife) {
+          releaseGemAt(i);
+          continue;
+        }
+      }
+      const walked = kind === 'chest' || kind === 'item' || kind === 'heart' || kind === 'food';
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
@@ -2029,7 +2395,14 @@
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
-          openChest(g.x, g.y, chestItem());
+          openChest(g.x, g.y, chestItem(), g.withFood);
+        } else if (kind === 'food') {
+          const gain = player.maxLife * 0.25;
+          player.life = Math.min(player.maxLife, player.life + gain);
+          foodEaten += 1;
+          pushChat('You eat the roast meat.', '#e6c15a');
+          const box = fxBox();
+          if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
           try { SurvivorSave.addItem(g.item); } catch (e) {}
           showToast(g.item);
@@ -2038,9 +2411,9 @@
           info.rarity = g.item.rarity;
           fxCall('pickup', g.x, g.y, 'item', info);
         } else {
-          player.xp += g.value || 0;
+          grantXp(g.value || 0);
         }
-        if (kind !== 'chest') spark(player.x, player.y, '#ffffff', 3, 2.6);
+        if (kind !== 'chest' && kind !== 'food') spark(player.x, player.y, '#ffffff', 3, 2.6);
         if (kind === 'gem') {
           chainInfo.chain = bumpGemChain();
           fxCall('pickup', g.x, g.y, 'gem', chainInfo);
@@ -2456,7 +2829,7 @@
     hermit.on = false;
     hermit.used = false;
     joy.on = false;
-    nextVowAt = 20 + Math.random() * 25;
+    nextVowAt = scheduleFirstVow();
     vowSeen = false;
     spawnSerial = 0;
     eliteWarned = false;
@@ -2687,7 +3060,7 @@
     clearPools();
     time = seconds;
     minuteMark = Math.floor(time / 60);
-    nextVowAt = time + 80;
+    nextVowAt = forceVow ? vowSpec().earliest : Math.max(vowSpec().earliest, time + 80);
     nextEliteAt = time + BALANCE.eliteEvery;
     const picks = picksForTime(seconds);
     picks.forEach((id) => {
@@ -2737,7 +3110,8 @@
       raiseBanner('Risen Demon approaches', true);
       bannerT = 2.4;
       const spot = spawnBossEdge();
-      spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      applyDemonFrac(demon);
     } else if (time >= 148) {
       eliteWarned = true;
       eliteSpawned = true;
@@ -3105,13 +3479,14 @@
   }
 
   // Single open hook. A later FX.chestOpen(x, y, rarity, onLand) roll can wrap this.
-  function openChest(x, y, item) {
+  function openChest(x, y, item, withFood) {
     const rarity = (item && item.rarity) || 'rare';
     const color = RARITY_FILL[rarity] || '#4c7cff';
     const box = (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
     if (box && typeof box.kill === 'function') box.kill(x, y, 'chest', { elite: true, color: color });
     grantGold(40 * vowMult());
     if (item) placePickup(x + 0.62, y, 'item', item);
+    if (withFood) placePickup(x - 0.75, y, 'food', null);
   }
 
   function queueEvolutions() {
@@ -3315,19 +3690,15 @@
     joy.on = false;
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
+    paintHermitCard();
     show('sv-hermit');
     sfx('talk');
   }
 
   function acceptHermit() {
     hide('sv-hermit');
-    curse = 60;
+    curse = vowSpec().duration;
     vowPayout = true;
-    for (let i = 0; i < enemies.length; i++) {
-      const en = enemies[i];
-      en.maxLife = Math.round(en.maxLife * 1.5);
-      en.life = Math.round(en.life * 1.5);
-    }
     state = 'playing';
     releaseEvolution();
     vowCount += 1;
@@ -3339,10 +3710,61 @@
   }
 
   let vowSecShown = -1;
-  let vowBadgeShown = '';
+  let vowMarkReady = false;
+
+  function drawVowMark(canvas) {
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    canvas.width = 36;
+    canvas.height = 36;
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = '#24222a';
+    g.fillRect(0, 0, 36, 36);
+    g.fillStyle = '#9fb4c8';
+    const cells = [
+      1, 1, 2, 1, 3, 1,
+      1, 2, 3, 2,
+      1, 3, 3, 3,
+      1, 4, 2, 4, 3, 4,
+      7, 6, 8, 6, 9, 6,
+      7, 7, 9, 7,
+      7, 8, 9, 8,
+      7, 9, 8, 9, 9, 9,
+    ];
+    for (let i = 0; i < cells.length; i += 2) {
+      g.fillRect(cells[i] * 3, cells[i + 1] * 3, 3, 3);
+    }
+  }
+
+  function mountVowBadge() {
+    if (vowMarkReady) return;
+    const badge = $('sv-vow-badge');
+    if (!badge || !document.createElement) return;
+    vowMarkReady = true;
+    badge.textContent = '';
+    if (badge.setAttribute) badge.setAttribute('aria-label', 'Vow');
+    const canvas = document.createElement('canvas');
+    drawVowMark(canvas);
+    if (badge.appendChild) badge.appendChild(canvas);
+    const img = document.createElement('img');
+    img.alt = '';
+    img.width = 12;
+    img.height = 12;
+    img.draggable = false;
+    const showImage = () => {
+      if (!(img.naturalWidth > 0)) return;
+      if (canvas.parentNode && canvas.parentNode.removeChild) canvas.parentNode.removeChild(canvas);
+      if (badge.appendChild) badge.appendChild(img);
+    };
+    if (img.addEventListener) img.addEventListener('load', showImage);
+    img.src = 'assets/ui/vow_badge.png';
+    if (img.complete && img.naturalWidth > 0) showImage();
+  }
 
   function syncVowChrome() {
-    const active = curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title';
+    const alive = state !== 'dead' && state !== 'won' && state !== 'title';
+    const active = curse > 0 && alive;
+    const marked = vowCount > 0 && alive;
     const vow = $('sv-vow');
     if (vow) {
       vow.classList.toggle('hidden', !active);
@@ -3356,15 +3778,8 @@
     }
     const badge = $('sv-vow-badge');
     if (badge) {
-      badge.classList.toggle('hidden', !active);
-      if (active) {
-        const mult = vowMult();
-        const label = mult === 1.5 ? 'Vow x1.5' : mult === 2 ? 'Vow x2' : mult === 3 ? 'Vow x3' : ('Vow x' + mult);
-        if (label !== vowBadgeShown) {
-          vowBadgeShown = label;
-          badge.textContent = label;
-        }
-      } else vowBadgeShown = '';
+      badge.classList.toggle('hidden', !marked);
+      if (marked) mountVowBadge();
     }
   }
 
@@ -4495,7 +4910,9 @@
       vow: vowPayout,
       vowCount: vowCount,
       vowsSurvived: vowsSurvived,
-      vowBadge: curse > 0 && state !== 'dead' && state !== 'won' && state !== 'title',
+      vowBadge: vowCount > 0 && state !== 'dead' && state !== 'won' && state !== 'title',
+      vowRisk: vowLines().risk,
+      vowReward: vowLines().reward,
       warnOn: warnOn,
       doubled: doubled,
       doubleOffered: doubleOffered(),
@@ -4818,6 +5235,7 @@
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
     SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1');
+    mountVowBadge();
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);
   }
