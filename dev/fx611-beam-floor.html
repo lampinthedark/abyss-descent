@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Beam floor shot</title>
+  <style>
+    html, body { margin: 0; background: #100c0c; }
+    canvas { display: block; width: 390px; height: 844px; image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <canvas id="c" width="390" height="844"></canvas>
+  <script src="../js/survivor-sprites.js"></script>
+  <script src="../js/survivor-fx.js"></script>
+  <script>
+    var canvas = document.getElementById('c');
+    var ctx = canvas.getContext('2d');
+    var zoom = 3;
+    var cam = { x: 195, y: 560, zoom: zoom };
+
+    window.shotBeamCrowd = function () {
+      return SurvivorSprites.load('../assets/0x72/dungeon-tileset-ii.png').then(function () {
+        SurvivorSprites.setZoom(zoom);
+        FX.setReducedMotion(false);
+        FX.reset();
+        var foes = [];
+        var eids = ['skel', 'imp', 'shooter', 'charger', 'brute'];
+        for (var i = 0; i < 24; i++) {
+          foes.push({
+            x: 28 + (i % 6) * 62,
+            y: 250 + ((i / 6) | 0) * 78,
+            eid: eids[i % 5],
+            facing: i % 2 ? 1 : -1,
+            time: i * 0.17,
+            scale: 1
+          });
+        }
+        var tile = 16 * zoom;
+        function at(px, py) {
+          return { x: (px - cam.x) / tile, y: (py - cam.y) / tile };
+        }
+        var rare = at(78, 470);
+        var epic = at(196, 520);
+        var leg = at(312, 450);
+        FX.beam('rare', rare.x, rare.y, 'rare');
+        FX.beam('epic', epic.x, epic.y, 'epic');
+        FX.beam('leg', leg.x, leg.y, 'legendary');
+        FX.update(0.05);
+        ctx.imageSmoothingEnabled = false;
+        ctx.fillStyle = '#100c0c';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        SurvivorSprites.drawGround(ctx, cam.x, cam.y, canvas.width, canvas.height);
+        for (var f = 0; f < foes.length; f++) {
+          SurvivorSprites.drawFoe(ctx, foes[f].x, foes[f].y, foes[f]);
+        }
+        SurvivorSprites.drawHero(ctx, 195, 640, { facing: 1, time: 0.2, moving: false });
+        FX.draw(ctx, cam);
+        return { rare: rare, epic: epic, leg: leg, cam: cam, zoom: zoom };
+      });
+    };
+  </script>
+</body>
+</html>

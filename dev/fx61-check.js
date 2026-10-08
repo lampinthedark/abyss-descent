@@ -15,7 +15,7 @@ src = src.replace(
 );
 src = src.replace(
   'LEVELUP_RADIUS: LEVELUP_RADIUS,',
-  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },'
+  'LEVELUP_RADIUS: LEVELUP_RADIUS,\n    _peak: function () { return __peak; },\n    _beams: function () { let n = 0; for (let i = 0; i < BEAM_N; i++) if (beams[i].on) n++; return n; },'
 );
 
 function makeCtx() {
@@ -292,8 +292,34 @@ FX.draw(ctx, cam);
 check('uncommon glint is green', fills('#5ed37a') > 0);
 check('rare column is blue', fills('#4c7cff') > 0);
 check('epic column is purple', fills('#b48cff') > 0);
-check('legendary column is pearl', fills('#f4f2ff') > 0);
-check('legendary edge alternates', fills('#7fb2ff') > 0 && fills('#c9b6ff') > 0);
+check('rare and epic have a white core', fills('#ffffff') === 2);
+check('legendary is a double gold column', fills('#ffb43c') >= 2 && fills('#ffd27a') >= 2);
+check('legendary dropped the alternating pearl edges', fills('#7fb2ff') === 0 && fills('#c9b6ff') === 0);
+let minBody = 1;
+let edgeA = -1;
+let rareH = 0;
+let epicW = 0;
+const darkX = [];
+const coreX = [];
+for (let i = 0; i < calls.length; i++) {
+  const c = calls[i];
+  if (c[0] !== 'fill' || c[6] < 20) continue;
+  if (c[1] === '#4c7cff' || c[1] === '#b48cff' || c[1] === '#ffffff' || c[1] === '#ffb43c' || c[1] === '#ffd27a') {
+    if (c[2] < minBody) minBody = c[2];
+  }
+  if (c[1] === '#14120f') edgeA = c[2];
+  if (c[1] === '#4c7cff' && c[6] > rareH) rareH = c[6];
+  if (c[1] === '#b48cff') epicW = c[5];
+  if (c[1] === '#14120f' && c[6] >= 280) darkX.push(c[3]);
+  if (c[1] === '#ffb43c' && c[6] >= 280) coreX.push(c[3]);
+}
+darkX.sort(function (p, q) { return p - q; });
+coreX.sort(function (p, q) { return p - q; });
+check('column body alpha stays at least 0.85', minBody >= 0.85);
+check('dark edge is about 70% alpha', edgeA > 0.65 && edgeA < 0.75);
+check('rare column is 72 CSS px tall at zoom 3', rareH === 72 * 2);
+check('epic body strip is 1 CSS px wide at zoom 3', epicW === 2);
+check('legendary dark edges touch in the middle', darkX.length >= 4 && darkX[2] - darkX[1] === 2 && coreX.length === 2 && coreX[1] - coreX[0] === 6);
 FX.beam('r', 0.2, 0, 'rare');
 calls.length = 0;
 FX.draw(ctx, cam);
@@ -310,9 +336,48 @@ FX.draw(ctx, cam);
 let edgeBlue = 0;
 for (let i = 0; i < calls.length; i++) {
   const c = calls[i];
-  if (c[0] === 'fill' && (c[1] === '#4c7cff' || c[1] === '#b48cff' || c[1] === '#f4f2ff') && c[3] < 40) edgeBlue += 1;
+  if (c[0] === 'fill' && (c[1] === '#4c7cff' || c[1] === '#b48cff' || c[1] === '#ffb43c') && c[3] < 40) edgeBlue += 1;
 }
 check('off-screen arrows sit on the inset edge', edgeBlue > 0);
+
+FX.reset();
+FX.beam('vr', 0, 0, 'very rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('very rare uses the epic column', fills('#b48cff') > 0 && fills('#ffffff') > 0);
+
+function srgbLin(c) {
+  const x = c / 255;
+  return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+}
+function grayRgb(rgb) {
+  const y = Math.round(0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]);
+  return [y, y, y];
+}
+function contrast(a, b) {
+  const la = 0.2126 * srgbLin(a[0]) + 0.7152 * srgbLin(a[1]) + 0.0722 * srgbLin(a[2]);
+  const lb = 0.2126 * srgbLin(b[0]) + 0.7152 * srgbLin(b[1]) + 0.0722 * srgbLin(b[2]);
+  const hi = la > lb ? la : lb;
+  const lo = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
+}
+const grass = [0x5d, 0x7f, 0x32];
+const floorMed = [72, 59, 58];
+const beamInk = {
+  'rare core': [255, 255, 255],
+  'epic core': [255, 255, 255],
+  'legendary core': [0xff, 0xb4, 0x3c],
+  'dark edge': [0x14, 0x12, 0x0f],
+};
+Object.keys(beamInk).forEach(function (name) {
+  const fg = grayRgb(beamInk[name]);
+  const vsGrass = contrast(fg, grayRgb(grass));
+  const vsFloor = contrast(fg, grayRgb(floorMed));
+  console.log('grayscale', name, 'grass', vsGrass.toFixed(2), 'floor', vsFloor.toFixed(2));
+});
+check('rare core contrast vs grass and floor', contrast(grayRgb([255, 255, 255]), grayRgb(grass)) >= 1.7 && contrast(grayRgb([255, 255, 255]), grayRgb(floorMed)) >= 1.7);
+check('legendary core contrast vs grass and floor', contrast(grayRgb([0xff, 0xb4, 0x3c]), grayRgb(grass)) >= 1.7 && contrast(grayRgb([0xff, 0xb4, 0x3c]), grayRgb(floorMed)) >= 1.7);
+check('dark edge contrast vs grass and floor', contrast(grayRgb([0x14, 0x12, 0x0f]), grayRgb(grass)) >= 1.7 && contrast(grayRgb([0x14, 0x12, 0x0f]), grayRgb(floorMed)) >= 1.7);
 
 // 400 deaths at 25/s plus 20 beams stay inside the 200 cap.
 FX.reset();
@@ -334,6 +399,118 @@ for (let i = 0; i < 400; i++) FX.kill(i * 0.01, 0, 'skel', vis);
 FX.update(0.016);
 console.log('particle peak one-frame burst', FX._peak());
 check('burst particle peak <= 200', FX._peak() <= 200);
+
+function tallOf(color, minH) {
+  let n = 0;
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+    if (c[0] === 'fill' && c[1] === color && c[6] >= minH) n += 1;
+  }
+  return n;
+}
+
+FX.reset();
+FX.beam('leg-case', 0, 0, 'Legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('Legendary gives r=4 and draws the double gold beam', tallOf('#ffb43c', 280) === 2 && tallOf('#ffd27a', 280) === 2);
+
+FX.reset();
+FX.beam('rare-case', 0, 0, 'RARE');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('RARE gives r=2', tallOf('#4c7cff', 140) === 1 && tallOf('#ffb43c', 200) === 0);
+
+FX.reset();
+FX.beam('vr-case', 0, 0, 'Very Rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('Very Rare gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1 && tallOf('#ffb43c', 200) === 0);
+
+FX.reset();
+FX.beam('pad-epic', 0, 0, ' Epic ');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('padded Epic gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1);
+
+FX.reset();
+FX.beam('us-rare', 0, 0, 'very_rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('very_rare gives r=3', tallOf('#b48cff', 180) >= 1 && tallOf('#ffffff', 180) === 1);
+
+FX.reset();
+let rarityThrew = false;
+try {
+  FX.beam('bad1', 0, 0, 'bogus');
+  FX.beam('bad2', 1, 0, null);
+  FX.beam('bad3', 2, 0, 42);
+  FX.beam('bad4', 3, 0, undefined);
+} catch (e) {
+  rarityThrew = true;
+}
+calls.length = 0;
+FX.draw(ctx, cam);
+check('bogus, null and 42 give r=0 with no throw', !rarityThrew && tallOf('#4c7cff', 20) === 0 && tallOf('#b48cff', 20) === 0 && tallOf('#ffb43c', 20) === 0 && tallOf('#5ed37a', 20) === 0);
+
+FX.reset();
+FX.beam('cross', 0, 0, 'uncommon');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('uncommon still draws and keeps a slot', FX._beams() === 1 && fills('#5ed37a') > 0);
+
+FX.reset();
+let slotThrew = false;
+try {
+  for (let i = 0; i < 100; i++) FX.beam('common-' + i, i * 0.2, 0, 'common');
+  FX.beam('junk-a', 0, 0, 'bogus');
+  FX.beam('junk-b', 1, 0, null);
+  FX.beam('junk-c', 2, 0, 42);
+  FX.beam('junk-d', 3, 0, '');
+  FX.beam('junk-e', 4, 0, {});
+  FX.beam('junk-f', 5, 0, NaN);
+} catch (e) {
+  slotThrew = true;
+}
+check('commons and junk use no beam slots', !slotThrew && FX._beams() === 0);
+FX.beam('slot-rare', 0, 0, 'rare');
+FX.beam('slot-leg', 1.2, 0, 'Legendary');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('rare and Legendary both get a slot and draw', FX._beams() === 2 && tallOf('#4c7cff', 140) === 1 && tallOf('#ffb43c', 280) === 2);
+FX.beam('slot-rare', 0, 0, 'common');
+check('a later common clears that beam slot', FX._beams() === 1);
+
+FX.reset();
+FX.beam('under', 0, 0, 'rare');
+FX.update(0.016);
+calls.length = 0;
+FX.drawUnder(ctx, cam);
+const underOnce = tallOf('#4c7cff', 140);
+FX.draw(ctx, cam);
+check('drawUnder then draw paints beams once', underOnce === 1 && tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('draw only paints beams', tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+calls.length = 0;
+FX.drawUnder(ctx, cam);
+check('drawUnder on this frame paints the column', tallOf('#4c7cff', 140) === 1);
+FX.update(0.016);
+calls.length = 0;
+FX.draw(ctx, cam);
+check('draw on the next frame still paints beams', tallOf('#4c7cff', 140) === 1);
+
+FX.update(0.016);
+FX.drawUnder(ctx, cam);
+FX.reset();
+FX.beam('under', 0, 0, 'rare');
+calls.length = 0;
+FX.draw(ctx, cam);
+check('restart still paints beams', tallOf('#4c7cff', 140) === 1);
 
 if (fails.length) {
   console.error('FAILED', fails.join(', '));

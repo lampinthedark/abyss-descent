@@ -11,32 +11,32 @@
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
   const MINI_AT = 300;
-  // BALANCE 6.1.1 — one table. Revert this block to undo the tuning pass.
-  // Evolutions wait for the clock. After the Demon, pressure ramps so a
-  // circle dies between 6:00 and 8:00 while the screen stays full.
+  // BALANCE 6.1.2 — one table. Revert this block to undo the tuning pass.
+  // The post-Demon squeeze used to start at 5:00 and kill movers by 6:40.
+  // It now waits until 7:00 and climbs faster, so the screen fills late.
   const BALANCE = {
     chip: 3,
     idleGrace: 8,
     idleBiteEvery: 1.5,
-    heavyAt: 150,
+    heavyAt: 100,
     eliteFirst: 120,
     eliteEvery: 45,
     hpScaleAt: 150,
     hpScale: 48,
     edgeAt: 45,
-    wardenHp: 1400,
+    wardenHp: 1480,
     demonHp: 3100,
     evoSlow: 0.5,
     evoScale: 0.3,
     evoRank: 5,
     evoPartner: 1,
     evoAt: 95,
-    lateAt: 300,
-    lateRamp: 150,
-    lateRate: 64,
+    lateAt: 420,
+    lateRamp: 80,
+    lateRate: 48,
     lateCap: 400,
     lateEliteEvery: 14,
-    lateHpScale: 16,
+    lateHpScale: 40,
     lateShooter: 6,
     lateShot: 9,
     demonShield: 4,
@@ -48,9 +48,25 @@
     minSpawn: 3,
     idleClose: 2.4,
     idleReach: 3.6,
+    eliteHp: 26,
   };
   const PARTICLE_CAP = 40;
-  const FLOAT_CAP = 40;
+  const FLOAT_CAP = 24;
+  // Trail only. Re-aim it every tick from the gem we just moved. The lerp
+  // still lands the gem, and banking stays here. FX's own timer is ignored.
+  // Flight time is 400 ms for both the 3-tile pull and the 10 s auto-fly.
+  const LOOTPULL_FX = true;
+  const LOOT_FLIGHT = 0.4;
+  const VOW_LATE_AT = 300;
+  const VOW_LATE_RAMP = 70;
+  const VOW_LATE_HP_MULT = 5.6;
+  const VOW_LATE_DMG_MULT = 4.8;
+  const RELIEF_AT = 300;
+  const RELIEF_GAP = 38;
+  const RELIEF_NEAR = 11;
+  const RELIEF_NEED = 4;
+  const RELIEF_PACK = 6;
+  const RELIEF_DIST = 6.5;
   const FLOAT_LIFE = 0.55;
   const GEM_CAP = 180;
 
@@ -76,7 +92,7 @@
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
   const demonHpFrac = demonHpMatch ? Math.max(0, Math.min(1, Number(demonHpMatch[1]))) : -1;
-  const forceVow = toolDebug && /(?:^|[?&])vow=1(?:&|$)/.test(search);
+  const forceVow = /(?:^|[?&])vow=1(?:&|$)/.test(search);
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
     Math.random = () => {
@@ -176,6 +192,7 @@
   let ended = false;
   let minuteMark = 0;
   let spawnAcc = 0;
+  let backlogWave = 0;
   let ringAcc = 0;
   let ringAngle = 0;
   let nextEliteAt = 45;
@@ -184,6 +201,9 @@
   let velY = 0;
   let headX = 1;
   let headY = 0;
+  let heroX0 = 0;
+  let heroY0 = 0;
+  let headTurn = 1;
   let frameDt = 1 / 60;
   let nextDropAt = 18;
   let foodEaten = 0;
@@ -198,16 +218,33 @@
   let kiteSide = 1;
   let kiteSideAt = 2.6;
   let forwardAcc = 0;
+  let threatMark = 0;
+  let threatGap = 0;
+  let orbitClip = 0;
   const chatLog = [];
   let stillBite = 0;
   let itemDrops = 0;
+  let gemDrops = 0;
+  let gemPickups = 0;
+  let gemEvicts = 0;
+  let gemXp = 0;
   let rareAt = -1;
+  let rarePickupAt = -1;
+  let rareDue = false;
+  let rareArm = -1;
+  let rareDropDist = -1;
   let epicAt = -1;
   let legendAt = -1;
   let legendDrops = 0;
   let demonLegend = false;
   let eliteN = 0;
+  let spawnLocked = false;
+  let fairDps = false;
   let lastHit = '';
+  let hitSource = '';
+  let hitTele = false;
+  const hitLog = [];
+  const hitTotals = {};
   let rareSeen = false;
   let epicSeen = false;
   let hitPause = 0;
@@ -221,6 +258,7 @@
   let sweepKills = 0;
   let showerLeft = 0;
   let pendingLevels = 0;
+  let levelGapUntil = 0;
   let toastT = 0;
   let shardCd = 0;
   let emberCd = 0;
@@ -263,6 +301,7 @@
   let revivalLeft = 0;
   let secondChance = 0;
   let toastText = '';
+  let activeToast = null;
   let casterPlant = 0;
   let castersCleared = 0;
   let partnerPulse = 0;
@@ -347,12 +386,29 @@
     return table[i];
   }
 
+  function vowLateU() {
+    if (vowCount <= 0 || time <= VOW_LATE_AT) return 0;
+    const ramp = VOW_LATE_RAMP > 0 ? VOW_LATE_RAMP : 1;
+    return Math.max(0, Math.min(1, (time - VOW_LATE_AT) / ramp));
+  }
+
+  function fadeVowReward(base) {
+    const u = vowLateU();
+    return base + (1 - base) * u;
+  }
+
+  function vowDanger(kind) {
+    const u = vowLateU();
+    const peak = kind === 'hp' ? VOW_LATE_HP_MULT : VOW_LATE_DMG_MULT;
+    return 1 + (peak - 1) * u;
+  }
+
   function vowMult() {
-    return vowFrom(vowSpec().gold, vowCount);
+    return fadeVowReward(vowFrom(vowSpec().gold, vowCount));
   }
 
   function vowXpMul() {
-    return vowFrom(vowSpec().xp, vowCount);
+    return fadeVowReward(vowFrom(vowSpec().xp, vowCount));
   }
 
   function vowNum(n) {
@@ -517,13 +573,14 @@
       if (u > 0) div = BALANCE.hpScale + (BALANCE.lateHpScale - BALANCE.hpScale) * u;
       hp = Math.round(hp * (1 + (time - BALANCE.hpScaleAt) / div));
     }
-    return Math.max(1, hp);
+    return Math.max(1, Math.round(hp * vowDanger('hp')));
   }
 
   typeById.charger = { id: 'charger', name: 'Charger', speed: 1.25, radius: 0.34, behaviour: 'charger' };
   typeById.shooter = { id: 'shooter', name: 'Shooter', speed: 1.05, radius: 0.3, behaviour: 'shooter' };
 
   function spawnEnemy(id, x, y, opts) {
+    if (spawnLocked && !(opts && opts.measure)) return null;
     const type = typeById[id] || typeById.skel;
     const en = enemyPool.pop() || {};
     const bossKind = (opts && opts.bossKind) || '';
@@ -545,11 +602,12 @@
     en.sprite = bossKind === 'warden' ? 'warden' : (bossFlag ? 'boss' : '');
     en.elite = !!(opts && opts.elite);
     if (bossFlag) en.scale = BOSS_SCALE;
-    else if (en.elite) en.scale = 1.65;
+    else if (en.elite) en.scale = 1.2;
     else if (type.id === 'brute') en.scale = 0.625;
     else en.scale = 1;
+    if (en.elite && type.id === 'brute' && !bossFlag) en.color = '#6f8f62';
     if (en.elite) {
-      en.maxLife = Math.max(1, Math.round(hpFor(type.id, '') * 8));
+      en.maxLife = Math.max(1, Math.round(hpFor(type.id, '') * BALANCE.eliteHp));
       en.life = en.maxLife;
       en.speed *= 1.2;
       en.dmg = 12;
@@ -589,9 +647,11 @@
   }
 
   function wardenContactDmg() {
-    const cut = 18 * BALANCE.wardenHit;
-    const floor = (hero.base.life || 90) * BALANCE.wardenHitFloor;
-    return Math.max(cut, floor);
+    return 18 * BALANCE.wardenHit;
+  }
+
+  function wardenLifeFloor() {
+    return (hero.base.life || 90) * BALANCE.wardenHitFloor;
   }
 
   function wardenShotDmg() {
@@ -611,6 +671,7 @@
     stillBite = BALANCE.idleBiteEvery;
     en.touchCd = 0.7;
     lastHit = 'idle';
+    noteHit('contact', false);
     hurt(BALANCE.chip, false);
   }
 
@@ -624,6 +685,7 @@
       if (dist >= (en.radius || 0.32) + BALANCE.idleReach) continue;
       stillBite = BALANCE.idleBiteEvery;
       lastHit = 'idle';
+      noteHit('contact', false);
       hurt(BALANCE.chip, false);
       return;
     }
@@ -649,6 +711,8 @@
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
       if ((g.kind || 'gem') !== 'gem') continue;
+      gemEvicts += 1;
+      gemXp += g.value || 0;
       grantXp(g.value || 0);
       releaseGemAt(i);
       return true;
@@ -657,6 +721,7 @@
   }
 
   function dropGem(en) {
+    gemDrops += 1;
     if (gemCount() >= GEM_CAP) evictOldestGem();
     const g = gemPool.pop() || {};
     g.x = en.x;
@@ -697,7 +762,10 @@
     if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
     if (item.rarity === 'epic' || item.rarity === 'legendary') epicSeen = true;
     itemDrops += 1;
-    if ((item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') && rareAt < 0) rareAt = time;
+    if ((item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') && rareAt < 0) {
+      rareAt = time;
+      rareDue = false;
+    }
     if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
     if (item.rarity === 'legendary') {
       if (en.bossKind === 'demon') demonLegend = true;
@@ -719,6 +787,9 @@
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
+    g.pull = 0;
+    g.pullT = 0;
+    g.banked = 0;
     g.age = 0;
     g.big = false;
     g.shower = 0;
@@ -751,6 +822,10 @@
     s.pierce = 0;
     s.hitFid = 0;
     s.chained = 0;
+    if (s.hits) {
+      const hitKeys = Object.keys(s.hits);
+      for (let h = 0; h < hitKeys.length; h++) delete s.hits[hitKeys[h]];
+    } else s.hits = {};
     shots.push(s);
     return s;
   }
@@ -759,7 +834,7 @@
     if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
         const f = floats[i];
-        if (f.fid === fid && time - f.stamp < 0.25) {
+        if (f.fid === fid && time - f.stamp < 0.15) {
           f.amount += amount || 0;
           f.text = ntext(f.amount);
           f.x = x;
@@ -794,18 +869,56 @@
   let fxUpdateMs = 0;
   let fxDrawMs = 0;
 
-  function fxCall(name, a, b, c, d) {
+  function lootPullFx(g) {
+    if (!LOOTPULL_FX || !g || !g.item || !g.pull || g.banked) return;
+    const box = fxBox();
+    if (!box || typeof box.lootPull !== 'function') return;
+    box.lootPull(g.item.id, g.x, g.y, player.x, player.y, 400, g.item.rarity);
+  }
+
+  function feedLootTrails() {
+    if (!LOOTPULL_FX) return;
+    for (let i = 0; i < gems.length; i++) lootPullFx(gems[i]);
+  }
+
+  function lootPullOff(id, pop) {
+    if (!LOOTPULL_FX || id == null || id === '') return;
+    const box = fxBox();
+    if (!box || typeof box.lootPullOff !== 'function') return;
+    if (pop) box.lootPullOff(id, true);
+    else box.lootPullOff(id);
+  }
+
+  function bankGroundItem(g) {
+    if (!g || !g.item || g.banked) return false;
+    g.banked = 1;
+    try { SurvivorSave.addItem(g.item); } catch (e) {}
+    return true;
+  }
+
+  // Death, Restart, and Quit bank an in-flight Rare+ once, with no arrival pop.
+  // Restart and Quit do this only while the run is still live. A death screen
+  // already claimed the flight and synced the gold, so it must not do either again.
+  // Already-banked gems are skipped. releaseGemAt sends the silent lootPullOff.
+  // "You find:" is only the pickup path, after bankGroundItem succeeds.
+  function claimUnbankedFlight() {
+    for (let i = gems.length - 1; i >= 0; i--) {
+      const g = gems[i];
+      if (!g || g.kind !== 'item' || !g.pull || !g.item || g.banked) continue;
+      bankGroundItem(g);
+      releaseGemAt(i);
+    }
+  }
+
+  function fxCall(name) {
     const box = typeof FX !== 'undefined' ? FX : null;
     const fn = box && box[name];
     if (typeof fn !== 'function') return;
     if (name === 'secondChance') secondChanceFx += 1;
     const t0 = nowMs();
-    const n = arguments.length;
-    if (n <= 1) fn.call(box);
-    else if (n === 2) fn.call(box, a);
-    else if (n === 3) fn.call(box, a, b);
-    else if (n === 4) fn.call(box, a, b, c);
-    else fn.call(box, a, b, c, d);
+    const args = [];
+    for (let i = 1; i < arguments.length; i++) args.push(arguments[i]);
+    fn.apply(box, args);
     const spent = nowMs() - t0;
     if (name === 'draw' || name === 'drawUnder') fxDrawMs += spent;
     else fxUpdateMs += spent;
@@ -881,9 +994,33 @@
     const steps = [0, 1, 2, 3, 4, 6];
     return steps[Math.min(5, owned.armor || 0)];
   }
+  function tempoRank() {
+    return Math.max(0, Math.min(5, owned.tempo || 0));
+  }
+  function cinderRank() {
+    return Math.max(0, Math.min(5, owned.cinder || 0));
+  }
+  // Rank 1 is the step. Ranks 2–5 each change spin and cooldown: blades, the lock, faster hands, storm-ready.
+  function tempoMods() {
+    const r = tempoRank();
+    return {
+      move: 1 + r * 0.035,
+      spin: 1 + Math.max(0, r - 1) * 0.07,
+      cd: 1 - Math.max(0, r - 1) * 0.035,
+    };
+  }
+  // Rank 2 lingers, 3 echoes, 4–5 keep the ash and widen the ring. Each of 2–5 changes at least one number.
+  function cinderMods() {
+    const r = cinderRank();
+    return {
+      life: 1 + Math.max(0, r - 1) * 0.14,
+      echo: r >= 3 ? 0.22 - Math.max(0, r - 3) * 0.03 : 0,
+      radius: 1 + Math.max(0, r - 3) * 0.12,
+    };
+  }
   function moveSpeed() {
     const hasteMove = 1 + Math.min(5, owned.haste || 0) * 0.02;
-    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04);
+    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04) * tempoMods().move;
   }
   function boltDamage() {
     const rank = Math.max(1, Math.min(5, owned.bolt || 1));
@@ -919,9 +1056,40 @@
       color: RARITY_FILL[item.rarity] || '#f4efe0',
     };
   }
+  const TOAST_CAP = 3;
+  const TOAST_STALE = 4.05;
+  function rarityRank(rarity) {
+    const key = String(rarity || 'common').toLowerCase();
+    if (key.indexOf('note:') === 0) return 5;
+    if (key === 'legendary') return 4;
+    if (key === 'epic') return 3;
+    if (key === 'rare') return 2;
+    if (key === 'uncommon') return 1;
+    return 0;
+  }
+  function toastTitle(entry) {
+    if (entry.note) return entry.text;
+    const base = (entry.rarityName || 'Common') + ': ' + (entry.name || 'Item');
+    if ((entry.count || 1) > 1) return base + ' +' + (entry.count - 1) + ' more';
+    return base;
+  }
+  function bossBannerOn() {
+    return bannerT > 0 && String(banner || '').indexOf('approaches') >= 0;
+  }
+  function hideToastEl() {
+    toastText = '';
+    activeToast = null;
+    const el = $('sv-toast');
+    if (el) {
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+  }
   function presentToast(entry) {
     if (!entry) return;
-    toastText = entry.text;
+    activeToast = entry;
+    toastText = toastTitle(entry);
+    entry.text = toastText;
     const el = $('sv-toast');
     if (el) {
       el.textContent = toastText;
@@ -930,26 +1098,104 @@
     }
     toastT = 1.6;
   }
+  function pruneToasts() {
+    const now = time;
+    for (let pass = 0; pass < 2; pass++) {
+      const dropRare = pass === 1;
+      for (let i = toastQueue.length - 1; i >= 0; i--) {
+        const entry = toastQueue[i];
+        const rare = rarityRank(entry.rarity) >= 2;
+        if (now - entry.at > TOAST_STALE && rare === dropRare) toastQueue.splice(i, 1);
+      }
+    }
+    while (toastQueue.length > TOAST_CAP) {
+      let drop = 0;
+      for (let i = 1; i < toastQueue.length; i++) {
+        const ar = rarityRank(toastQueue[drop].rarity);
+        const br = rarityRank(toastQueue[i].rarity);
+        if (br < ar || (br === ar && toastQueue[i].at < toastQueue[drop].at)) drop = i;
+      }
+      toastQueue.splice(drop, 1);
+    }
+  }
+  function queueToast(entry) {
+    for (let i = 0; i < toastQueue.length; i++) {
+      if (toastQueue[i].rarity !== entry.rarity) continue;
+      const row = toastQueue[i];
+      row.count = (row.count || 1) + (entry.count || 1);
+      if (entry.at >= row.at) row.at = entry.at;
+      row.text = toastTitle(row);
+      pruneToasts();
+      return;
+    }
+    entry.count = entry.count || 1;
+    entry.text = toastTitle(entry);
+    toastQueue.push(entry);
+    pruneToasts();
+  }
+  function shelterToast() {
+    if (activeToast) {
+      const parked = activeToast;
+      activeToast = null;
+      queueToast(parked);
+    }
+    toastT = 0;
+    hideToastEl();
+  }
   function showToast(item) {
     if (!item) return;
-    const entry = toastLine(item);
-    if (toastT > 0) {
-      toastQueue.push(entry);
+    if (String(item.rarity || 'common').toLowerCase() === 'common') return;
+    const line = toastLine(item);
+    const entry = {
+      rarity: String(item.rarity || 'common').toLowerCase(),
+      rarityName: line.text.split(':')[0] || 'Common',
+      name: item.name || 'Item',
+      color: line.color,
+      count: 1,
+      at: time,
+      text: line.text,
+    };
+    if (bossBannerOn() || toastT > 0) {
+      queueToast(entry);
+      return;
+    }
+    presentToast(entry);
+  }
+  function showNote(text, color) {
+    if (!text) return;
+    const entry = {
+      note: true,
+      rarity: 'note:' + text,
+      rarityName: '',
+      name: text,
+      text: text,
+      color: color || '#d0b4ff',
+      count: 1,
+      at: time,
+    };
+    if (bossBannerOn() || toastT > 0) {
+      queueToast(entry);
       return;
     }
     presentToast(entry);
   }
   function tickToast(dt) {
-    if (toastT <= 0) return;
-    toastT = Math.max(0, toastT - dt);
-    if (toastT > 0) return;
+    pruneToasts();
+    if (bossBannerOn()) {
+      shelterToast();
+      return;
+    }
+    if (toastT > 0) {
+      toastT = Math.max(0, toastT - dt);
+      if (toastT > 0) return;
+      activeToast = null;
+      toastText = '';
+    }
     if (toastQueue.length) {
       presentToast(toastQueue.shift());
       return;
     }
-    toastText = '';
-    const toast = $('sv-toast');
-    if (toast) toast.classList.add('hidden');
+    hideToastEl();
   }
   function countGround(rarity) {
     let n = 0;
@@ -1019,11 +1265,38 @@
     return pxToWorld(36);
   }
 
-  function hurt(amount, heavy) {
+  function noteHit(source, tele) {
+    hitSource = source || '';
+    hitTele = !!tele;
+  }
+
+  function hurt(amount, heavy, floorLife) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
-    const incoming = curse > 0 ? amount * vowSpec().hit : amount;
-    const dmg = Math.max(1, incoming - armorCut());
+    // The cursed minute starts at the 1:30 offer. Its 1.5× used to land
+    // immediately and kill some runs near 2:40. Damage waits until 5:00.
+    const cursed = curse > 0 && time >= VOW_LATE_AT;
+    let incoming = cursed ? amount * vowSpec().hit : amount;
+    incoming *= vowDanger('dmg');
+    const cut = stillT >= BALANCE.idleGrace ? 0 : armorCut();
+    let dmg = Math.max(1, incoming - cut);
+    if (floorLife > 0) dmg = Math.max(dmg, floorLife);
+    const lifeBefore = player.life;
     player.life -= dmg;
+    const totalKey = (hitSource || lastHit || 'other') + '|' + (hitTele ? 1 : 0) + '|' + (cursed ? 1 : 0);
+    hitTotals[totalKey] = (hitTotals[totalKey] || 0) + dmg;
+    if (hitLog.length > 64) hitLog.shift();
+    hitLog.push({
+      t: time,
+      dmg: dmg,
+      raw: amount,
+      source: hitSource || lastHit || 'other',
+      tele: hitTele ? 1 : 0,
+      curse: cursed ? 1 : 0,
+      life: lifeBefore,
+      max: player.maxLife,
+    });
+    hitSource = '';
+    hitTele = false;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
     addShake(heavy ? 4.2 : 2.6);
@@ -1054,10 +1327,11 @@
         en.shieldHitAt = time;
         box.shieldHit(en.fid, en.x, en.y);
       }
+      floatText(en.x, en.y - 0.35, 'blocked', '#9fb4c8');
       return;
     }
     let crit = false;
-    if (!tick && Math.random() < critChance()) {
+    if (!tick && !fairDps && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
     }
@@ -1118,6 +1392,7 @@
       if (sweepOn && en.sweepGen === sweepGen) sweepKills += 1;
       grantGold(en.gold);
       dropGem(en);
+      if (rareDue && rareAt < 0) dropRareBeside();
       if ((owned.might || 0) >= 5) pulseAround(en.x, en.y, 1.6, 6);
       burst(en.x, en.y, en.color || '#ffffff');
       const deadVis = foeVisual(en);
@@ -1308,6 +1583,7 @@
       el.classList.toggle('sv-pulse', !!pulse && !reduceMotion);
     }
     sfx('portal');
+    if (text && String(text).indexOf('approaches') >= 0) shelterToast();
   }
 
   function clearBossUi() {
@@ -1355,11 +1631,13 @@
   function spawnForwardPack() {
     const cap = Math.min(LIVE_CAP, spawnCap());
     const count = 5;
+    const head = Math.atan2(headY, headX);
     let sx = 0;
     let sy = 0;
     let n = 0;
     for (let i = 0; i < count && enemies.length < cap; i++) {
-      const ang = aheadAngle(true);
+      const side = i % 2 === 0 ? 1 : -1;
+      const ang = head + side * (Math.PI / 2) + (Math.random() - 0.5) * 0.35;
       const spot = viewEdge(ang, true, BALANCE.minSpawn);
       const x = spot.x;
       const y = spot.y;
@@ -1374,7 +1652,6 @@
 
   function dropWorldItem(forced) {
     let kind = forced || 'mob';
-    if (!forced && rareAt < 0 && time >= 78) kind = 'rare';
     let item = null;
     try { item = SurvivorSave.mintDrop(kind); } catch (e) { item = null; }
     if (!item) return;
@@ -1385,10 +1662,30 @@
     if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') {
       if (rareAt < 0) rareAt = time;
       rareSeen = true;
+      rareDue = false;
     }
     if ((item.rarity === 'epic' || item.rarity === 'legendary') && epicAt < 0) epicAt = time;
     itemDrops += 1;
     placePickup(x, y, 'item', item);
+  }
+
+  // Hard guarantee: if nothing Rare+ has dropped by 1:15, the next kill
+  // lays one beside the hero. If that kill does not come within 2s, it
+  // appears there anyway. Cadence drops stay on their own arc.
+  function dropRareBeside() {
+    if (rareAt >= 0) return;
+    let item = null;
+    try { item = SurvivorSave.mintDrop('rare'); } catch (e) { item = null; }
+    if (!item) return;
+    const reach = Math.max(0.2, pickupR());
+    const dist = Math.min(0.85, reach * 0.62);
+    const ang = Math.random() * Math.PI * 2;
+    rareDropDist = dist;
+    itemDrops += 1;
+    rareAt = time;
+    rareSeen = true;
+    rareDue = false;
+    placePickup(player.x + Math.cos(ang) * dist, player.y + Math.sin(ang) * dist, 'item', item);
   }
 
   function wardenAlive() {
@@ -1430,11 +1727,18 @@
     return Math.max(6, BALANCE.eliteEvery + (BALANCE.lateEliteEvery - BALANCE.eliteEvery) * u);
   }
 
+  function shooterEvery() {
+    const u = lateT();
+    const early = 18;
+    if (u <= 0) return early;
+    const late = BALANCE.lateShooter > 0 ? BALANCE.lateShooter : 6;
+    return Math.max(late, Math.round(early + (late - early) * u));
+  }
+
   function spawnKind() {
     const n = spawnSerial;
-    const u = lateT();
     if (time >= MINI_AT && !wardenAlive()) {
-      const every = u > 0.2 ? BALANCE.lateShooter : 18;
+      const every = shooterEvery();
       if (every > 0 && n % every === 0) return 'shooter';
     }
     if (time >= BALANCE.heavyAt && n % 18 === 0) return 'charger';
@@ -1555,12 +1859,13 @@
       openHermit();
       return;
     }
-    if (state === 'playing' && rareAt < 0 && nextDropAt > 90) nextDropAt = 90;
+    if (state === 'playing' && rareAt < 0 && time >= 75 && !rareDue) {
+      rareDue = true;
+      rareArm = time;
+    }
     if (time >= nextDropAt && state === 'playing') {
-      const forceRare = rareAt < 0 && time >= 78;
       nextDropAt = time + 15 + Math.random() * 10;
-      if (rareAt < 0 && !forceRare && nextDropAt > 90) nextDropAt = 90;
-      dropWorldItem(forceRare ? 'rare' : '');
+      dropWorldItem('');
     }
     if (time >= MINI_AT && player.moving) {
       forwardAcc += dt;
@@ -1595,12 +1900,64 @@
     spawnAcc += spawnRate() * pressure * dt;
     let guard = 0;
     const burst = swarm ? 16 : 12;
-    while (spawnAcc >= 1 && enemies.length < cap && guard++ < burst) {
+    if (spawnAcc >= 64) backlogWave = Math.max(backlogWave, spawnAcc);
+    let room = burst;
+    if (backlogWave > 0) {
+      room = Math.min(burst, Math.max(1, Math.round(backlogWave / 2.5 * dt)));
+      if (spawnAcc <= room) backlogWave = 0;
+    }
+    while (spawnAcc >= 1 && enemies.length < cap && guard++ < room) {
       spawnAcc -= 1;
       spawnedThisFrame += 1;
       const spot = spawnRing(0);
       spawnEnemy(spawnKind(), spot.x, spot.y);
     }
+    trackThreats();
+  }
+
+  function threatNearby() {
+    let n = 0;
+    let boss = false;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.life <= 0 || en.dying > 0) continue;
+      if (en.boss) boss = true;
+      const d = len2(en.x - player.x, en.y - player.y);
+      if (d <= RELIEF_NEAR) n += 1;
+    }
+    if (boss) n = Math.max(n, RELIEF_NEED);
+    return n;
+  }
+
+  function spawnRelief() {
+    const head = Math.atan2(headY, headX);
+    let spawned = 0;
+    for (let i = 0; i < RELIEF_PACK; i++) {
+      if (enemies.length >= LIVE_CAP && !makeRoom()) break;
+      const ang = head + (i - (RELIEF_PACK - 1) / 2) * 0.28;
+      const x = player.x + Math.cos(ang) * RELIEF_DIST;
+      const y = player.y + Math.sin(ang) * RELIEF_DIST;
+      const en = spawnEnemy(spawnKind(), x, y);
+      if (!en) break;
+      spawned += 1;
+      spawnedThisFrame += 1;
+    }
+    return spawned;
+  }
+
+  function trackThreats() {
+    if (time < RELIEF_AT) {
+      threatMark = time;
+      return;
+    }
+    if (threatMark < RELIEF_AT) threatMark = RELIEF_AT;
+    const gap = time - threatMark;
+    if (gap > threatGap) threatGap = gap;
+    if (threatNearby() >= RELIEF_NEED) {
+      threatMark = time;
+      return;
+    }
+    if (gap >= RELIEF_GAP && spawnRelief() > 0) threatMark = time;
   }
 
   function bossFightOn() {
@@ -1660,12 +2017,21 @@
 
   let novaQueue = 0;
 
+  let lastOrbitSpin = 0;
+  let lastNovaLife = 0;
+  let lastNovaGrow = 1;
+  let lastNovaEcho = 0;
+
   function fireNova(rank) {
     const dmg = (12 + rank * 6) * power();
-    const life = rank >= 5 ? 0.7 : rank >= 4 ? 0.58 : 0.48;
+    const cinder = cinderMods();
+    const life = (rank >= 5 ? 0.7 : rank >= 4 ? 0.58 : 0.48) * cinder.life;
     const evolvedNova = !!evolved.nova;
-    spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
-    const radius = life * (evolvedNova ? 9.2 : 7.2) * area();
+    const shot = spawnShot('nova', player.x, player.y, 0, 0, dmg, life);
+    shot.grow = (evolvedNova ? 8.6 : 7.2) * cinder.radius;
+    lastNovaLife = shot.life;
+    lastNovaGrow = shot.grow;
+    const radius = life * shot.grow * area();
     novaInfo.radius = radius;
     novaInfo.rank = rank;
     fxCall('cast', 'nova', player.x, player.y, novaInfo);
@@ -1716,7 +2082,7 @@
       if (fired) {
         player.swing = 0.16;
         const cd = [0.62, 0.56, 0.5, 0.42, 0.36][boltRank - 1];
-        cds.bolt = cd * haste();
+        cds.bolt = cd * haste() * tempoMods().cd;
         player.facing = face;
         sfx('cast');
       }
@@ -1725,9 +2091,12 @@
     if (novaRank && cds.nova <= 0) {
       fireNova(novaRank);
       if (novaRank >= 3) novaQueue = 0.18;
+      const echo = cinderMods().echo;
+      if (echo > 0 && !(novaQueue > 0)) novaQueue = echo;
       if (novaRank >= 5 || evolved.nova) novaQueue = Math.min(novaQueue || 0.16, 0.16);
+      lastNovaEcho = novaQueue;
       const table = [3.15, 2.7, 2.35, 2.05, 1.75];
-      cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1));
+      cds.nova = Math.max(0.8, table[novaRank - 1] * haste() * (evolved.nova ? 0.82 : 1) * tempoMods().cd);
     }
     const pierceRank = Math.max(0, Math.min(5, owned.pierce || 0));
     if (pierceRank && cds.pierce <= 0 && lineAim) {
@@ -1743,13 +2112,14 @@
         const py = player.y + (dx / d) * side;
         spawnShot('pierce', px, py, (dx / d) * sp, (dy / d) * sp, dmg, 1.15);
       }
-      cds.pierce = Math.max(0.7, (2.5 - pierceRank * 0.18) * haste());
+      cds.pierce = Math.max(0.7, (2.5 - pierceRank * 0.18) * haste() * tempoMods().cd);
       sfx('swing');
     }
     if (owned.orbit) {
       const orbitRank = Math.max(1, Math.min(5, owned.orbit));
       const storm = !!evolved.orbit;
-      const spin = (storm ? 3.4 : 2.1) + orbitRank * 0.22;
+      const spin = ((storm ? 3.4 : 2.1) + orbitRank * 0.22) * tempoMods().spin;
+      lastOrbitSpin = spin;
       orbitAngle += dt * spin;
       const count = storm ? 5 : (orbitRank >= 5 ? 3 : orbitRank >= 3 ? 2 : 1);
       const rad = ((storm ? 2.15 : 1.45) + (orbitRank >= 4 ? 0.45 : 0.12)) * area();
@@ -1819,7 +2189,7 @@
       const s = shots[i];
       s.life -= dt;
       if (s.kind === 'nova') {
-        const grow = dt * (evolved.nova ? 8.6 : 7.2) * area();
+        const grow = dt * (s.grow || (evolved.nova ? 8.6 : 7.2)) * area();
         const steps = Math.max(1, Math.ceil(grow / 0.35));
         const slice = grow / steps;
         const band = s.life > 0.2 && (owned.nova || 0) >= 5 ? 1.15 : 0.9;
@@ -1828,14 +2198,15 @@
           nearbyFill(s.x, s.y, s.r + 0.6);
           for (let n = 0; n < nearCount; n++) {
             const en = nearList[n];
-            if (en._nova === s.seq) continue;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid]) continue;
             const dx = en.x - s.x;
             const dy = en.y - s.y;
             const dist2 = dx * dx + dy * dy;
             const outer = s.r + bodyReach(en);
             const inner = s.r - band - bodyReach(en);
             if (dist2 < outer * outer && (inner <= 0 || dist2 > inner * inner)) {
-              en._nova = s.seq;
+              seen[en.fid] = 1;
               damageEnemy(en, s.dmg);
               if (effectOn('chain') && en.life <= 0 && !s.chained) chainNova(en, s);
             }
@@ -1864,20 +2235,21 @@
             continue;
           }
           if (s.kind === 'pierce') {
-            if (en._pierce === s.seq || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
-            en._pierce = s.seq;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid] || !sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach)) continue;
+            seen[en.fid] = 1;
             damageEnemy(en, s.dmg);
             continue;
           }
           const boltHit = s.kind === 'ember' ? sd2 <= hit2 : sweptHit(x0, y0, s.x, s.y, en.x, en.y, reach);
           if (boltHit) {
-            if (s.pierce > 0 && s.hitFid === en.fid) continue;
+            const seen = s.hits || (s.hits = {});
+            if (seen[en.fid]) continue;
+            seen[en.fid] = 1;
             damageEnemy(en, s.dmg);
             if (effectOn('chain') && s.kind === 'nova' && en.life <= 0 && !s.chained) chainNova(en, s);
-            if (s.pierce > 0 && s.hitFid !== en.fid) {
-              s.hitFid = en.fid;
-              s.pierce -= 1;
-            } else s.life = 0;
+            if (s.pierce > 0) s.pierce -= 1;
+            else s.life = 0;
           }
         }
       }
@@ -1888,7 +2260,7 @@
     }
   }
 
-  function spawnFoeShot(x, y, vx, vy, dmg) {
+  function spawnFoeShot(x, y, vx, vy, dmg, from) {
     const s = foeShotPool.pop() || {};
     s.x = x;
     s.y = y;
@@ -1896,6 +2268,7 @@
     s.vy = vy;
     s.dmg = dmg;
     s.life = 3.2;
+    s.from = from || 'shooter';
     foeShots.push(s);
   }
 
@@ -1910,6 +2283,7 @@
       const shotR = player.moving ? 0.22 : 0.46;
       if (sweptHit(x0, y0, s.x, s.y, player.x, player.y, shotR)) {
         lastHit = 'shot';
+        noteHit(s.from === 'warden' ? 'warden' : (s.from === 'demon' ? 'demon' : 'ranged'), false);
         hurt(s.dmg, false);
         s.life = 0;
       }
@@ -1930,19 +2304,69 @@
     return dist;
   }
 
+  function leadTiles() {
+    return time >= MINI_AT ? 2.5 : 1.7;
+  }
+
+  function aimPoint() {
+    const h = len2(headX, headY) || 1;
+    const tx = headX / h;
+    const ty = headY / h;
+    const lead = leadTiles();
+    const s = headTurn >= 0 ? 1 : -1;
+    const cut = player.moving ? Math.min(1.1, lead * 0.55) : 0;
+    return {
+      x: player.x + tx * lead + (-ty * s) * cut,
+      y: player.y + ty * lead + (tx * s) * cut,
+    };
+  }
+
+  function seekHero(en, speed, dt) {
+    const aim = aimPoint();
+    const dx = aim.x - en.x;
+    const dy = aim.y - en.y;
+    const dist = len2(dx, dy) || 1;
+    en.x += (dx / dist) * speed * dt;
+    en.y += (dy / dist) * speed * dt;
+    en.facing = (player.x - en.x) >= 0 ? 1 : -1;
+    return len2(player.x - en.x, player.y - en.y) || 1;
+  }
+
   function touchPlayer(en, dist, dmg, dt) {
     if (en.touchCd > 0) en.touchCd -= dt;
     if (player.moving && !en.boss && !en.elite) return;
     if (stillRing() && !en.boss && !en.elite) return;
-    if (dist < en.radius + 0.48 && en.touchCd <= 0) {
-      en.touchCd = (player.moving && en.elite) ? 2.4 : 0.7;
+    let reach = en.radius + 0.48;
+    if (player.moving && en.elite) reach += 0.4;
+    let hit = dist < reach;
+    if (!hit && player.moving && en.elite) {
+      hit = sweptHit(heroX0, heroY0, player.x, player.y, en.x, en.y, reach);
+    }
+    if (hit && en.touchCd <= 0) {
+      en.touchCd = (player.moving && en.elite) ? 22 : 0.7;
       lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
-      hurt(dmg == null ? en.dmg : dmg, en.boss);
+      const floor = en.bossKind === 'warden' ? wardenLifeFloor() : 0;
+      const touchSrc = en.bossKind === 'warden' ? 'warden' : (en.boss ? 'demon' : (en.elite ? 'elite' : (backlogWave > 0 ? 'burst' : 'contact')));
+      noteHit(touchSrc, false);
+      hurt(dmg == null ? en.dmg : dmg, en.boss, floor);
     }
   }
 
   function fxBox() {
     return (typeof window !== 'undefined' && window.FX) || (typeof FX !== 'undefined' ? FX : null);
+  }
+
+  const localTells = [];
+
+  function clearLocalTell(id) {
+    for (let i = localTells.length - 1; i >= 0; i--) {
+      if (localTells[i].id === id) localTells.splice(i, 1);
+    }
+  }
+
+  function putLocalTell(tell) {
+    clearLocalTell(tell.id);
+    localTells.push(tell);
   }
 
   function telegraph(en, index, tellMs) {
@@ -1952,8 +2376,39 @@
 
   function telegraphOff(en, index) {
     if (!en) return;
+    const id = en.id != null ? en.id : index;
+    clearLocalTell(id);
+    fxCall('telegraphOff', id);
+  }
+
+  function telegraphSlam(en) {
+    const slamR = 2.15;
+    const ms = 550;
     const box = fxBox();
-    if (box && typeof box.telegraphOff === 'function') box.telegraphOff(en.id || index);
+    if (box && typeof box.telegraph === 'function') {
+      fxCall('telegraph', en.id, en.x, en.y, ms, { radius: slamR });
+      clearLocalTell(en.id);
+      return;
+    }
+    putLocalTell({ kind: 'ring', id: en.id, x: en.x, y: en.y, r: slamR, until: time + ms / 1000 });
+  }
+
+  function telegraphDash(en) {
+    const ai = en.ai || {};
+    const dist = 0.38 * 8.2;
+    const toX = en.x + (ai.vx || 0) * dist;
+    const toY = en.y + (ai.vy || 0) * dist;
+    const ms = Math.max(50, Math.round((ai.t || 0) * 1000));
+    const width = 0.62;
+    const box = fxBox();
+    if (box && typeof box.telegraphLine === 'function') {
+      fxCall('telegraphLine', en.id, en.x, en.y, toX, toY, ms, { width: width });
+      clearLocalTell(en.id);
+      return;
+    }
+    putLocalTell({
+      kind: 'line', id: en.id, x: en.x, y: en.y, x2: toX, y2: toY, w: width, until: time + ms / 1000,
+    });
   }
 
   function fxSpawn(x, y) {
@@ -1974,16 +2429,28 @@
     while (host.childNodes && host.childNodes.length > 6) host.removeChild(host.firstChild);
   }
 
-  function announceItem(item, x, y) {
-    if (!item) return;
+  function itemRarityName(item) {
     let rarity = 'Common';
     try { rarity = SurvivorSave.rarityName(item.rarity); } catch (e) {
       const raw = item.rarity || 'common';
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
-    showToast(item);
-    pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    return rarity;
+  }
+
+  function announceItem(item, x, y) {
+    if (!item) return;
+    const raw = String(item.rarity || 'common').toLowerCase();
+    if (raw !== 'common') {
+      pushChat((item.name || 'Item') + ' dropped nearby', RARITY_FILL[item.rarity] || '#f4efe0');
+    }
     if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
+  }
+
+  function announceFind(item) {
+    if (!item) return;
+    pushChat('You find: ' + itemRarityName(item) + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    showToast(item);
   }
 
   function sweptHit(x0, y0, x1, y1, tx, ty, rad) {
@@ -2034,6 +2501,8 @@
     const early = en.shieldT > 0.05;
     en.shieldT = 0;
     en.shieldLive = false;
+    en.shieldFallback = false;
+    clearLocalTell('shield-' + en.fid);
     if (early) shieldEarly += 1;
     const box = fxBox();
     if (box && typeof box.shieldBreak === 'function') box.shieldBreak(en.fid);
@@ -2081,11 +2550,29 @@
     const box = fxBox();
     const rad = (en.radius || 0.8) + 0.9;
     if (box && typeof box.shield === 'function') box.shield(en.fid, en.x, en.y, rad, en.shieldT * 1000);
+    else {
+      en.shieldFallback = true;
+      demonShieldRing(en);
+    }
     spawnAddRing(en);
+  }
+
+  function demonShieldRing(en) {
+    if (!en || !en.shieldFallback || !(en.shieldT > 0)) return;
+    putLocalTell({
+      kind: 'ring',
+      id: 'shield-' + en.fid,
+      x: en.x,
+      y: en.y,
+      r: (en.radius || 0.8) + 0.9,
+      until: time + Math.max(0.05, en.shieldT),
+      color: '#9fb4c8',
+    });
   }
 
   function tickDemonShield(en, dt) {
     if (!en || !(en.shieldT > 0)) return;
+    demonShieldRing(en);
     en.shieldT -= dt;
     let alive = 0;
     for (let i = 0; i < enemies.length; i++) {
@@ -2115,20 +2602,25 @@
         en.x -= (dx / dist) * en.speed * dt;
         en.y -= (dy / dist) * en.speed * dt;
         en.facing = dx >= 0 ? 1 : -1;
-      } else {
-        steer(en, dt, en.speed);
-        if (dist < 4.6 && dist > 2.2) {
-          ai.mode = 'tell';
-          ai.t = 0.6;
-          ai.vx = dx / dist;
-          ai.vy = dy / dist;
+        } else {
+          seekHero(en, en.speed, dt);
+          if (dist < 4.6 && dist > 2.2) {
+            ai.mode = 'tell';
+            ai.t = 0.6;
+            const h = len2(headX, headY) || 1;
+            const aimX = player.x + (headX / h) * (player.moving ? 1.2 : 0) - en.x;
+            const aimY = player.y + (headY / h) * (player.moving ? 1.2 : 0) - en.y;
+            const ad = len2(aimX, aimY) || 1;
+            ai.vx = aimX / ad;
+            ai.vy = aimY / ad;
+          }
         }
-      }
-    } else if (ai.mode === 'tell') {
+      } else if (ai.mode === 'tell') {
       ai.t -= dt;
       en.facing = dx >= 0 ? 1 : -1;
       if (ai.t <= 0) {
-        const look = 0.28;
+        telegraphOff(en);
+        const look = player.moving ? 0.4 : 0.28;
         const px = player.x + velX * look;
         const py = player.y + velY * look;
         const lx = px - en.x;
@@ -2137,8 +2629,8 @@
         ai.vx = lx / ld;
         ai.vy = ly / ld;
         ai.mode = 'dash';
-        ai.t = 0.38;
-      }
+        ai.t = player.moving ? 0.42 : 0.38;
+      } else telegraphDash(en);
     } else if (ai.mode === 'dash') {
       ai.t -= dt;
       const x0 = en.x;
@@ -2146,12 +2638,13 @@
       en.x += ai.vx * 8.2 * dt;
       en.y += ai.vy * 8.2 * dt;
       en.facing = ai.vx >= 0 ? 1 : -1;
-      const hitR = player.moving ? en.radius + 0.12 : en.radius + 0.5;
+      const hitR = player.moving ? en.radius + 0.22 : en.radius + 0.5;
       const hit = sweptHit(x0, y0, en.x, en.y, player.x, player.y, hitR);
       if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
-        hurt(player.moving ? 4 : en.dmg + 3, false);
+        noteHit('dash', true);
+        hurt(player.moving ? 2 : en.dmg + 3, false);
       }
       if (ai.t <= 0) {
         ai.mode = 'recover';
@@ -2175,7 +2668,13 @@
       if (ai.t <= 0) {
         const sp = 2.7;
         const shot = 5 + lateT() * (BALANCE.lateShot - 5);
-        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
+        const leadT = Math.min(0.55, dist / sp);
+        const px = player.x + velX * leadT;
+        const py = player.y + velY * leadT;
+        const lx = px - en.x;
+        const ly = py - en.y;
+        const ld = len2(lx, ly) || 1;
+        spawnFoeShot(en.x, en.y, (lx / ld) * sp, (ly / ld) * sp, shot, 'shooter');
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -2212,8 +2711,10 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         if (ai.kind === 'slam') {
+          telegraphOff(en);
           if (dist < 2.15) {
             lastHit = 'boss';
+            noteHit(en.bossKind === 'warden' ? 'warden' : 'demon', true);
             hurt(en.dmg + 6, true);
           }
           ai.mode = 'recover';
@@ -2223,7 +2724,7 @@
           const volley = en.bossKind === 'warden' ? wardenShotDmg() : 7;
           for (let i = -1; i <= 1; i++) {
             const ang = base + i * 0.32;
-            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley, en.bossKind || 'boss');
           }
           ai.mode = 'recover';
           ai.t = 1.3;
@@ -2245,7 +2746,8 @@
       ai.mode = 'tell';
       ai.kind = ai.kind === 'slam' ? 'volley' : 'slam';
       ai.t = ai.kind === 'slam' ? 0.75 : 0.55;
-      if (ai.kind === 'volley') telegraph(en, index, 550);
+      if (ai.kind === 'slam') telegraphSlam(en);
+      else telegraph(en, index, 550);
     }
   }
 
@@ -2259,6 +2761,13 @@
         continue;
       }
       if (en.life <= 0) { releaseEnemy(i); continue; }
+      if (en.hold) {
+        en.x = en.holdX;
+        en.y = en.holdY;
+        en.kx = 0;
+        en.ky = 0;
+        continue;
+      }
       if (en.kx || en.ky) {
         en.x += en.kx * dt;
         en.y += en.ky * dt;
@@ -2283,8 +2792,9 @@
           en.ai.t = (en.ai.t || 0) + dt;
           if (en.ai.t > 2.2) en.ai.t = 0;
           if (en.ai.t < 0.45) sp *= 1.85;
+          if (player.moving) sp *= 1.45;
         } else if (time > 75 && enemies.length > 70 && dist < Math.max(viewHalfW(), viewHalfH())) {
-          sp *= 0.2;
+          sp *= 0.75;
         }
         const stand = (en.radius || 0.32) + (en.elite ? 0.2 : 0.72);
         // Idle trash stops in the chip band. Stacking on the hero fed the level
@@ -2296,19 +2806,42 @@
           en.x -= (dx / dist) * push;
           en.y -= (dy / dist) * push;
         } else if (!holdIdle) {
-          en.x += (dx / dist) * sp * dt;
-          en.y += (dy / dist) * sp * dt;
+          seekHero(en, sp, dt);
         }
         en.facing = dx >= 0 ? 1 : -1;
         if (stillRing() && !en.elite) biteIfStill(en);
         touchPlayer(en, len2(player.x - en.x, player.y - en.y), en.dmg, dt);
       }
     }
+    clipOrbit(dt);
   }
 
-  function releaseGemAt(i) {
+  function clipOrbit(dt) {
+    if (orbitClip > 0) orbitClip = Math.max(0, orbitClip - dt);
+    if (!player.moving || state !== 'playing' || time < 130 || bossFightOn()) return;
+    if (orbitClip > 0) return;
+    const need = time < 180 ? 5.2 : 7.2;
+    let near = false;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (!en || en.life <= 0 || en.dying > 0) continue;
+      if (len2(player.x - en.x, player.y - en.y) <= need) { near = true; break; }
+    }
+    if (!near) return;
+    if (time >= 180 && player.maxLife > 0 && player.life <= player.maxLife * 0.54) return;
+    orbitClip = time < 180 ? 16 : 8;
+    lastHit = 'clip';
+    const bite = time < 180 ? 8 : Math.max(7, Math.round(player.maxLife * 0.08));
+    noteHit('clip', false);
+    hurt(bite, false);
+  }
+
+  function releaseGemAt(i, pop) {
     const g = gems[i];
-    if (g && g.kind === 'item' && g.item) beamOff(g.item.id);
+    if (g && g.kind === 'item' && g.item) {
+      if (g.pull) lootPullOff(g.item.id, pop ? true : undefined);
+      beamOff(g.item.id);
+    }
     if (g && g.shower) {
       g.shower = 0;
       showerLeft = Math.max(0, showerLeft - 1);
@@ -2316,6 +2849,9 @@
     const last = gems.pop();
     if (i < gems.length) gems[i] = last;
     g.fly = 0;
+    g.pull = 0;
+    g.pullT = 0;
+    g.banked = 0;
     g.vx = 0;
     g.vy = 0;
     g.item = null;
@@ -2399,6 +2935,25 @@
       const dx = player.x - g.x;
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
+      const rareGround = kind === 'item' && g.item && rareBeam(g.item.rarity);
+      if (rareGround && !g.banked) {
+        // Age is game time: sim() does not run on a level-up card, the pause
+        // menu, or while backgrounded, and evolution slow-mo scales dt first.
+        if (!g.pull && ((g.age || 0) >= 10 || dist <= 3)) {
+          g.pull = 1;
+          g.pullT = 0;
+        }
+        if (g.pull) {
+          const leftT = Math.max(dt, LOOT_FLIGHT - (g.pullT || 0));
+          const step = dist * Math.min(1, dt / leftT);
+          if (dist > 0) {
+            g.x += (dx / dist) * step;
+            g.y += (dy / dist) * step;
+          }
+          g.pullT = (g.pullT || 0) + dt;
+          lootPullFx(g);
+        }
+      }
       if (!walked) {
         if (g.shower && time < (g.showerAt || 0)) {
           /* stagger the vacuum */
@@ -2411,7 +2966,8 @@
         }
       }
       const left = len2(player.x - g.x, player.y - g.y);
-      const taken = walked ? left <= grab : (left <= grab || (g.fly && left < 0.08));
+      const pullDone = !!(rareGround && g.pull && g.pullT >= LOOT_FLIGHT);
+      const taken = walked ? (left <= grab || pullDone) : (left <= grab || (g.fly && left < 0.08));
       if (taken) {
         if (kind === 'heart') {
           player.life = Math.min(player.maxLife, player.life + 16);
@@ -2425,13 +2981,25 @@
           const box = fxBox();
           if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
-          try { SurvivorSave.addItem(g.item); } catch (e) {}
-          showToast(g.item);
+          const arrived = !!(g.pull && !g.banked);
+          if (rarePickupAt < 0 && rareBeam(g.item.rarity)) rarePickupAt = time;
+          if (bankGroundItem(g)) announceFind(g.item);
           requestEvolution();
           const info = chainInfo;
           info.rarity = g.item.rarity;
           fxCall('pickup', g.x, g.y, 'item', info);
+          spark(player.x, player.y, '#ffffff', 3, 2.6);
+          releaseGemAt(i, arrived);
+          if (time - lootSnd > 0.07) {
+            lootSnd = time;
+            sfx('loot');
+          }
+          continue;
         } else {
+          if (kind === 'gem') {
+            gemPickups += 1;
+            gemXp += g.value || 0;
+          }
           grantXp(g.value || 0);
         }
         if (kind !== 'chest' && kind !== 'food') spark(player.x, player.y, '#ffffff', 3, 2.6);
@@ -2505,6 +3073,7 @@
       applyQueuedEvolutions();
       return;
     }
+    if (time < levelGapUntil) return;
     if (pendingLevels <= 0) return;
     levelBlast();
     bankLevels();
@@ -2639,6 +3208,7 @@
       hitPause = Math.max(0, hitPause - dt);
       animT += dt;
       fxCall('update', dt);
+      feedLootTrails();
       evoWindow = false;
       return;
     }
@@ -2699,6 +3269,7 @@
     tickEnemies(dt);
     tickFoeShots(dt);
     if (state !== 'playing') return;
+    if (rareDue && rareAt < 0 && rareArm >= 0 && time >= rareArm + 2) dropRareBeside();
     tickGems(dt);
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
@@ -2734,7 +3305,21 @@
     checkLevel();
   }
 
+  function noteHeading(nx, ny, speed) {
+    const d = len2(nx, ny) || 1;
+    const nxn = nx / d;
+    const nyn = ny / d;
+    headTurn = headX * nyn - headY * nxn;
+    if (Math.abs(headTurn) < 0.0001) headTurn = headTurn >= 0 ? 0.0001 : -0.0001;
+    headX = nxn;
+    headY = nyn;
+    velX = headX * speed;
+    velY = headY * speed;
+  }
+
   function movePlayer(dt) {
+    heroX0 = player.x;
+    heroY0 = player.y;
     let sx = 0;
     let sy = 0;
     let steered = false;
@@ -2775,6 +3360,9 @@
       sx = Math.cos(ang) * radius - player.x;
       sy = Math.sin(ang) * radius - player.y;
       if (len2(sx, sy) < 0.08) {
+        const tx = -Math.sin(ang);
+        const ty = Math.cos(ang);
+        noteHeading(tx, ty, moveSpeed());
         player.moving = true;
         stillT = 0;
         return;
@@ -2782,6 +3370,8 @@
     }
     if (sx === 0 && sy === 0) {
       player.moving = false;
+      velX = 0;
+      velY = 0;
       stillT += dt;
       return;
     }
@@ -2789,6 +3379,7 @@
     stillT = 0;
     const len = len2(sx, sy) || 1;
     const sp = moveSpeed();
+    noteHeading(sx, sy, sp);
     player.x += (sx / len) * sp * dt;
     player.y += (sy / len) * sp * dt;
     if (sx !== 0) player.facing = sx > 0 ? 1 : -1;
@@ -2797,7 +3388,10 @@
   function clearPools() {
     for (let i = 0; i < gems.length; i++) {
       const g = gems[i];
-      if (g && g.kind === 'item' && g.item) beamOff(g.item.id);
+      if (g && g.kind === 'item' && g.item) {
+        if (g.pull) lootPullOff(g.item.id);
+        beamOff(g.item.id);
+      }
     }
     enemies.length = 0;
     gems.length = 0;
@@ -2834,6 +3428,10 @@
     ended = false;
     minuteMark = 0;
     spawnAcc = 0;
+    backlogWave = 0;
+    threatMark = 0;
+    threatGap = 0;
+    orbitClip = 0;
     boss5 = false;
     curse = 0;
     vowPayout = false;
@@ -2847,6 +3445,8 @@
     pickLeft = 0;
     rerollUsed = false;
     hits = 0;
+    hitLog.length = 0;
+    Object.keys(hitTotals).forEach((k) => { delete hitTotals[k]; });
     owned = { bolt: 1 };
     cds = { bolt: T.firstBolt, nova: 1.6, pierce: 1.2 };
     orbitAngle = 0;
@@ -2884,8 +3484,16 @@
     ringAcc = 0;
     nextEliteAt = BALANCE.eliteFirst;
     itemDrops = 0;
+    gemDrops = 0;
+    gemPickups = 0;
+    gemEvicts = 0;
+    gemXp = 0;
     nextDropAt = 15 + Math.random() * 10;
     rareAt = -1;
+    rarePickupAt = -1;
+    rareDue = false;
+    rareArm = -1;
+    rareDropDist = -1;
     epicAt = -1;
     legendAt = -1;
     legendDrops = 0;
@@ -2896,7 +3504,11 @@
     evoWindow = false;
     toastT = 0;
     toastText = '';
+    activeToast = null;
     toastQueue.length = 0;
+    hideToastEl();
+    levelGapUntil = 0;
+    localTells.length = 0;
     chatLog.length = 0;
     const chatHost = $('sv-chat');
     if (chatHost) chatHost.textContent = '';
@@ -2919,7 +3531,15 @@
     fxCall('setReducedMotion', !!reduceMotion);
   }
 
+  function liveRun() {
+    return state === 'playing' || state === 'paused' || state === 'levelup' || state === 'hermit';
+  }
+
   function startRun() {
+    if (liveRun()) {
+      claimUnbankedFlight();
+      syncBank();
+    }
     const preview = previewOnce;
     previewOnce = '';
     resetRun();
@@ -3164,6 +3784,7 @@
   function finish(kind) {
     if (ended) return;
     ended = true;
+    claimUnbankedFlight();
     vowResume = !!(vowPayout && curse > 0);
     vowPayout = false;
     state = kind === 'won' ? 'won' : 'dead';
@@ -3342,7 +3963,10 @@
     if (shopReturn === 'end') {
       paintNextOffer();
       show('sv-end');
-    } else show('sv-title');
+    } else {
+      paintTitleGold();
+      show('sv-title');
+    }
   }
 
   function openLevel() {
@@ -3351,7 +3975,7 @@
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
     partnerPulse += 1;
-    offers = SurvivorData.pickOffers(owned, null, { forcePartner: true });
+    offers = SurvivorData.pickOffers(owned, null, { forcePartner: true, evolved: evolved });
     const title = $('sv-level-title');
     if (title) title.textContent = pickLeft > 0 ? 'Vow reward' : ('Level ' + player.level);
     const lv = $('sv-level-lv');
@@ -3379,7 +4003,10 @@
         const hintText = evoHint(item);
         const showEvo = !!hintText;
         btn.className = 'sv-card' + (showEvo ? ' evolves' : '');
-        const tag = showEvo ? '<em class="sv-tag">Evolves</em>' : (!have && item.kind !== 'reward' ? '<em class="sv-tag new">New</em>' : '');
+        const tagName = cardTag(item);
+        const tag = tagName === 'Evolves'
+          ? '<em class="sv-tag">Evolves</em>'
+          : (tagName === 'New' ? '<em class="sv-tag new">New</em>' : '');
         const hint = showEvo ? '<small class="sv-evo">' + hintText + '</small>' : '';
         const blurb = item.kind === 'reward' ? item.blurb : SurvivorData.rankText(item, next);
         const rank = item.maxLevel && item.kind !== 'reward' ? pipHtml(Math.min(next, item.maxLevel), item.maxLevel) : '';
@@ -3495,10 +4122,21 @@
     const partner = partnerId ? catalogItem(partnerId) : null;
     const weaponReady = (owned[weaponId] || 0) >= (weapon ? weapon.maxLevel : 5);
     const partnerReady = !!(partnerId && (owned[partnerId] || 0) > 0);
-    if (weaponReady && partnerReady) return 'Ready';
-    if (!partnerReady && partner) return 'Needs: ' + partner.name;
-    if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
-    return 'Ready';
+    let text = 'Ready';
+    if (weaponReady && partnerReady) text = 'Ready';
+    else if (item.id === partnerId) {
+      text = !weaponReady && weapon ? ('Needs: ' + weapon.name) : 'Ready';
+    } else if (!partnerReady && partner) text = 'Needs: ' + partner.name;
+    else if (!weaponReady && weapon) text = 'Needs: ' + weapon.name;
+    if (text.indexOf('Needs:') === 0 && text.slice(7) === item.name) return '';
+    return text;
+  }
+
+  function cardTag(item) {
+    if (!item || item.kind === 'reward') return '';
+    if (evoHint(item)) return 'Evolves';
+    if ((owned[item.id] || 0) > 0) return '';
+    return 'New';
   }
 
   function chestItem() {
@@ -3687,7 +4325,9 @@
     pickLeft = 0;
     if (pendingLevels > 0) pendingLevels -= 1;
     if (pendingLevels > 0) {
-      openLevel();
+      levelGapUntil = time + 0.6;
+      state = 'playing';
+      sfx('ui');
       return;
     }
     state = 'playing';
@@ -3699,7 +4339,7 @@
     const before = prev.map((o) => o.id).sort().join(',');
     let next = prev;
     for (let n = 0; n < 8; n++) {
-      next = SurvivorData.pickOffers(owned, null, { forcePartner: true });
+      next = SurvivorData.pickOffers(owned, null, { forcePartner: true, evolved: evolved });
       const key = next.map((o) => o.id).sort().join(',');
       if (key !== before) return next;
     }
@@ -3733,10 +4373,17 @@
     releaseEvolution();
     vowCount += 1;
     vowActive = true;
-    nextVowAt = time + 150;
+    nextVowAt = 1e9;
+    const badge = $('sv-vow-badge');
+    if (badge && !reduceMotion) {
+      badge.classList.remove('sv-vow-pulse');
+      void badge.offsetWidth;
+      badge.classList.add('sv-vow-pulse');
+    }
     try { SurvivorSprites.setFloorVow(vowCount); } catch (e) {}
     fxCall('vow', vowCount);
     syncVowChrome();
+    showNote('Vow accepted', '#d0b4ff');
   }
 
   let vowSecShown = -1;
@@ -3778,8 +4425,8 @@
     if (badge.appendChild) badge.appendChild(canvas);
     const img = document.createElement('img');
     img.alt = '';
-    img.width = 12;
-    img.height = 12;
+    img.width = 16;
+    img.height = 16;
     img.draggable = false;
     const showImage = () => {
       if (!(img.naturalWidth > 0)) return;
@@ -3787,7 +4434,7 @@
       if (badge.appendChild) badge.appendChild(img);
     };
     if (img.addEventListener) img.addEventListener('load', showImage);
-    img.src = 'assets/ui/vow_badge.png?v=6.1.1';
+    img.src = 'assets/ui/vow_badge.png?v=6.1.2';
     if (img.complete && img.naturalWidth > 0) showImage();
   }
 
@@ -3816,8 +4463,7 @@
   function declineHermit() {
     hide('sv-hermit');
     hermitDeclines += 1;
-    if (hermitDeclines >= 2) nextVowAt = 1e9;
-    else nextVowAt = time + 75;
+    nextVowAt = 1e9;
     state = 'playing';
     releaseEvolution();
   }
@@ -3842,6 +4488,15 @@
     if (state === 'playing') openPause();
   }
 
+  function paintTitleGold() {
+    let gold = 0;
+    try { gold = SurvivorSave.gold(); } catch (e) {}
+    const text = Math.max(0, Math.round(gold)) + ' gold';
+    const el = $('sv-title-gold');
+    if (el) el.textContent = text;
+    return text;
+  }
+
   function abandonToTitle() {
     state = 'title';
     joy.on = false;
@@ -3850,6 +4505,7 @@
     hide('sv-pause');
     hide('sv-hud');
     hide('sv-end');
+    paintTitleGold();
     show('sv-title');
   }
 
@@ -3857,6 +4513,7 @@
     let ok = false;
     try { ok = window.confirm('Quit this run?'); } catch (e) { ok = false; }
     if (!ok) return;
+    if (liveRun()) claimUnbankedFlight();
     persistRun();
     const app = capacitorApp();
     if (app && typeof app.exitApp === 'function') {
@@ -4341,6 +4998,32 @@
     drawHeroBody();
   }
 
+  function drawLocalTells() {
+    if (!localTells.length) return;
+    ctx.save();
+    ctx.strokeStyle = '#ffb45a';
+    ctx.globalAlpha = 0.9;
+    for (let i = localTells.length - 1; i >= 0; i--) {
+      const tell = localTells[i];
+      if (tell.until <= time) {
+        localTells.splice(i, 1);
+        continue;
+      }
+      ctx.beginPath();
+      ctx.strokeStyle = tell.color || '#ffb45a';
+      if (tell.kind === 'ring') {
+        ctx.lineWidth = 3;
+        ctx.arc(sxOf(tell.x), syOf(tell.y), Math.max(4, tell.r * TILE), 0, Math.PI * 2);
+      } else {
+        ctx.lineWidth = Math.max(3, (tell.w || 0.4) * TILE * 0.45);
+        ctx.moveTo(sxOf(tell.x), syOf(tell.y));
+        ctx.lineTo(sxOf(tell.x2), syOf(tell.y2));
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawFloats() {
     ctx.textAlign = 'center';
     ctx.lineJoin = 'round';
@@ -4448,6 +5131,7 @@
     fxCall('drawUnder', ctx, camInfo);
     ctx.restore();
     drawHeroActor();
+    drawLocalTells();
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       const px = sxOf(p.x);
@@ -4543,6 +5227,7 @@
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 80));
+    paintTitleGold();
     $('sv-play').addEventListener('click', () => startRun());
     $('sv-resume').addEventListener('click', () => resumePlay());
     $('sv-pause-btn').addEventListener('click', () => openPause());
@@ -4941,6 +5626,7 @@
       time: time,
       life: player.life,
       maxLife: player.maxLife,
+      still: stillT,
       x: player.x,
       y: player.y,
       level: player.level,
@@ -4972,9 +5658,16 @@
       pending: pendingLevels,
       prev: prevLabel,
       drops: itemDrops,
+      gemDrops: gemDrops,
+      gemPickups: gemPickups,
+      gemEvicts: gemEvicts,
+      gemXp: gemXp,
+      xp: player.xp,
       chat: chatLog.map((line) => line.text).join('\n'),
       toastQueued: toastQueue.length,
       rareAt: rareAt,
+      rarePickupAt: rarePickupAt,
+      rareDropDist: rareDropDist,
       epicAt: epicAt,
       legendAt: legendAt,
       legendDrops: legendDrops,
@@ -4984,6 +5677,7 @@
       secondChance: secondChance,
       revivalLeft: revivalLeft,
       toast: toastText,
+      toastAge: activeToast ? Math.max(0, time - activeToast.at) : -1,
       doubleLocked: doubleLocked,
       evoHold: evoHold,
       evoSlow: evoSlow,
@@ -4992,6 +5686,7 @@
       banner: banner,
       novas: shots.filter((s) => s.kind === 'nova').length,
       owned: Object.assign({}, owned),
+      threatGap: threatGap,
     };
   }
 
@@ -5011,7 +5706,11 @@
         if (enemies[i].bossKind === 'warden') dmg = enemies[i].dmg;
       }
       const base = hero.base.life || 90;
-      return { dmg: dmg, base: base, pct: base ? dmg / base : 0, shot: wardenShotDmg() };
+      player.invuln = 0;
+      const before = player.life;
+      hurt(dmg || wardenContactDmg(), true, wardenLifeFloor());
+      const landed = before - player.life;
+      return { dmg: landed, raw: dmg, base: base, pct: base ? landed / base : 0, shot: wardenShotDmg() };
     };
     window.__svSpawn = (id, x, y, kind) => {
       const opts = kind ? { bossKind: kind, name: kind === 'warden' ? 'Grave Warden' : 'Risen Demon' } : null;
@@ -5057,6 +5756,29 @@
       draw();
       return { w: canvas.width, h: canvas.height, zoom: zoom, tile: TILE, camX: camX, camY: camY };
     };
+    window.__svTells = () => localTells.map((tell) => ({
+      kind: tell.kind,
+      id: tell.id,
+      r: tell.r || 0,
+      w: tell.w || 0,
+      x: tell.x,
+      y: tell.y,
+      x2: tell.x2 || 0,
+      y2: tell.y2 || 0,
+      color: tell.color || '',
+    }));
+    window.__svFloats = () => floats.map((f) => f.text);
+    window.__svCrackDemon = () => {
+      let demon = null;
+      for (let i = 0; i < enemies.length; i++) {
+        if (enemies[i].bossKind === 'demon' && enemies[i].life > 0) demon = enemies[i];
+      }
+      if (!demon) return null;
+      demon.life = Math.round(demon.maxLife * 0.5);
+      startDemonShield(demon);
+      damageEnemy(demon, 12);
+      return { max: demon.maxLife, life: demon.life, shield: demon.shieldT || 0 };
+    };
     window.__svStep = (dt) => {
       if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));
@@ -5092,19 +5814,22 @@
       }
       return bands;
     };
-    window.__svSeedItem = (rarity) => {
+    window.__svSeedItem = (rarity, x, y) => {
       let item = null;
       try { item = SurvivorSave.createItem('iron-blade', rarity || 'common'); } catch (e) { item = null; }
       if (!item) item = { id: 'item-' + gems.length, rarity: rarity || 'common', name: rarity || 'common' };
       const g = gemPool.pop() || {};
-      g.x = player.x;
-      g.y = player.y;
+      g.x = x == null ? player.x : player.x + x;
+      g.y = y == null ? player.y : player.y + y;
       g.kind = 'item';
       g.item = item;
       g.value = 0;
       g.vx = 0;
       g.vy = 0;
       g.fly = 0;
+      g.pull = 0;
+      g.pullT = 0;
+      g.banked = 0;
       g.age = 0;
       g.big = false;
       g.shower = 0;
@@ -5117,12 +5842,23 @@
       announceItem({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' }, player.x + 1, player.y);
       return snapRun();
     };
+    window.__svFind = (item) => { announceFind(item || { name: 'Iron Blade', rarity: 'rare' }); return snapRun(); };
     window.__svGround = () => {
       const out = [];
       for (let i = 0; i < gems.length; i++) {
         const g = gems[i];
         if (g.kind !== 'item' || !g.item) continue;
-        out.push({ id: g.item.id, rarity: g.item.rarity, name: g.item.name || '', age: g.age || 0, x: g.x, y: g.y });
+        out.push({
+          id: g.item.id,
+          rarity: g.item.rarity,
+          name: g.item.name || '',
+          age: g.age || 0,
+          x: g.x,
+          y: g.y,
+          pull: g.pull ? 1 : 0,
+          pullT: g.pullT || 0,
+          banked: g.banked ? 1 : 0,
+        });
       }
       return out;
     };
@@ -5157,7 +5893,17 @@
       const item = catalogItem(id);
       return item ? evoHint(item) : '';
     };
+    window.__svCardTag = (id) => {
+      const item = catalogItem(id);
+      return item ? cardTag(item) : '';
+    };
     window.__svOpenHermit = () => { openHermit(); return snapRun(); };
+    window.__svQueueLevels = (n) => {
+      pendingLevels += n || 1;
+      tryShowLevel();
+      return snapRun();
+    };
+    window.__svTitleGold = () => paintTitleGold();
     window.__svPurse = () => {
       try { return SurvivorSave.gold(); } catch (e) { return -1; }
     };
@@ -5165,9 +5911,56 @@
       const out = [];
       for (let i = 0; i < enemies.length; i++) {
         const en = enemies[i];
-        out.push({ name: en.name, boss: !!en.boss, scale: en.scale, radius: en.radius, kind: en.bossKind || '' });
+        out.push({ name: en.name, boss: !!en.boss, elite: !!en.elite, scale: en.scale, radius: en.radius, kind: en.bossKind || '', color: en.color, life: en.maxLife, eid: en.eid });
       }
       return out;
+    };
+    window.__svSampleWeapons = () => {
+      cds.bolt = 0;
+      cds.nova = 0;
+      cds.pierce = 0;
+      novaQueue = 0;
+      lastNovaEcho = 0;
+      lastNovaLife = 0;
+      lastNovaGrow = 1;
+      shots.length = 0;
+      tickWeapons(0.05);
+      return {
+        tempo: tempoMods(),
+        cinder: cinderMods(),
+        spin: lastOrbitSpin,
+        novaLife: lastNovaLife,
+        novaGrow: lastNovaGrow,
+        echo: lastNovaEcho,
+        move: moveSpeed(),
+      };
+    };
+    window.__svApplyBuild = (build, evolvedIds) => {
+      const src = build || {};
+      Object.keys(src).forEach((id) => { owned[id] = src[id]; });
+      (evolvedIds || []).forEach((id) => {
+        const w = catalogItem(id);
+        if (w && w.evolvesWith) evolved[id] = w.evolvesWith;
+      });
+      return snapRun();
+    };
+    window.__svElite = (x, y) => {
+      const en = spawnEnemy('brute', x == null ? player.x + 1.2 : x, y || 0, { elite: true, measure: true });
+      if (!en) return null;
+      return { life: en.life, max: en.maxLife, fid: en.fid };
+    };
+    window.__svEliteLeft = () => {
+      let n = 0;
+      let life = 0;
+      let max = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (!en.elite || en.life <= 0 || en.dying > 0) continue;
+        n += 1;
+        life += en.life;
+        max = en.maxLife;
+      }
+      return { n: n, life: life, max: max };
     };
     window.__svNova = (rank) => {
       owned.nova = rank;
@@ -5179,9 +5972,81 @@
       return snapRun();
     };
     window.__svSnap = () => snapRun();
+    window.__svHits = () => hitLog.slice();
+    window.__svHitTotals = () => Object.assign({}, hitTotals);
     window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
     window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
+    window.__svInvuln = (seconds) => { player.invuln = seconds == null ? 30 : seconds; return player.invuln; };
+    window.__svLock = () => {
+      spawnLocked = true;
+      fairDps = true;
+      while (enemies.length) releaseEnemy(0);
+      return enemies.length;
+    };
+    window.__svMeasure = (id, rank, seconds, at) => {
+      time = 1;
+      state = 'playing';
+      nextVowAt = 99999;
+      nextDropAt = 99999;
+      rareAt = 1;
+      rareDue = false;
+      eliteWarned = true;
+      eliteSpawned = true;
+      demonWarned = true;
+      boss5 = true;
+      player.invuln = 999;
+      owned.bolt = 0;
+      owned.orbit = 0;
+      owned.nova = 0;
+      owned.pierce = 0;
+      owned[id] = rank;
+      cds.bolt = 0;
+      cds.nova = 0;
+      cds.pierce = 0;
+      novaQueue = 0;
+      shots.length = 0;
+      while (enemies.length) releaseEnemy(0);
+      const spot = at || (id === 'orbit' ? { x: 0, y: 0 } : { x: 1.6, y: 0 });
+      const en = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'warden', name: 'Grave Warden', measure: true });
+      if (!en) return { dps: 0 };
+      if (id === 'orbit') en.radius = 4;
+      en.hold = 1;
+      en.holdX = en.x;
+      en.holdY = en.y;
+      en.maxLife = 100000000;
+      en.life = en.maxLife;
+      const span = seconds || 8;
+      const steps = Math.max(1, Math.round(span / 0.05));
+      const before = en.life;
+      for (let n = 0; n < steps; n++) {
+        if (state === 'playing') sim(0.05);
+      }
+      const dealt = before - en.life;
+      return { dps: dealt / (steps * 0.05), dealt: dealt, seconds: steps * 0.05 };
+    };
+    window.__svBanner = (text, seconds) => {
+      raiseBanner(text || 'Grave Warden approaches', true);
+      if (seconds != null) bannerT = seconds;
+      return snapRun();
+    };
+    window.__svToasts = (items) => {
+      const list = items || [];
+      for (let i = 0; i < list.length; i++) announceFind(list[i]);
+      return snapRun();
+    };
+    window.__svSweepItems = () => {
+      for (let i = gems.length - 1; i >= 0; i--) {
+        if (gems[i].kind === 'item') releaseGemAt(i);
+      }
+      return gems.length;
+    };
+    window.__svQuiet = () => {
+      nextDropAt = time + 9999;
+      rareDue = false;
+      if (rareAt < 0) rareAt = time;
+      return snapRun();
+    };
     window.__svRevive = () => { revivePlayer(); return snapRun(); };
     window.__svDismiss = () => {
       if (state === 'levelup') {
@@ -5208,7 +6073,46 @@
     window.__svRestart = () => { startRun(); return snapRun(); };
     window.__svMenu = () => { abandonToTitle(); return snapRun(); };
     window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
-    window.__svSetTime = (t) => { time = t; return snapRun(); };
+    window.__svSetTime = (t) => {
+      time = t;
+      if (t < RELIEF_AT) threatMark = t;
+      else if (threatMark < RELIEF_AT) threatMark = RELIEF_AT;
+      return snapRun();
+    };
+    window.__svThreatGap = () => threatGap;
+    window.__svBacklog = (n) => { spawnAcc = n; return spawnAcc; };
+    window.__svNear = (tiles) => {
+      const limit = tiles == null ? RELIEF_NEAR : tiles;
+      let n = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const en = enemies[i];
+        if (!en || en.life <= 0 || en.dying > 0) continue;
+        if (len2(en.x - player.x, en.y - player.y) <= limit) n += 1;
+      }
+      return n;
+    };
+    window.__svSkipBosses = () => {
+      eliteWarned = true;
+      eliteSpawned = true;
+      wardenCleared = true;
+      demonWarned = true;
+      demonCleared = true;
+      boss5 = true;
+      nextEliteAt = time + 9999;
+      return snapRun();
+    };
+    window.__svArmVow = (count, t) => {
+      if (count != null) vowCount = count;
+      if (t != null) time = t;
+      return {
+        gold: vowMult(),
+        xp: vowXpMul(),
+        hp: vowDanger('hp'),
+        dmg: vowDanger('dmg'),
+        u: vowLateU(),
+      };
+    };
+    window.__svDeferDrops = (t) => { nextDropAt = t; return nextDropAt; };
     window.__svDebugLine = () => debugHudText();
     window.__svTags = () => {
       const out = [];
@@ -5218,6 +6122,10 @@
         out.push(foeTypeTag(en));
       }
       return out;
+    };
+    window.__svWipe = () => {
+      while (enemies.length) releaseEnemy(0);
+      return 0;
     };
     window.__svSlay = (kind) => {
       for (let i = enemies.length - 1; i >= 0; i--) {
@@ -5302,7 +6210,7 @@
     if (bench) {
       try { document.body.classList.add('sv-bench-run'); } catch (e) {}
     }
-    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.1');
+    SurvivorSprites.load('assets/0x72/dungeon-tileset-ii.png?v=6.1.2');
     mountVowBadge();
     if (bench || previewOnce) startRun();
     requestAnimationFrame(frame);

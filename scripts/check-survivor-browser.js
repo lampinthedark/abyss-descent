@@ -592,7 +592,7 @@ async function pageWith(browser, url, viewport) {
         kind: img && img.complete && img.naturalWidth > 0 ? 'img' : (canvas ? 'canvas' : 'none'),
       };
     });
-    if (vowBadge.hidden || vowBadge.w !== 12 || vowBadge.h !== 12 || vowBadge.kind === 'none') {
+    if (vowBadge.hidden || vowBadge.w !== 16 || vowBadge.h !== 16 || vowBadge.kind === 'none') {
       fail('vow badge: ' + JSON.stringify(vowBadge));
     }
     if (vowBadge.rendering !== 'pixelated') fail('vow badge rendering: ' + vowBadge.rendering);
@@ -673,7 +673,7 @@ async function pageWith(browser, url, viewport) {
 
     const old = await pageWith(browser, base + 'index.html', desk);
     const link = await old.$eval('.mode-link a', (el) => el.textContent + ' ' + el.getAttribute('href'));
-    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=6.1.1')) fail('link: ' + link);
+    if (!link.includes('Try: Survivor mode (beta)') || !link.includes('survivor.html?v=6.1.2')) fail('link: ' + link);
     if (old.__errors.length) fail('index errors: ' + old.__errors.join(' | '));
     await old.close();
 

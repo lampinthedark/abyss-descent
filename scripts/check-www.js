@@ -29,7 +29,7 @@ if (rootSurvivor.includes('mobile/shell')) fail('root survivor.html links the na
 if (!wwwSurvivor.includes('mobile/shell.css') || !wwwSurvivor.includes('mobile/shell.js')) {
   fail('www/survivor.html is missing the Capacitor shell');
 }
-if (!rootSurvivor.includes('survivor.js?v=6.1.1')) fail('survivor.html is missing its cache bust');
+if (!rootSurvivor.includes('survivor.js?v=6.1.2')) fail('survivor.html is missing its cache bust');
 const assetTags = [];
 const tagRe = /<(script|link)\b[^>]*>/gi;
 let tagMatch;

@@ -17,4 +17,4 @@ XP gems, ash bolts, the ember trail, hit sparks, and death puffs are original 16
 
 Kenney's packs (https://kenney.nl/assets, CC0) were checked as filler. The particle packs are not 16px tiles, and dropping a second tileset in beside 0x72 would fight the grid. The effects stay on the same pixel scale as the dungeon sheet, in the colours the phone crowd needs: cyan gems, lime bolts, white sparks.
 
-Vow badge: original art by the team.
+Vow badge: original art, Abyss Descent team.

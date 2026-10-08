@@ -248,13 +248,52 @@ const SurvivorData = (() => {
   function pickOffers(owned, rng, opts) {
     const random = rng || Math.random;
     const pulls = partnerPulls(owned);
+    function retired(item) {
+      const evolved = opts && opts.evolved;
+      if (!item || !evolved) return false;
+      const keys = Object.keys(evolved);
+      for (let i = 0; i < keys.length; i++) {
+        const weaponId = keys[i];
+        if (!evolved[weaponId]) continue;
+        if (item.id === weaponId || item.id === evolved[weaponId]) return true;
+      }
+      return false;
+    }
+    function stillRoom(item) {
+      if (!item || item.kind === 'reward') return true;
+      if (retired(item)) return false;
+      const lv = owned && owned[item.id] ? owned[item.id] : 0;
+      return lv < (item.maxLevel || 1);
+    }
+    function purseCard() {
+      return {
+        id: 'purse',
+        name: 'Coin purse',
+        kind: 'reward',
+        blurb: 'Take 15 gold.',
+        maxLevel: 99,
+        evolvesWith: null,
+      };
+    }
+    function fillerFor(out) {
+      let heal = false;
+      let purse = false;
+      for (let i = 0; i < out.length; i++) {
+        if (out[i].id === 'heal') heal = true;
+        if (out[i].id === 'purse') purse = true;
+      }
+      if (!heal) return healCard();
+      if (!purse) return purseCard();
+      return healCard();
+    }
     const bag = [];
     for (let i = 0; i < CATALOG.length; i++) {
       const item = CATALOG[i];
-      const lv = owned && owned[item.id] ? owned[item.id] : 0;
-      if (lv < item.maxLevel) bag.push(item);
+      if (!stillRoom(item)) continue;
+      bag.push(item);
     }
     pulls.heavy.forEach((item) => {
+      if (!stillRoom(item)) return;
       for (let n = 0; n < 16; n++) bag.push(item);
     });
     if (random() < 0.4) bag.push(healCard());
@@ -266,27 +305,23 @@ const SurvivorData = (() => {
       if (out.some((o) => o.id === item.id)) continue;
       out.push(item);
     }
-    while (out.length < 3) {
-      out.push({
-        id: out.length % 2 === 0 ? 'purse' : 'heal',
-        name: out.length % 2 === 0 ? 'Coin purse' : 'Second wind',
-        kind: 'reward',
-        blurb: out.length % 2 === 0 ? 'Take 15 gold.' : 'Heal 30% now, and +6 life a second for a moment.',
-        maxLevel: 99,
-        evolvesWith: null,
-      });
-    }
+    while (out.length < 3) out.push(fillerFor(out));
     if (opts && opts.forcePartner) {
       let slot = out.length - 1;
       pulls.force.forEach((item) => {
+        if (!stillRoom(item)) return;
         if (out.some((o) => o.id === item.id)) return;
         if (slot < 0) return;
         out[slot] = item;
         slot -= 1;
       });
     }
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!stillRoom(out[i])) out.splice(i, 1);
+    }
+    while (out.length < 3) out.push(fillerFor(out));
     const orbitItem = catalogItem('orbit');
-    if (orbitItem && (!owned || (owned.orbit || 0) < orbitItem.maxLevel)) {
+    if (orbitItem && stillRoom(orbitItem)) {
       let seen = false;
       for (let i = 0; i < out.length; i++) {
         if (out[i].id === 'orbit') seen = true;

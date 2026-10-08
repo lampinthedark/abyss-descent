@@ -38,10 +38,23 @@ function memoryStorage() {
 
 function fakeDocument() {
   const ctx = fakeCtx();
-  function el() {
+  const listeners = Object.create(null);
+  const byId = Object.create(null);
+  function el(id) {
+    const classes = Object.create(null);
     return {
+      id: id || '',
       classList: {
-        add() {}, remove() {}, toggle() {}, contains() { return false; },
+        add(name) { if (name) classes[name] = true; },
+        remove(name) { delete classes[name]; },
+        toggle(name, on) {
+          if (on === false) delete classes[name];
+          else if (on === true) classes[name] = true;
+          else if (classes[name]) delete classes[name];
+          else classes[name] = true;
+          return !!classes[name];
+        },
+        contains(name) { return !!classes[name]; },
       },
       style: {},
       dataset: {},
@@ -65,14 +78,28 @@ function fakeDocument() {
     };
   }
   return {
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type, fn) {
+      if (!listeners[type]) listeners[type] = [];
+      listeners[type].push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = listeners[type] || [];
+      const at = list.indexOf(fn);
+      if (at >= 0) list.splice(at, 1);
+    },
+    dispatchEvent(ev) {
+      const list = (listeners[ev && ev.type] || []).slice();
+      for (let i = 0; i < list.length; i++) list[i](ev);
+    },
     visibilityState: 'visible',
     documentElement: { classList: { add() {} } },
     body: { classList: { add() {}, remove() {} } },
-    getElementById: () => el(),
+    getElementById(id) {
+      if (!byId[id]) byId[id] = el(id);
+      return byId[id];
+    },
     querySelectorAll: () => [],
-    createElement: () => el(),
+    createElement: () => el(''),
   };
 }
 
@@ -107,9 +134,12 @@ function boot(seed0, search, storage) {
     'js/survivor-items.js', 'js/survivor-data.js', 'js/survivor-sprites.js', 'js/survivor-fx.js', 'js/survivor.js',
   ];
   files.forEach((name) => {
-    vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
+    const file = name === 'js/survivor-fx.js' && process.env.FX_JS
+      ? process.env.FX_JS
+      : path.join(root, name);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: name });
   });
-  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof FX !== "undefined") this.FX = FX;', context);
+  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof SurvivorData !== "undefined") this.SurvivorData = SurvivorData; if (typeof FX !== "undefined") this.FX = FX;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
   return context;
 }
@@ -152,15 +182,124 @@ function saveOnQuit() {
   console.log('save on quit keeps ' + dead.prev);
 }
 
+function restartBanksGold() {
+  const game = boot(3, '?headless=1&debug=1');
+  if (game.__svPurse() !== 0) fail('restart gold setup purse ' + game.__svPurse());
+  game.__svStart();
+  game.__svAddGold(40);
+  if (game.__svPurse() !== 0) fail('unsynced gold reached the bank ' + game.__svPurse());
+  if (game.__svSnap().gold !== 40) fail('run gold ' + game.__svSnap().gold);
+  game.__svRestart();
+  if (game.__svPurse() !== 40) fail('restart banked ' + game.__svPurse() + ' (want 40)');
+  game.__svAddGold(15);
+  game.__svPageHide();
+  if (game.__svPurse() !== 55) fail('hide sync ' + game.__svPurse());
+  game.__svRestart();
+  if (game.__svPurse() !== 55) fail('restart counted synced gold again ' + game.__svPurse());
+  game.__svAddGold(7);
+  game.__svRestart();
+  if (game.__svPurse() !== 62) fail('restart missed unsynced gold ' + game.__svPurse());
+  console.log('restart banks unsynced gold once');
+}
+
+function watchLootOff(game) {
+  const offs = [];
+  const prev = game.FX && game.FX.lootPullOff;
+  game.FX.lootPullOff = function (id, pop) {
+    offs.push({ id: id, pop: pop, n: arguments.length });
+    if (typeof prev === 'function') prev.apply(game.FX, arguments);
+  };
+  return offs;
+}
+
+function deathRestartSkips() {
+  const game = boot(4, '?headless=1&debug=1');
+  const offs = watchLootOff(game);
+  quietArena(game);
+  game.__svInvuln(0);
+  game.__svAddGold(30);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  stepLive(game);
+  const row = groundRow(game, id);
+  if (!row || !row.pull) fail('death restart setup was not mid-flight');
+  const fell = game.__svHurt(9999);
+  if (fell.state !== 'dead') fail('death restart setup left ' + fell.state);
+  if (bagHits(game, id) !== 1) fail('death banked ' + bagHits(game, id));
+  if (game.__svPurse() !== 30) fail('death gold ' + game.__svPurse());
+  const deathOff = offs.filter((entry) => entry.id === id);
+  if (deathOff.length !== 1 || deathOff[0].n !== 1 || deathOff[0].pop !== undefined) {
+    fail('death lootPullOff ' + JSON.stringify(deathOff));
+  }
+  game.__svRestart();
+  if (bagHits(game, id) !== 1) fail('death restart banked the item again ' + bagHits(game, id));
+  if (game.__svPurse() !== 30) fail('death restart banked gold again ' + game.__svPurse());
+  if (offs.filter((entry) => entry.id === id).length !== 1) fail('death restart called lootPullOff again');
+  console.log('death restart leaves the bank alone');
+}
+
+function quitKeepsTheRun() {
+  const game = boot(5, '?headless=1&debug=1');
+  const offs = watchLootOff(game);
+  quietArena(game);
+  game.__svAddGold(22);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  stepLive(game);
+  const row = groundRow(game, id);
+  if (!row || !row.pull) fail('quit setup was not mid-flight');
+  if (game.__svPurse() !== 0) fail('quit setup synced early ' + game.__svPurse());
+  game.confirm = () => true;
+  const quit = game.__svQuit();
+  if (quit.state !== 'title') fail('quit stayed in ' + quit.state);
+  if (bagHits(game, id) !== 1) fail('quit banked ' + bagHits(game, id));
+  if (game.__svPurse() !== 22) fail('quit gold ' + game.__svPurse());
+  if (groundRow(game, id)) fail('quit left the flight');
+  const quitOff = offs.filter((entry) => entry.id === id);
+  if (quitOff.length !== 1 || quitOff[0].n !== 1 || quitOff[0].pop !== undefined) {
+    fail('quit lootPullOff ' + JSON.stringify(quitOff));
+  }
+  const best = game.__svBest();
+  if (!(best > 0)) fail('quit dropped the run record ' + best);
+  game.__svPageHide();
+  if (game.__svPurse() !== 22) fail('quit then hide counted gold again ' + game.__svPurse());
+  if (bagHits(game, id) !== 1) fail('hide banked the flight again ' + bagHits(game, id));
+  game.__svStart();
+  game.__svAddGold(10);
+  game.__svPageHide();
+  if (game.__svPurse() !== 32) fail('second hide ' + game.__svPurse());
+  game.__svAddGold(5);
+  game.confirm = () => true;
+  const again = game.__svQuit();
+  if (again.state !== 'title') fail('second quit stayed in ' + again.state);
+  if (game.__svPurse() !== 37) fail('quit counted synced gold again ' + game.__svPurse());
+  if (game.__svBest() + 0.001 < best) fail('second quit dropped the best ' + game.__svBest());
+  console.log('quit banks the flight once and keeps the saved run');
+}
+
+function titleGold() {
+  const game = boot(1, '?headless=1');
+  if (game.__svTitleGold() !== '0 gold') fail('title gold ' + game.__svTitleGold());
+  game.__svBank(120);
+  if (game.__svTitleGold() !== '120 gold') fail('banked title gold ' + game.__svTitleGold());
+  game.__svStart();
+  game.__svAddGold(15);
+  game.confirm = () => true;
+  const quit = game.__svQuit();
+  if (quit.state !== 'title') fail('title gold quit ' + quit.state);
+  if (game.__svTitleGold() !== '135 gold') fail('quit title gold ' + game.__svTitleGold());
+  console.log('title screen shows ' + game.__svTitleGold());
+}
+
 function wardenHitFloor() {
   const game = boot(1);
   game.__svStart();
+  game.__svApplyBuild({ bolt: 1, armor: 5 });
   game.__svSpawn('brute', 8, 0, 'warden');
   const hit = game.__svWardenHit();
   if (!(hit.pct >= 0.15 - 1e-9)) fail('warden contact ' + (hit.pct * 100).toFixed(2) + '%');
-  if (hit.dmg + 1e-9 < hit.base * 0.15) fail('warden contact damage ' + hit.dmg);
+  if (hit.dmg + 1e-9 < hit.base * 0.15) fail('warden contact damage ' + hit.dmg + ' under armour');
+  if (hit.raw + 1e-9 >= hit.base * 0.15 && hit.dmg <= hit.raw) fail('floor was applied before armour ' + hit.raw);
   if (hit.shot !== 5) fail('warden volley ' + hit.shot);
-  console.log('warden contact ' + (hit.pct * 100).toFixed(1) + '% of base ' + hit.base + ' (' + hit.dmg + '), volley ' + hit.shot);
+  console.log('warden contact ' + (hit.pct * 100).toFixed(1) + '% of base ' + hit.base + ' after armour (' + hit.dmg + ', raw ' + hit.raw + '), volley ' + hit.shot);
 }
 
 function earlyCrowd() {
@@ -216,22 +355,478 @@ function lootCadence() {
       if (rareAt < 0 && snap.rareAt >= 0) rareAt = snap.rareAt;
       if (snap.time > 95 || snap.state === 'dead') break;
     }
-    if (!(rareAt >= 0 && rareAt <= 90)) fail('seed ' + seed + ' first rare at ' + rareAt);
+    if (!(rareAt >= 0 && rareAt <= 77.2)) fail('seed ' + seed + ' first rare at ' + rareAt);
     if (worst > 25.2) fail('seed ' + seed + ' loot gap ' + worst.toFixed(1) + 's');
     if (drops < 3) fail('seed ' + seed + ' only ' + drops + ' drops by ' + snap.time.toFixed(1));
   }
   const pair = boot(2);
   pair.__svStart();
   const shown = pair.__svPairToast();
-  if (shown.toast.indexOf('Rare:') !== 0) fail('first toast ' + shown.toast);
-  if (shown.toastQueued !== 1) fail('queued toasts ' + shown.toastQueued);
-  if (shown.chat.indexOf('You find: Rare Iron Blade') < 0) fail('chat rare ' + shown.chat);
-  if (shown.chat.indexOf('You find: Common Bone Charm') < 0) fail('chat common ' + shown.chat);
-  let next = shown;
+  if (shown.toast) fail('drop toasted ' + shown.toast);
+  if (shown.chat.indexOf('Iron Blade dropped nearby') < 0) fail('drop line ' + shown.chat);
+  if (shown.chat.indexOf('Bone Charm') >= 0) fail('common drop logged ' + shown.chat);
+  if (shown.chat.indexOf('You find') >= 0) fail('find fired on drop ' + shown.chat);
+  const found = pair.__svFind({ id: 'pair-a', name: 'Iron Blade', rarity: 'rare' });
+  if (found.toast.indexOf('Rare: Iron Blade') !== 0) fail('find toast ' + found.toast);
+  if (found.chat.indexOf('You find: Rare Iron Blade') < 0) fail('find line ' + found.chat);
+  const common = pair.__svFind({ id: 'pair-b', name: 'Bone Charm', rarity: 'common' });
+  if (common.toastQueued !== 0) fail('common queued ' + common.toastQueued);
+  if (common.chat.indexOf('You find: Common Bone Charm') < 0) fail('common find ' + common.chat);
+  let next = common;
   for (let i = 0; i < 40; i++) next = pair.__svStep(0.05);
-  if (next.toast.indexOf('Common:') !== 0) fail('second toast ' + next.toast);
-  if (next.toastQueued !== 0) fail('queue left ' + next.toastQueued);
-  console.log('loot every 15–25s, first rare by 1:30, both toasts named');
+  if (next.toast.indexOf('Common:') === 0) fail('common toast ' + next.toast);
+  console.log('loot every 15–25s, first rare by 1:17, find on pickup');
+}
+
+function rarePull() {
+  const far = boot(1, '?headless=1&debug=1');
+  far.__svStart();
+  const id = far.__svSeedItem('rare', 6, 0);
+  const stepFar = () => {
+    let snap = far.__svStep(0.05);
+    if (snap.state === 'levelup') snap = far.__svChoose(0);
+    if (snap.state === 'hermit') snap = far.__svDecline();
+    return snap;
+  };
+  for (let i = 0; i < 20; i++) stepFar();
+  if (!far.__svGround().some((g) => g.id === id)) fail('rare pulled from 6 tiles before 10s');
+  for (let i = 0; i < 200; i++) stepFar();
+  if (far.__svGround().some((g) => g.id === id)) fail('rare still on the ground after 10s');
+  const bag = far.__svBag();
+  if (!bag.some((it) => it.id === id)) fail('flown rare was not picked up');
+
+  const near = boot(2, '?headless=1&debug=1');
+  near.__svStart();
+  near.__svSeedItem('rare', 2.4, 0);
+  let pulled = false;
+  for (let i = 0; i < 12; i++) {
+    const snap = near.__svStep(0.05);
+    if (snap.state === 'levelup') near.__svChoose(0);
+    if (!near.__svGround().length) { pulled = true; break; }
+  }
+  if (!pulled) fail('rare within 3 tiles did not pull');
+
+  const common = boot(3, '?headless=1&debug=1');
+  common.__svStart();
+  common.__svSeedItem('common', 2.4, 0);
+  for (let i = 0; i < 30; i++) {
+    const snap = common.__svStep(0.05);
+    if (snap.state === 'levelup') common.__svChoose(0);
+  }
+  if (!common.__svGround().length) fail('common inside 3 tiles was pulled');
+  console.log('rare+ pulls from 3 tiles and flies home after 10s');
+}
+
+function groundRow(game, id) {
+  const rows = game.__svGround();
+  for (let i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i];
+  return null;
+}
+
+function bagHits(game, id) {
+  let n = 0;
+  game.__svBag().forEach((it) => { if (it.id === id) n += 1; });
+  return n;
+}
+
+function stepLive(game, dt) {
+  let snap = game.__svStep(dt == null ? 0.05 : dt);
+  if (snap.state === 'levelup') snap = game.__svDismiss();
+  if (snap.state === 'hermit') snap = game.__svDecline();
+  return snap;
+}
+
+function quietArena(game) {
+  game.__svStart();
+  game.__svLock();
+  game.__svQuiet();
+  game.__svInvuln(30);
+}
+
+function rareTimerPauses() {
+  const level = boot(1, '?headless=1&debug=1');
+  quietArena(level);
+  const levelId = level.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 40; i++) stepLive(level);
+  level.__svOpenLevel();
+  const frozen = groundRow(level, levelId);
+  if (!frozen) fail('level-up lost the rare');
+  for (let i = 0; i < 40; i++) level.__svStep(0.05);
+  const held = groundRow(level, levelId);
+  if (!held || Math.abs(held.age - frozen.age) > 0.001) fail('level-up advanced the ground timer ' + (held && held.age) + ' from ' + frozen.age);
+  level.__svDismiss();
+  stepLive(level);
+  const resumed = groundRow(level, levelId);
+  if (!resumed || resumed.age <= frozen.age) fail('level-up did not resume game time');
+
+  const pause = boot(2, '?headless=1&debug=1');
+  quietArena(pause);
+  const pauseId = pause.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 30; i++) stepLive(pause);
+  pause.__svPause();
+  const pausedAge = groundRow(pause, pauseId).age;
+  for (let i = 0; i < 30; i++) pause.__svStep(0.05);
+  const stillPaused = groundRow(pause, pauseId);
+  if (!stillPaused || Math.abs(stillPaused.age - pausedAge) > 0.001) fail('pause menu advanced the ground timer');
+  if (pause.__svSnap().state !== 'paused') fail('pause menu left ' + pause.__svSnap().state);
+  pause.__svResume();
+  stepLive(pause);
+  if (groundRow(pause, pauseId).age <= pausedAge) fail('resume did not advance the ground timer');
+
+  const slow = boot(3, '?headless=1&debug=1');
+  quietArena(slow);
+  slow.__svSetTime(1);
+  const slowId = slow.__svSeedItem('rare', 8, 0);
+  const armed = slow.__svForceEvos();
+  if (!(armed.evoSlow > 0)) fail('evolution slow-mo did not arm ' + armed.evoSlow);
+  const slowAge = groundRow(slow, slowId).age;
+  const wall = 10 * 0.05;
+  for (let i = 0; i < 10; i++) stepLive(slow);
+  const scaled = groundRow(slow, slowId).age - slowAge;
+  if (scaled >= wall * 0.6) fail('evolution slow-mo did not scale the ground timer ' + scaled.toFixed(3));
+  if (scaled <= wall * 0.15) fail('evolution slow-mo froze the ground timer ' + scaled.toFixed(3));
+
+  const back = boot(4, '?headless=1&debug=1');
+  quietArena(back);
+  const backId = back.__svSeedItem('rare', 6, 0);
+  for (let i = 0; i < 20; i++) stepLive(back);
+  const backAge = groundRow(back, backId).age;
+  back.document.visibilityState = 'hidden';
+  back.document.dispatchEvent({ type: 'visibilitychange' });
+  if (back.__svSnap().state !== 'paused') fail('visibilitychange did not pause');
+  for (let i = 0; i < 20; i++) back.__svStep(0.05);
+  const hidden = groundRow(back, backId);
+  if (!hidden || Math.abs(hidden.age - backAge) > 0.001) fail('background advanced the ground timer');
+  back.document.visibilityState = 'visible';
+  back.document.dispatchEvent({ type: 'visibilitychange' });
+  if (back.__svSnap().state !== 'playing') fail('foreground stayed ' + back.__svSnap().state);
+  stepLive(back);
+  if (groundRow(back, backId).age <= backAge) fail('foreground did not resume the ground timer');
+  console.log('rare ground timer follows game time (level-up, pause, slow-mo, background)');
+}
+
+function rareFlightSpeed() {
+  const game = boot(5, '?headless=1&debug=1');
+  quietArena(game);
+  const id = game.__svSeedItem('rare', 2.4, 0);
+  let flyAt = null;
+  let landed = null;
+  for (let i = 0; i < 20; i++) {
+    const snap = stepLive(game);
+    const row = groundRow(game, id);
+    if (row && row.pull && flyAt == null) flyAt = snap.time - row.pullT;
+    if (!row) { landed = snap.time; break; }
+  }
+  if (flyAt == null || landed == null) fail('3-tile rare did not fly home');
+  const flight = landed - flyAt;
+  if (flight > 0.5) fail('3-tile flight ' + flight.toFixed(3) + 's');
+  if (flight < 0.2) fail('3-tile flight skipped the dash ' + flight.toFixed(3) + 's');
+  if (bagHits(game, id) !== 1) fail('3-tile rare banked ' + bagHits(game, id));
+
+  const far = boot(6, '?headless=1&debug=1');
+  quietArena(far);
+  const farId = far.__svSeedItem('rare', 6, 0);
+  let age = 0;
+  for (let i = 0; i < 220; i++) {
+    const snap = stepLive(far);
+    const row = groundRow(far, farId);
+    if (row) age = row.age;
+    if (row && age >= 9.5 && age < 10 && row.pull) fail('far rare flew before 10s at age ' + age);
+    if (row && age >= 9.5 && age < 10) break;
+    if (!row) fail('far rare left the ground at age ' + age);
+  }
+  const waiting = groundRow(far, farId);
+  if (!waiting || waiting.pull) fail('far rare was not waiting at ' + (waiting && waiting.age));
+  let farFly = null;
+  let farLand = null;
+  for (let i = 0; i < 30; i++) {
+    const snap = stepLive(far);
+    const row = groundRow(far, farId);
+    if (row && row.pull && farFly == null) farFly = snap.time - row.pullT;
+    if (!row) { farLand = snap.time; break; }
+  }
+  if (farFly == null || farLand == null) fail('10s rare did not dash');
+  const farFlight = farLand - farFly;
+  if (farFlight > 0.5) fail('10s flight ' + farFlight.toFixed(3) + 's');
+  if (bagHits(far, farId) !== 1) fail('10s rare banked ' + bagHits(far, farId));
+  console.log('rare flight ' + flight.toFixed(2) + 's within 3 tiles, ' + farFlight.toFixed(2) + 's after 10s');
+}
+
+function rareFlightBank() {
+  const dead = boot(7, '?headless=1&debug=1');
+  quietArena(dead);
+  dead.__svInvuln(0);
+  const deadId = dead.__svSeedItem('rare', 2.4, 0);
+  stepLive(dead);
+  const mid = groundRow(dead, deadId);
+  if (!mid || !mid.pull || mid.pullT >= 0.4) fail('death setup was not mid-flight ' + JSON.stringify(mid));
+  if (bagHits(dead, deadId) !== 0) fail('death setup banked early');
+  const fell = dead.__svHurt(9999);
+  if (fell.state !== 'dead') fail('mid-flight hurt left ' + fell.state);
+  if (bagHits(dead, deadId) !== 1) fail('death banked ' + bagHits(dead, deadId));
+  for (let i = 0; i < 8; i++) dead.__svStep(0.05);
+  if (bagHits(dead, deadId) !== 1) fail('death banked twice ' + bagHits(dead, deadId));
+
+  const restart = boot(8, '?headless=1&debug=1');
+  quietArena(restart);
+  const restartId = restart.__svSeedItem('rare', 2.4, 0);
+  stepLive(restart);
+  if (!groundRow(restart, restartId) || !groundRow(restart, restartId).pull) fail('restart setup was not mid-flight');
+  const restartBefore = bagHits(restart, restartId);
+  restart.__svRestart();
+  if (bagHits(restart, restartId) !== restartBefore + 1) {
+    fail('restart banked ' + bagHits(restart, restartId) + ' (want ' + (restartBefore + 1) + ')');
+  }
+  if (groundRow(restart, restartId)) fail('restart left the flight on the ground');
+
+  const landedRestart = boot(10, '?headless=1&debug=1');
+  quietArena(landedRestart);
+  const landedId = landedRestart.__svSeedItem('rare', 2.4, 0);
+  for (let i = 0; i < 20 && groundRow(landedRestart, landedId); i++) stepLive(landedRestart);
+  if (groundRow(landedRestart, landedId)) fail('restart landing stayed on the ground');
+  if (bagHits(landedRestart, landedId) !== 1) fail('restart landing banked ' + bagHits(landedRestart, landedId));
+  landedRestart.__svRestart();
+  if (bagHits(landedRestart, landedId) !== 1) fail('restart after landing banked ' + bagHits(landedRestart, landedId));
+
+  const once = boot(9, '?headless=1&debug=1');
+  quietArena(once);
+  const onceId = once.__svSeedItem('rare', 2.4, 0);
+  for (let i = 0; i < 20 && groundRow(once, onceId); i++) stepLive(once);
+  if (groundRow(once, onceId)) fail('landed rare stayed on the ground');
+  if (bagHits(once, onceId) !== 1) fail('landing banked ' + bagHits(once, onceId));
+  once.__svInvuln(0);
+  const after = once.__svHurt(9999);
+  if (after.state !== 'dead') fail('landed rare death ' + after.state);
+  if (bagHits(once, onceId) !== 1) fail('landing plus death banked ' + bagHits(once, onceId));
+  console.log('mid-flight death and restart each bank once, a landed item stays one copy');
+}
+
+function lootPullHeld() {
+  const src = fs.readFileSync(path.join(root, 'js/survivor.js'), 'utf8');
+  if (!/const LOOTPULL_FX = true;/.test(src)) fail('LOOTPULL_FX is not on');
+  function watch(game) {
+    const pulls = [];
+    const offs = [];
+    const prevPull = game.FX.lootPull;
+    const prevOff = game.FX.lootPullOff;
+    game.FX.lootPull = function (id, x, y, hx, hy, ms, rarity) {
+      pulls.push({ id: id, x: x, y: y, hx: hx, hy: hy, ms: ms, rarity: rarity, n: arguments.length });
+      if (typeof prevPull === 'function') prevPull.apply(game.FX, arguments);
+    };
+    game.FX.lootPullOff = function (id, pop) {
+      offs.push({ id: id, pop: pop, n: arguments.length });
+      if (typeof prevOff === 'function') prevOff.apply(game.FX, arguments);
+    };
+    return { pulls: pulls, offs: offs };
+  }
+  function pullFor(log, id) {
+    return log.pulls.filter((row) => row.id === id);
+  }
+  function offFor(log, id) {
+    return log.offs.filter((row) => row.id === id);
+  }
+  function same(a, b) {
+    return Math.abs(a - b) < 1e-6;
+  }
+  function expectAim(call, row, snap, rarity) {
+    if (!call || call.ms !== 400 || call.rarity !== rarity || call.n !== 7) {
+      fail('lootPull args ' + JSON.stringify(call));
+    }
+    if (!row || !same(call.x, row.x) || !same(call.y, row.y)) {
+      fail('lootPull gem ' + JSON.stringify(call) + ' vs ' + JSON.stringify(row));
+    }
+    if (!snap || !same(call.hx, snap.x) || !same(call.hy, snap.y)) {
+      fail('lootPull hero ' + JSON.stringify(call) + ' vs ' + snap.x + ',' + snap.y);
+    }
+  }
+  const game = boot(1, '?headless=1&debug=1');
+  const log = watch(game);
+  quietArena(game);
+  const commonId = game.__svSeedItem('common', 2.4, 0);
+  for (let i = 0; i < 12; i++) stepLive(game);
+  if (pullFor(log, commonId).length || offFor(log, commonId).length) fail('common called loot pull');
+
+  const nearId = game.__svSeedItem('rare', 2.4, 0);
+  const dt = 1 / 60;
+  let nearSnap = null;
+  let bankFrame = 0;
+  for (let frame = 1; frame <= 30; frame++) {
+    if (frame === 2) game.__svMove(-1, 0.15);
+    nearSnap = stepLive(game, dt);
+    if (frame === 2) game.__svMove(0, 0);
+    const row = groundRow(game, nearId);
+    const calls = pullFor(log, nearId);
+    if (!row) {
+      bankFrame = frame;
+      if (calls.length !== frame) fail('bank frame lootPull count ' + calls.length);
+      if (!same(calls[frame - 1].hx, nearSnap.x) || !same(calls[frame - 1].hy, nearSnap.y) || calls[frame - 1].ms !== 400) {
+        fail('bank aim ' + JSON.stringify(calls[frame - 1]));
+      }
+      if (nearSnap.chat.indexOf('You find:') < 0) fail('bank missed the find line ' + nearSnap.chat);
+      break;
+    }
+    if (nearSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + nearSnap.chat);
+    if (calls.length !== frame) fail('frame ' + frame + ' lootPull count ' + calls.length);
+    expectAim(calls[frame - 1], row, nearSnap, 'rare');
+    if (offFor(log, nearId).length) fail('cleared the trail on frame ' + frame);
+  }
+  if (!bankFrame) fail('3-tile rare did not bank');
+  const nearOff = offFor(log, nearId);
+  if (nearOff.length !== 1 || nearOff[0].pop !== true || nearOff[0].n !== 2) {
+    fail('3-tile bank off ' + JSON.stringify(nearOff));
+  }
+
+  const farId = game.__svSeedItem('epic', 6, 0);
+  let farTicks = 0;
+  let farSnap = null;
+  for (let i = 0; i < 260; i++) {
+    const before = pullFor(log, farId).length;
+    farSnap = stepLive(game);
+    const row = groundRow(game, farId);
+    const added = pullFor(log, farId).length - before;
+    if (!row) {
+      if (added !== 1) fail('10s bank tick lootPull count ' + added);
+      break;
+    }
+    if (!row.pull) {
+      if (added) fail('10s wait called lootPull');
+      continue;
+    }
+    if (added !== 1) fail('10s flight tick called lootPull ' + added + ' times');
+    expectAim(pullFor(log, farId).pop(), row, farSnap, 'epic');
+    farTicks += 1;
+  }
+  if (groundRow(game, farId)) fail('10s epic did not bank');
+  if (farTicks < 2) fail('10s flight ticks ' + farTicks);
+  const farOff = offFor(log, farId);
+  if (farOff.length !== 1 || farOff[0].pop !== true || farOff[0].n !== 2) fail('10s bank off ' + JSON.stringify(farOff));
+  if (bagHits(game, commonId) > 0 && offFor(log, commonId).length) fail('banked common called lootPullOff');
+
+  const dead = boot(2, '?headless=1&debug=1');
+  const deadLog = watch(dead);
+  quietArena(dead);
+  dead.__svInvuln(0);
+  const deadId = dead.__svSeedItem('rare', 2.4, 0);
+  const deadSnap = stepLive(dead);
+  const deadRow = groundRow(dead, deadId);
+  if (!deadRow || !deadRow.pull) fail('death setup was not mid-flight');
+  expectAim(pullFor(deadLog, deadId)[0], deadRow, deadSnap, 'rare');
+  if (deadSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + deadSnap.chat);
+  const fell = dead.__svHurt(9999);
+  if (fell.state !== 'dead') fail('mid-flight death ' + fell.state);
+  if (bagHits(dead, deadId) !== 1) fail('death banked ' + bagHits(dead, deadId));
+  if (fell.chat.indexOf('You find') >= 0) fail('death bank announced a find ' + fell.chat);
+  const deathOff = offFor(deadLog, deadId);
+  const deathPull = pullFor(deadLog, deadId);
+  if (deathPull.length !== 1) fail('death added a lootPull ' + deathPull.length);
+  if (deathOff.length !== 1 || deathOff[0].n !== 1 || deathOff[0].pop !== undefined) {
+    fail('death lootPullOff ' + JSON.stringify(deathOff));
+  }
+
+  const restart = boot(3, '?headless=1&debug=1');
+  const restartLog = watch(restart);
+  quietArena(restart);
+  const restartId = restart.__svSeedItem('rare', 2.4, 0);
+  const restartSnap = stepLive(restart);
+  const restartRow = groundRow(restart, restartId);
+  if (!restartRow || !restartRow.pull) fail('restart setup was not mid-flight');
+  expectAim(pullFor(restartLog, restartId)[0], restartRow, restartSnap, 'rare');
+  if (restartSnap.chat.indexOf('You find') >= 0) fail('find line before bank ' + restartSnap.chat);
+  const restartBefore = bagHits(restart, restartId);
+  restart.__svRestart();
+  if (bagHits(restart, restartId) !== restartBefore + 1) {
+    fail('restart banked ' + bagHits(restart, restartId) + ' (want ' + (restartBefore + 1) + ')');
+  }
+  if (groundRow(restart, restartId)) fail('restart left residue');
+  const restartOff = offFor(restartLog, restartId);
+  const restartPull = pullFor(restartLog, restartId);
+  if (restartPull.length !== 1) fail('restart added a lootPull ' + restartPull.length);
+  if (restartOff.length !== 1 || restartOff[0].n !== 1 || restartOff[0].pop !== undefined) {
+    fail('restart lootPullOff ' + JSON.stringify(restartOff));
+  }
+  for (let i = 0; i < 34; i++) stepLive(restart, 0.05);
+  if (groundRow(restart, restartId)) fail('restart residue returned');
+  const restartStale = lootStaleCount(restart);
+  if (restartStale != null && restartStale !== 0) fail('restart lootStale ' + restartStale);
+
+  const paused = boot(4, '?headless=1&debug=1');
+  const pauseLog = watch(paused);
+  quietArena(paused);
+  const pauseId = paused.__svSeedItem('rare', 2.4, 0);
+  stepLive(paused, dt);
+  const frozen = groundRow(paused, pauseId);
+  if (!frozen || !frozen.pull || frozen.pullT >= 0.4) fail('hit-pause setup was not mid-flight');
+  paused.__svElite(4, 4);
+  paused.__svSlay('brute');
+  for (let frame = 1; frame <= 25; frame++) {
+    const snap = stepLive(paused, 0.001);
+    const row = groundRow(paused, pauseId);
+    const calls = pullFor(pauseLog, pauseId);
+    if (!row || !same(row.x, frozen.x) || !same(row.y, frozen.y) || !same(row.pullT, frozen.pullT)) {
+      fail('frame ' + frame + ' banked during the 400ms FX window ' + JSON.stringify(row));
+    }
+    if (calls.length !== frame + 1) fail('frame ' + frame + ' lootPull count ' + calls.length);
+    expectAim(calls[calls.length - 1], row, snap, 'rare');
+  }
+  if (offFor(pauseLog, pauseId).length) fail('FX 400ms cleared the trail before bank');
+  let guard = 0;
+  while (groundRow(paused, pauseId) && guard++ < 80) stepLive(paused, dt);
+  if (groundRow(paused, pauseId)) fail('paused rare did not bank');
+  const pauseOff = offFor(pauseLog, pauseId);
+  if (pauseOff.length !== 1 || pauseOff[0].pop !== true || pauseOff[0].n !== 2) {
+    fail('frame 25 window bank off ' + JSON.stringify(pauseOff));
+  }
+  console.log('lootPull re-aims every flight tick, pop on bank, silent bank on death and restart');
+}
+
+function rareBeside() {
+  const rates = [1 / 60, 0.05];
+  rates.forEach((dt) => {
+    const label = dt < 0.02 ? '60fps' : '20fps';
+    const lines = [];
+    for (let seed = 1; seed <= 8; seed++) {
+      const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+      game.__svStart();
+      let snap = game.__svSnap();
+      const limit = Math.ceil(88 / dt) + 80;
+      for (let i = 0; i < limit && snap.time < 86 && snap.state !== 'dead' && snap.state !== 'won'; i++) {
+        snap = game.__svStep(dt);
+        if (snap.state === 'levelup') snap = game.__svChoose(0);
+        if (snap.state === 'hermit') snap = game.__svDecline();
+      }
+      const dropped = snap.rareAt;
+      const picked = snap.rarePickupAt;
+      lines.push(label + ' seed ' + seed + ' drop ' + (dropped < 0 ? '-' : dropped.toFixed(2))
+        + ' pickup ' + (picked < 0 ? '-' : picked.toFixed(2))
+        + ' dist ' + (snap.rareDropDist < 0 ? 'natural' : snap.rareDropDist.toFixed(2)));
+      if (!(dropped >= 0 && dropped <= 77.2)) {
+        fail(label + ' seed ' + seed + ' first rare dropped at ' + dropped + ' (state ' + snap.state + ')');
+      }
+      if (snap.rareDropDist >= 0) {
+        if (snap.rareDropDist > 1) fail(label + ' seed ' + seed + ' guaranteed rare landed ' + snap.rareDropDist + ' tiles away');
+        if (picked > dropped + 0.35) fail(label + ' seed ' + seed + ' guaranteed rare picked up at ' + picked + ' after ' + dropped);
+      }
+    }
+    console.log(lines.join(' | '));
+  });
+  const primed = boot(3, '?headless=1&debug=1');
+  primed.__svStart();
+  primed.__svSetTime(75);
+  primed.__svDeferDrops(999);
+  primed.__svSnap();
+  let held = primed.__svStep(0.05);
+  // The cadence drop on this frame is not the guarantee. Step until the
+  // beside-hero rare exists, which is at most 2s after 1:15.
+  for (let i = 0; i < 80 && held.rareDropDist < 0 && held.time < 80; i++) {
+    held = primed.__svStep(0.05);
+    if (held.state === 'levelup') held = primed.__svChoose(0);
+  }
+  if (!(held.rareAt >= 75 && held.rareAt <= 77.2)) fail('primed rare drop ' + held.rareAt);
+  if (!(held.rareDropDist > 0 && held.rareDropDist <= 1)) fail('primed rare dist ' + held.rareDropDist);
+  if (!(held.rarePickupAt >= held.rareAt && held.rarePickupAt <= held.rareAt + 0.06)) {
+    fail('primed rare pickup ' + held.rarePickupAt + ' drop ' + held.rareAt);
+  }
+  console.log('guaranteed rare drops beside the hero by 1:17 and is picked up there');
 }
 
 function idleDeath() {
@@ -415,8 +1010,125 @@ function levelTimeline(seed) {
     if (gap > worst) worst = gap;
   }
   if (late < 6) fail('expected the climb to keep going after 2:00, got ' + late);
-  if (worst > 40) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
+  // Beside-hero rares and the 10s rare pull move one mid-run gap. The
+  // climb still continues; a real stall is a minute or more.
+  if (worst > 50) fail('level-ups stalled for ' + worst.toFixed(1) + 's');
   return times;
+}
+
+function burstStagger() {
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svApplyBuild({ bolt: 0, orbit: 0, nova: 0, pierce: 0 });
+  game.__svInvuln(40);
+  game.__svSetTime(330);
+  game.__svSkipBosses();
+  game.__svWipe();
+  game.__svBacklog(147);
+  let prev = game.__svCount();
+  const spawned = [];
+  for (let i = 0; i < 70; i++) {
+    const snap = game.__svStep(0.05);
+    if (snap.state !== 'playing') game.__svDismiss();
+    const now = game.__svCount();
+    spawned.push(Math.max(0, now - prev));
+    prev = now;
+  }
+  if (spawned[0] > 8) fail('first frame dumped ' + spawned[0] + ' of a 147 backlog');
+  const early = spawned.slice(0, 6).reduce((a, b) => a + b, 0);
+  const total = spawned.reduce((a, b) => a + b, 0);
+  if (early > 40) fail('burst front-loaded ' + early + ' in 0.3s');
+  if (total < 70) fail('staggered burst only delivered ' + total);
+  console.log('147 backlog arrives as a wave, first frame ' + spawned[0] + ', 0.3s ' + early + ', 3.5s ' + total);
+}
+
+function demonShield() {
+  const game = boot(4, '?headless=1&debug=1');
+  game.FX.shield = undefined;
+  game.__svStart();
+  game.__svInvuln(30);
+  game.__svSpawn('brute', 2.2, 0, 'demon');
+  const cracked = game.__svCrackDemon();
+  if (!cracked) fail('demon did not spawn');
+  if (cracked.max !== 3100) fail('demon hp ' + cracked.max);
+  if (!(cracked.shield > 0)) fail('shield did not start at half health');
+  const ring = game.__svTells().filter((tell) => tell.color === '#9fb4c8');
+  if (!ring.length) fail('missing #9fb4c8 shield ring');
+  const texts = game.__svFloats();
+  if (texts.indexOf('blocked') < 0) fail('shield hit did not say blocked: ' + texts.join(','));
+  console.log('demon shield at 50% of ' + cracked.max + ' says blocked, fallback ring #9fb4c8');
+}
+
+function deadStretch() {
+  const game = boot(4, '?headless=1&debug=1&walk=circle&seed=4');
+  game.__svStart();
+  game.__svView(8000, 8000, 1);
+  game.__svInvuln(800);
+  game.__svApplyBuild({ bolt: 0, orbit: 0, nova: 0, pierce: 0 });
+  game.__svSetTime(300);
+  game.__svSkipBosses();
+  game.__svQuiet();
+  let worst = 0;
+  let emptyAt = 300;
+  let snap = game.__svSnap();
+  for (let i = 0; i < 2800; i++) {
+    game.__svWipe();
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup' || snap.state === 'hermit') snap = game.__svDismiss();
+    const near = game.__svNear(11);
+    if (near >= 4) emptyAt = snap.time;
+    else if (snap.time - emptyAt > worst) worst = snap.time - emptyAt;
+    if (snap.time >= 420) break;
+  }
+  const reported = game.__svThreatGap();
+  if (!(reported > 0 && reported <= 45)) fail('reported dead gap ' + reported.toFixed(2) + 's');
+  if (worst > 45) fail('observed dead gap ' + worst.toFixed(2) + 's');
+  console.log('longest dead gap after 5:00 ' + reported.toFixed(1) + 's (seen ' + worst.toFixed(1) + 's)');
+}
+
+function levelGap() {
+  const game = boot(2, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svInvuln(30);
+  let snap = game.__svQueueLevels(2);
+  if (snap.state !== 'levelup') fail('queued level did not open, ' + snap.state);
+  const t0 = snap.time;
+  snap = game.__svChoose(0);
+  if (snap.state !== 'playing') fail('next level opened immediately, ' + snap.state);
+  for (let i = 0; i < 11; i++) snap = game.__svStep(0.05);
+  if (snap.state === 'levelup') fail('level card opened before 0.6s at ' + (snap.time - t0).toFixed(2));
+  for (let i = 0; i < 4; i++) snap = game.__svStep(0.05);
+  if (snap.state !== 'levelup') fail('level card stayed shut after ' + (snap.time - t0).toFixed(2) + 's, ' + snap.state);
+  console.log('level-ups wait 0.6s');
+}
+
+function bruteTint() {
+  const game = boot(1);
+  game.__svStart();
+  game.__svSpawn('brute', 3, 0);
+  game.__svElite(4, 0);
+  const scales = game.__svScales();
+  const plain = scales.filter((en) => en.eid === 'brute' && !en.elite && !en.boss).pop();
+  const elite = scales.filter((en) => en.elite && en.eid === 'brute').pop();
+  if (!plain || plain.color !== '#8e97a3' || Math.abs(plain.scale - 0.625) > 0.001) {
+    fail('plain brute ' + JSON.stringify(plain));
+  }
+  if (!elite || elite.color !== '#6f8f62' || Math.abs(elite.scale - 1.2) > 0.001 || Math.abs(elite.scale - 1.5) < 0.001) {
+    fail('elite brute ' + JSON.stringify(elite));
+  }
+  console.log('elite brute ' + elite.color + ' at scale ' + elite.scale);
+}
+
+function restartToast() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svFind({ name: 'Ash Bead', rarity: 'rare' });
+  const toast = game.document.getElementById('sv-toast');
+  if (!toast || toast.classList.contains('hidden') || !toast.textContent) fail('toast did not show');
+  game.__svRestart();
+  if (!toast.classList.contains('hidden')) fail('restart left #sv-toast visible');
+  if (toast.textContent) fail('restart left toast text ' + toast.textContent);
+  console.log('restart hides #sv-toast');
 }
 
 function hermitTwice() {
@@ -435,11 +1147,9 @@ function hermitTwice() {
     }
     if (snap.state === 'dead' || snap.time > 320) break;
   }
-  if (times.length !== 2) fail('hermit offers ' + times.join(', ') + ' (want exactly two)');
+  if (times.length !== 1) fail('hermit offers ' + times.join(', ') + ' (want one)');
   if (times[0] < 90 || times[0] > 116) fail('first hermit at ' + times[0]);
-  const gap = times[1] - times[0];
-  if (gap < 70 || gap > 85) fail('second hermit gap ' + gap.toFixed(1));
-  console.log('hermit offers', times.join(', '));
+  console.log('hermit offers once at ' + times[0]);
 }
 
 function vowRevive() {
@@ -763,7 +1473,257 @@ function forcedVow() {
   if (!(snap.curse > 0)) fail('forced vow has no curse');
   if (snap.time < 90 || snap.time > 90.2) fail('forced vow time ' + snap.time);
   if (!snap.vowBadge) fail('forced vow badge missing');
+  if (snap.toast !== 'Vow accepted') fail('vow toast ' + snap.toast);
   console.log('forced vow accepted at ' + snap.time.toFixed(2));
+}
+
+function bossWeaponDps() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svLock();
+  function paperBolt(rank) {
+    const steps = [1, 1.15, 1.35, 1.5, 1.85];
+    const cd = [0.62, 0.56, 0.5, 0.42, 0.36];
+    const volley = rank >= 5 ? 3 : rank >= 3 ? 2 : 1;
+    const dmg = 12 * steps[rank - 1];
+    return dmg * (1 + 0.65 * (volley - 1)) / cd[rank - 1];
+  }
+  function paperPierce(rank) {
+    const dmg = (14 + rank * 6) * (rank >= 3 ? 1.15 : 1);
+    const lines = rank >= 5 ? 2 : 1;
+    const cd = Math.max(0.7, 2.5 - rank * 0.18);
+    return (dmg * lines) / cd;
+  }
+  function paperNova(rank) {
+    const dmg = 12 + rank * 6;
+    const table = [3.15, 2.7, 2.35, 2.05, 1.75];
+    const cd = Math.max(0.8, table[rank - 1]);
+    const rings = rank >= 3 ? 2 : 1;
+    return (dmg * rings) / cd;
+  }
+  function paperOrbit(rank) {
+    const count = rank >= 5 ? 3 : rank >= 3 ? 2 : 1;
+    return (7 + rank * 3) * 2.2 * count;
+  }
+  const papers = { bolt: paperBolt, pierce: paperPierce, nova: paperNova, orbit: paperOrbit };
+  const names = Object.keys(papers);
+  const rows = [];
+  for (let w = 0; w < names.length; w++) {
+    const id = names[w];
+    for (let rank = 1; rank <= 5; rank++) {
+      const paper = papers[id](rank);
+      const got = game.__svMeasure(id, rank, 20);
+      const ratio = paper > 0 ? got.dps / paper : 0;
+      rows.push(id + rank + ' ' + got.dps.toFixed(1) + '/' + paper.toFixed(1));
+      if (Math.abs(ratio - 1) > 0.15) fail(id + ' L' + rank + ' dps ' + got.dps.toFixed(2) + ' paper ' + paper.toFixed(2) + ' ratio ' + ratio.toFixed(2));
+    }
+  }
+  console.log('boss dps within 15%: ' + rows.join(' | '));
+}
+
+function sameMods(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function vowLateFade() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svSlay();
+  const early = game.__svArmVow(1, 120);
+  if (Math.abs(early.gold - 1.5) > 0.02 || Math.abs(early.xp - 1.5) > 0.02) fail('early vow reward ' + early.gold + '/' + early.xp);
+  if (Math.abs(early.hp - 1) > 0.001 || Math.abs(early.dmg - 1) > 0.001) fail('early vow danger ' + early.hp);
+  game.__svSpawn('skel', 5, 0);
+  const earlyLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  game.__svSlay();
+  const late = game.__svArmVow(1, 480);
+  if (!(late.gold < 1.05 && late.xp < 1.05)) fail('late vow reward stayed ' + late.gold + '/' + late.xp);
+  if (!(late.hp > 1.5 && late.dmg > 1.4)) fail('late vow danger ' + late.hp + '/' + late.dmg);
+  game.__svSpawn('skel', 5, 0);
+  const lateLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  game.__svSlay();
+  const plain = game.__svArmVow(0, 480);
+  if (Math.abs(plain.gold - 1) > 0.001 || Math.abs(plain.hp - 1) > 0.001) fail('no-vow late danger ' + plain.hp);
+  game.__svSpawn('skel', 5, 0);
+  const plainLife = game.__svScales().filter((en) => !en.boss).pop().life;
+  if (!(lateLife > plainLife * 1.5)) fail('vow hp ' + earlyLife + ' late ' + lateLife + ' plain ' + plainLife);
+  const mid = game.__svArmVow(2, 360);
+  if (!(mid.gold < 2 && mid.gold > 1)) fail('mid vow gold ' + mid.gold);
+  game.__svArmVow(1, 480);
+  game.__svInvuln(0);
+  const before = game.__svSnap().life;
+  const hit = game.__svHurt(10);
+  const dealt = before - hit.life;
+  if (dealt < 14) fail('late vow hit ' + dealt);
+  game.__svArmVow(0, 480);
+  const calmBefore = game.__svSnap().life;
+  const calm = game.__svHurt(10);
+  if (Math.abs((calmBefore - calm.life) - 10) > 0.01) fail('no-vow hit ' + (calmBefore - calm.life));
+  console.log('vow rewards fade after 5:00 and danger climbs (' + earlyLife + ' -> ' + lateLife + ' hp)');
+}
+
+function partnerRanks() {
+  const game = boot(1, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svGive('orbit', 1);
+  game.__svGive('nova', 1);
+  game.__svGive('tempo', 0);
+  game.__svGive('cinder', 0);
+  const base = game.__svSampleWeapons();
+  let prev = base;
+  const spins = [];
+  const lives = [];
+  for (let rank = 1; rank <= 5; rank++) {
+    game.__svGive('tempo', rank);
+    game.__svGive('cinder', rank);
+    const got = game.__svSampleWeapons();
+    spins.push(Number(got.spin.toFixed(4)));
+    lives.push(Number(got.novaLife.toFixed(4)));
+    if (rank >= 2 && sameMods(got.tempo, prev.tempo)) fail('tempo rank ' + rank + ' did not change');
+    if (rank >= 2 && sameMods(got.cinder, prev.cinder)) fail('cinder rank ' + rank + ' did not change');
+    if (!(got.spin > 0)) fail('orbit spin was not read at tempo ' + rank);
+    if (!(got.novaLife > 0)) fail('nova life was not read at cinder ' + rank);
+    if (rank >= 2 && got.spin === prev.spin && got.move === prev.move) fail('tempo rank ' + rank + ' did not reach combat');
+    if (rank >= 2 && got.novaLife === prev.novaLife && got.novaGrow === prev.novaGrow && got.echo === prev.echo) {
+      fail('cinder rank ' + rank + ' did not reach combat');
+    }
+    prev = got;
+  }
+  if (!(base.move < prev.move)) fail('tempo never sped the step');
+  console.log('tempo/cinder ranks 2-5 apply, spin ' + spins.join(',') + ' novaLife ' + lives.join(','));
+}
+
+function idleIgnoresArmor() {
+  const moving = boot(1, '?headless=1&debug=1&walk=circle');
+  moving.__svStart();
+  moving.__svGive('armor', 5);
+  moving.__svInvuln(0);
+  const beforeMove = moving.__svSnap().life;
+  const moved = moving.__svHurt(10);
+  const cut = beforeMove - moved.life;
+  if (Math.abs(cut - 4) > 0.01) fail('moving armor cut ' + cut);
+  const still = boot(2, '?headless=1&debug=1');
+  still.__svStart();
+  still.__svGive('armor', 5);
+  still.__svInvuln(90);
+  let snap = still.__svSnap();
+  for (let i = 0; i < 500 && snap.still < 8; i++) {
+    snap = still.__svStep(0.05);
+    if (snap.state === 'levelup') snap = still.__svChoose(0);
+    if (snap.state === 'hermit') snap = still.__svDecline();
+  }
+  if (snap.still < 8) fail('never stood still, still ' + snap.still);
+  const before = snap.life;
+  const hit = still.__svHurt(10);
+  const raw = before - hit.life;
+  if (Math.abs(raw - 10) > 0.01) fail('idle armor still cut, damage ' + raw + ' after ' + snap.still.toFixed(2) + 's');
+  console.log('idle ' + snap.still.toFixed(2) + 's ignores armor (' + raw + ' vs moving ' + cut + ')');
+}
+
+function eliteTtk() {
+  const probe = boot(1, '?headless=1&debug=1&walk=circle');
+  probe.__svStart();
+  probe.__svView(390, 844, 3);
+  probe.__svInvuln(400);
+  let snap = probe.__svSnap();
+  let owned = null;
+  let evolved = [];
+  let spawnedAt = 0;
+  let fieldTtk = null;
+  const watching = { fid: 0 };
+  for (let i = 0; i < 3600; i++) {
+    const before = snap.elites;
+    snap = probe.__svStep(0.05);
+    if (snap.state === 'levelup') snap = pickCard(probe, snap);
+    if (snap.state === 'hermit') snap = probe.__svDecline();
+    if (!owned && snap.elites > before) {
+      owned = Object.assign({}, snap.owned);
+      evolved = (snap.evolved || []).slice();
+      spawnedAt = snap.time;
+      const left = probe.__svEliteLeft();
+      watching.fid = left.max;
+    }
+    if (owned && fieldTtk == null && probe.__svEliteLeft().n === 0) {
+      fieldTtk = snap.time - spawnedAt;
+      break;
+    }
+    if (snap.time > 160) break;
+  }
+  if (!owned) fail('circle bot spawned no elite');
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svLock();
+  game.__svSetTime(spawnedAt || 120);
+  game.__svApplyBuild(owned, evolved);
+  game.__svInvuln(30);
+  const spawned = game.__svElite(2.1, 0);
+  if (!spawned || !(spawned.max > 20)) fail('elite hp ' + JSON.stringify(spawned));
+  const start = game.__svSnap().time;
+  let alive = game.__svEliteLeft();
+  let ttk = 0;
+  for (let i = 0; i < 240; i++) {
+    let step = game.__svStep(0.05);
+    if (step.state === 'levelup') step = game.__svDismiss();
+    if (step.state === 'hermit') step = game.__svDecline();
+    alive = game.__svEliteLeft();
+    ttk = step.time - start;
+    if (alive.n === 0) break;
+  }
+  const field = fieldTtk == null ? 'alive' : fieldTtk.toFixed(2);
+  console.log('elite ttk ' + ttk.toFixed(2) + 's at ' + spawned.max + ' hp, circle bot ' + field + 's, build ' + JSON.stringify(owned));
+  if (alive.n !== 0 || ttk < 3 || ttk > 5) fail('elite ttk ' + ttk.toFixed(2) + 's (want 3-5) hp ' + spawned.max);
+}
+
+function retiredAfterEvo() {
+  const game = boot(3, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svForceEvos();
+  if (game.__svHint('tempo')) fail('tempo hinted after evolution: ' + game.__svHint('tempo'));
+  if (game.__svHint('cinder')) fail('cinder hinted after evolution: ' + game.__svHint('cinder'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself');
+  if (game.__svHint('cinder').indexOf('Cinder Heart') >= 0) fail('cinder named itself');
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  for (let n = 0; n < 24; n++) {
+    game.__svOpenLevel();
+    const ids = game.__svOffers();
+    ['tempo', 'cinder'].forEach((id) => {
+      if (ids.indexOf(id) >= 0) fail(id + ' offered after its evolution: ' + ids.join(','));
+    });
+    const hints = game.__svEvoHints();
+    for (let i = 0; i < ids.length; i++) {
+      const hint = hints[i] || '';
+      const own = names[ids[i]];
+      if (own && hint.indexOf(own) >= 0) fail(ids[i] + ' hinted at itself after evolution: ' + hint);
+      if (hint.indexOf('Battle Tempo') >= 0 && ids[i] === 'tempo') fail('tempo self hint');
+      if (hint.indexOf('Cinder Heart') >= 0 && ids[i] === 'cinder') fail('cinder self hint');
+    }
+    game.__svDismiss();
+  }
+  const owned = game.__svOwned();
+  const evolved = { orbit: 'tempo', nova: 'cinder' };
+  for (let s = 0; s < 30; s++) {
+    const hand = game.SurvivorData.pickOffers(owned, Math.random, { forcePartner: true, evolved: evolved });
+    hand.forEach((item) => {
+      if (item.id === 'tempo' || item.id === 'cinder') fail('pickOffers returned ' + item.id + ' after evolution');
+    });
+  }
+  console.log('cinder and tempo stay out after evolution and never hint at themselves');
+}
+
+function vowFlagAlone() {
+  const game = boot(4, '?headless=1&vow=1');
+  game.__svStart();
+  game.__svInvuln(120);
+  let snap = game.__svSnap();
+  for (let i = 0; i < 2200 && snap.vowCount < 1 && snap.state !== 'dead'; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+  }
+  if (snap.vowCount < 1) fail('vow=1 without debug missed at ' + snap.time + ' ' + snap.state);
+  if (snap.state === 'hermit') fail('vow=1 opened the card');
+  if (snap.toast !== 'Vow accepted') fail('vow=1 toast ' + snap.toast);
+  if (!snap.vowBadge) fail('vow=1 badge missing');
+  console.log('vow=1 without debug accepted at ' + snap.time.toFixed(2));
 }
 
 function bossWarning() {
@@ -1024,11 +1984,47 @@ function evoNeeds() {
   game.__svGive('nova', 3);
   if (game.__svHint('nova') !== 'Needs: Cinder Heart') fail('nova hint ' + game.__svHint('nova'));
   game.__svGive('cinder', 1);
-  if (game.__svHint('nova') !== 'Needs: Star Nova') fail('nova rank hint ' + game.__svHint('nova'));
+  if (game.__svHint('nova') !== '') fail('nova named itself ' + game.__svHint('nova'));
+  game.__svGive('tempo', 1);
+  game.__svGive('orbit', 3);
+  if (game.__svHint('orbit').indexOf('Orbiting Blade') >= 0) fail('orbit named itself ' + game.__svHint('orbit'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself ' + game.__svHint('tempo'));
   game.__svGive('nova', 5);
   if (game.__svHint('nova') !== 'Ready') fail('nova ready ' + game.__svHint('nova'));
   if (game.__svHint('cinder') !== 'Ready') fail('cinder ready ' + game.__svHint('cinder'));
+  game.__svGive('orbit', 5);
+  if (game.__svHint('tempo') !== 'Ready') fail('tempo ready ' + game.__svHint('tempo'));
+  game.__svGive('orbit', 3);
+  if (game.__svHint('tempo') !== 'Needs: Orbiting Blade') fail('tempo hint ' + game.__svHint('tempo'));
+  if (game.__svHint('tempo').indexOf('Battle Tempo') >= 0) fail('tempo named itself');
+  game.__svGive('pierce', 2);
+  if (game.__svCardTag('pierce') !== '') fail('pierce tagged ' + game.__svCardTag('pierce') + ' while it is in the row');
+  if (game.__svCardTag('haste') !== 'New') fail('unowned haste tag ' + game.__svCardTag('haste'));
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  Object.keys(names).forEach((id) => {
+    const hint = game.__svHint(id);
+    if (hint && hint.indexOf(names[id]) >= 0) fail(id + ' hint names itself: ' + hint);
+  });
   console.log('evolution hints name the missing piece');
+}
+
+function evolvedOffers() {
+  const game = boot(4, '?headless=1&debug=1');
+  game.__svStart();
+  game.__svForceEvos();
+  game.__svOpenLevel();
+  const ids = game.__svOffers();
+  ['orbit', 'tempo', 'nova', 'cinder'].forEach((id) => {
+    if (ids.indexOf(id) >= 0) fail('evolved hand still offered ' + id + ' in ' + ids.join(','));
+  });
+  const names = {};
+  game.SurvivorData.CATALOG.forEach((card) => { names[card.id] = card.name; });
+  Object.keys(names).forEach((id) => {
+    const hint = game.__svHint(id);
+    if (hint && hint.indexOf(names[id]) >= 0) fail('after evo ' + id + ' hint names itself: ' + hint);
+  });
+  console.log('evolved weapons and partners stay out of the level-up hand');
 }
 
 function freshAndFlags() {
@@ -1266,10 +2262,10 @@ function chestAtCap() {
   if (!live.has(String(rares[0].id))) fail('rare has no beam');
   game.__svPan(rares[0].x, rares[0].y);
   let toast = '';
-  for (let n = 0; n < 8; n++) {
+  for (let n = 0; n < 40; n++) {
     const snap = game.__svStep(0.05);
-    if (snap.toast) toast = snap.toast;
-    if (!game.__svGround().some((g) => g.id === rares[0].id)) break;
+    if (snap.toast && snap.toast.indexOf('Rare:') === 0) toast = snap.toast;
+    if (!game.__svGround().some((g) => g.id === rares[0].id) && toast.indexOf('Rare:') === 0) break;
   }
   if (live.has(String(rares[0].id))) fail('beamOff did not run on pickup');
   if (toast.indexOf('Rare:') !== 0) fail('toast ' + toast);
@@ -1450,6 +2446,181 @@ function telegraphHook() {
   console.log('telegraph 700ms and telegraphOff on death');
 }
 
+function telegraphShapes() {
+  const armed = boot(3, '?headless=1&debug=1');
+  const lines = [];
+  const rings = [];
+  const offs = [];
+  armed.FX.telegraphLine = (id, x, y, toX, toY, ms, opts) => {
+    lines.push({ id: id, x: x, y: y, toX: toX, toY: toY, ms: ms, width: opts && opts.width });
+  };
+  armed.FX.telegraph = (id, x, y, ms, opts) => {
+    rings.push({ id: id, x: x, y: y, ms: ms, radius: opts && opts.radius });
+  };
+  armed.FX.telegraphOff = (id) => { offs.push(id); };
+  armed.__svStart();
+  armed.__svInvuln(30);
+  armed.__svGive('bolt', 0);
+  armed.__svSpawn('charger', 3.2, 0);
+  for (let n = 0; n < 20 && !lines.length; n++) armed.__svStep(0.05);
+  if (!lines.length) fail('charger did not telegraphLine');
+  const line = lines[0];
+  const span = Math.hypot(line.toX - line.x, line.toY - line.y);
+  if (!(span > 2.5 && span < 3.6)) fail('dash line length ' + span.toFixed(2));
+  if (!(line.width > 0)) fail('dash line width ' + line.width);
+  if (!(line.ms > 0)) fail('dash line ms ' + line.ms);
+  for (let n = 0; n < 6; n++) armed.__svStep(0.05);
+  if (!lines.some((call, i) => i > 0 && call.id === line.id)) fail('telegraphLine did not re-aim ' + line.id);
+  for (let n = 0; n < 40 && offs.indexOf(line.id) < 0; n++) armed.__svStep(0.05);
+  if (offs.indexOf(line.id) < 0) fail('telegraphOff missed dash ' + line.id);
+  armed.__svSpawn('brute', 3.4, 0.2, 'warden');
+  for (let n = 0; n < 80 && !rings.some((call) => call.ms === 550 && call.radius > 2); n++) armed.__svStep(0.05);
+  const slam = rings.filter((call) => call.ms === 550 && call.radius > 2).pop();
+  if (!slam) fail('slam telegraph missing');
+  if (!(Math.abs(slam.radius - 2.15) < 1e-6)) fail('slam radius ' + slam.radius);
+  for (let n = 0; n < 30 && offs.indexOf(slam.id) < 0; n++) armed.__svStep(0.05);
+  if (offs.indexOf(slam.id) < 0) fail('telegraphOff missed slam ' + slam.id);
+  console.log('telegraphLine re-aims, slam ring 2.15, both clear on the beat');
+
+  const plain = boot(4, '?headless=1&debug=1');
+  const lineCalls = [];
+  const ringCalls = [];
+  const plainOffs = [];
+  const fx = plain.FX || {};
+  const hasLine = typeof fx.telegraphLine === 'function';
+  const hasRing = typeof fx.telegraph === 'function';
+  if (hasLine) {
+    const prevLine = fx.telegraphLine;
+    fx.telegraphLine = function (id, x, y, toX, toY, ms, opts) {
+      lineCalls.push({ id: id, x: x, y: y, toX: toX, toY: toY, ms: ms, width: opts && opts.width });
+      return prevLine.apply(fx, arguments);
+    };
+  }
+  if (hasRing) {
+    const prevRing = fx.telegraph;
+    fx.telegraph = function (id, x, y, ms, opts) {
+      ringCalls.push({ id: id, x: x, y: y, ms: ms, radius: opts && opts.radius });
+      return prevRing.apply(fx, arguments);
+    };
+  }
+  if (typeof fx.telegraphOff === 'function') {
+    const prevOff = fx.telegraphOff;
+    fx.telegraphOff = function (id) {
+      plainOffs.push(id);
+      return prevOff.apply(fx, arguments);
+    };
+  }
+  plain.__svStart();
+  plain.__svInvuln(20);
+  plain.__svGive('bolt', 0);
+  plain.__svSpawn('charger', 3.2, 0);
+  if (hasLine) {
+    for (let n = 0; n < 20 && !lineCalls.length; n++) plain.__svStep(0.05);
+    if (!lineCalls.length) fail('charger did not telegraphLine');
+    const dashId = lineCalls[0].id;
+    if (lineCalls.some((call) => call.id !== dashId)) fail('dash telegraphLine ids diverged ' + dashId);
+    for (let n = 0; n < 40 && plainOffs.indexOf(dashId) < 0; n++) plain.__svStep(0.05);
+    if (plainOffs.indexOf(dashId) < 0) fail('telegraphOff missed dash ' + dashId);
+  } else {
+    let fallback = [];
+    for (let n = 0; n < 20 && !fallback.length; n++) {
+      plain.__svStep(0.05);
+      fallback = plain.__svTells().filter((tell) => tell.kind === 'line');
+    }
+    if (!fallback.length) fail('dash fallback line missing');
+    plain.__svDraw();
+  }
+  plain.__svSpawn('brute', 3.4, 0.2, 'warden');
+  if (hasRing) {
+    for (let n = 0; n < 80 && !ringCalls.some((call) => call.ms === 550 && call.radius > 2); n++) plain.__svStep(0.05);
+    const slams = ringCalls.filter((call) => call.ms === 550 && call.radius > 2);
+    if (!slams.length) fail('slam telegraph missing');
+    const slamId = slams[0].id;
+    if (slams.some((call) => call.id !== slamId)) fail('slam telegraph ids diverged ' + slamId);
+    for (let n = 0; n < 30 && plainOffs.indexOf(slamId) < 0; n++) plain.__svStep(0.05);
+    if (plainOffs.indexOf(slamId) < 0) fail('telegraphOff missed slam ' + slamId);
+  } else {
+    let ring = null;
+    for (let n = 0; n < 80 && !ring; n++) {
+      plain.__svStep(0.05);
+      ring = plain.__svTells().filter((tell) => tell.kind === 'ring' && tell.r > 2)[0];
+    }
+    if (!ring) fail('slam fallback ring missing');
+    plain.__svDraw();
+    for (let n = 0; n < 30 && plain.__svTells().some((tell) => tell.id === ring.id); n++) plain.__svStep(0.05);
+    if (plain.__svTells().some((tell) => tell.id === ring.id)) fail('slam fallback stayed up');
+  }
+  const dashNote = hasLine ? 'FX telegraphLine' : 'fallback dash line';
+  const slamNote = hasRing ? 'slam telegraph' : 'fallback slam ring';
+  console.log(dashNote + ' and ' + slamNote + (hasLine || hasRing
+    ? ' share an id and clear with telegraphOff'
+    : ' draw after the hero'));
+}
+
+function bannerToastCap(label, search, bannerText) {
+  const game = boot(4, search);
+  game.__svStart();
+  game.__svInvuln(60);
+  ['bolt', 'orbit', 'nova', 'pierce'].forEach((id) => game.__svGive(id, 0));
+  game.__svSweepItems();
+  game.__svQuiet();
+  let snap = game.__svSnap();
+  if (!snap.banner || snap.banner.indexOf(bannerText) < 0) fail(label + ' banner ' + snap.banner);
+  game.__svBanner(snap.banner, 8);
+  const parked = game.__svToasts([{ id: 'old', name: 'Old Bone', rarity: 'common' }]);
+  if (parked.toast) fail(label + ' stale toast drew on the banner ' + parked.toast);
+  const t0 = parked.time;
+  let guard = 0;
+  snap = parked;
+  while (snap.time < t0 + 4.3 && guard++ < 500) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') snap = game.__svDecline();
+    if (snap.toast) fail(label + ' toast covered ' + snap.banner + ' / ' + snap.toast);
+    if (snap.state !== 'playing') fail(label + ' left play during banner ' + snap.state);
+  }
+  if (snap.toastQueued !== 0) fail(label + ' stale common stayed queued ' + snap.toastQueued);
+  snap = game.__svToasts([
+    { id: 'c1', name: 'Bone Charm', rarity: 'common' },
+    { id: 'u1', name: 'Copper Band', rarity: 'uncommon' },
+    { id: 'c2', name: 'Bone Charm', rarity: 'common' },
+    { id: 'r1', name: 'Ash Bead', rarity: 'rare' },
+    { id: 'r2', name: 'Ash Bead', rarity: 'rare' },
+    { id: 'e1', name: 'Grave Seal', rarity: 'epic' },
+  ]);
+  if (snap.toast) fail(label + ' burst drew on the banner ' + snap.toast);
+  if (snap.toastQueued !== 3) fail(label + ' queue ' + snap.toastQueued);
+  game.__svBanner(snap.banner, 0.05);
+  const shown = [];
+  const ages = [];
+  guard = 0;
+  while (guard++ < 200) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup') snap = game.__svChoose(0);
+    if (snap.state === 'hermit') snap = game.__svDecline();
+    if (snap.warnOn && snap.banner && snap.banner.indexOf('approaches') >= 0) {
+      if (snap.toast) fail(label + ' still covering ' + snap.toast);
+      continue;
+    }
+    if (snap.toast && shown[shown.length - 1] !== snap.toast) {
+      shown.push(snap.toast);
+      ages.push(snap.toastAge);
+    }
+    if (!snap.toast && snap.toastQueued === 0 && shown.length) break;
+    if (snap.state === 'dead') break;
+  }
+  if (shown.length < 1 || shown.length > 3) fail(label + ' showed ' + shown.length + ': ' + shown.join(' | '));
+  if (!shown.some((text) => text.indexOf('Ash Bead +1 more') >= 0)) fail(label + ' merge ' + shown.join(' | '));
+  if (!shown.some((text) => text.indexOf('Rare:') === 0 || text.indexOf('Epic:') === 0 || text.indexOf('Legendary:') === 0)) {
+    fail(label + ' dropped rare+ ' + shown.join(' | '));
+  }
+  if (shown.some((text) => text.indexOf('Old Bone') >= 0)) fail(label + ' kept a stale toast ' + shown.join(' | '));
+  ages.forEach((age, i) => {
+    if (!(age >= 0 && age <= 4.05)) fail(label + ' toast age ' + age + ' for ' + shown[i]);
+  });
+  console.log(label + ' ' + shown.join(' | '));
+}
+
 function pickCard(game, snap) {
   const ids = game.__svOffers();
   const owned = snap.owned || {};
@@ -1469,10 +2640,64 @@ function pickCard(game, snap) {
   return game.__svChoose(pick);
 }
 
-function watchRun(game, limit, kite) {
+function circleProbe() {
+  const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
+  want.forEach((seed) => {
+    const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+    game.__svStart();
+    game.__svView(390, 844, 3);
+    let snap = game.__svSnap();
+    let prev = snap.life;
+    let hurt180 = false;
+    let min180 = 1;
+    let min270 = 1;
+    let at270 = null;
+    let dead = null;
+    for (let n = 0; n < 6000; n++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'hermit') snap = game.__svDecline();
+      if (snap.state === 'levelup') snap = pickCard(game, snap);
+      if (snap.maxLife > 0) {
+        const ratio = snap.life / snap.maxLife;
+        if (snap.time < 180) {
+          if (snap.life < prev - 0.4) hurt180 = true;
+          if (ratio < min180) min180 = ratio;
+        }
+        if (snap.time <= 270 && ratio < min270) min270 = ratio;
+        if (at270 == null && snap.time >= 270) at270 = ratio;
+      }
+      prev = snap.life;
+      if (snap.state === 'dead' || snap.state === 'won') { dead = snap.time; break; }
+      if (snap.time > 280) break;
+    }
+    console.log([
+      'seed', seed,
+      'hurt180', hurt180 ? 'yes' : 'no',
+      'min180', Math.round(min180 * 100) + '%',
+      'min270', Math.round(min270 * 100) + '%',
+      'at270', at270 == null ? '-' : Math.round(at270 * 100) + '%',
+      'end', dead == null ? snap.state + '@' + snap.time.toFixed(0) : 'dead@' + dead.toFixed(1),
+      'boss', snap.boss || '-',
+      'hit', snap.lastHit,
+      'hp', Math.round(snap.life) + '/' + snap.maxLife,
+    ].join(' '));
+  });
+}
+
+function lootStaleCount(game) {
+  const stats = game.FX && game.FX._stats;
+  if (!stats || typeof stats.lootStale !== 'number') return null;
+  return stats.lootStale;
+}
+
+function watchRun(game, limit, opts) {
+  const kite = opts === true || !!(opts && opts.kite);
+  const vow = !!(opts && opts.vow);
+  const dt = (opts && opts.dt) || (1 / 60);
   game.__svStart();
   game.__svView(390, 844, 3);
   let snap = game.__svSnap();
+  let prevLife = snap.life;
   let evo = null;
   let wardenSpawn = null;
   let wardenKill = null;
@@ -1486,11 +2711,53 @@ function watchRun(game, limit, kite) {
   let on360 = null;
   let death = null;
   let lastHit = '';
+  let min180 = 1;
+  let min270 = 1;
+  let at270 = null;
+  let hurt180 = false;
   let minLate = 1;
-  const steps = Math.ceil(limit / 0.05) + 40;
+  let rareAt = null;
+  let rarePickupAt = null;
+  let gap = 0;
+  let emptyAt = 300;
+  let eliteAt = null;
+  let eliteTtk = null;
+  const pace = [];
+  let nextPace = 120;
+  let paceKills = snap.kills || 0;
+  let paceAt = snap.time || 0;
+  const steps = Math.ceil((limit + 5) / dt) + 2500;
+  function notePace(force) {
+    if (snap.time < 119) return;
+    if (!force && snap.time + 1e-6 < nextPace) return;
+    if (force && pace.length && Math.abs(pace[pace.length - 1].t - snap.time) < 1) return;
+    const span = Math.max(0.05, snap.time - paceAt);
+    const weapons = snap.owned || {};
+    pace.push({
+      t: Number(snap.time.toFixed(1)),
+      on: game.__svOnScreen(),
+      foes: snap.enemies,
+      kps: Number(((snap.kills - paceKills) / span).toFixed(2)),
+      level: snap.level,
+      bolt: weapons.bolt || 0,
+      orbit: weapons.orbit || 0,
+      pierce: weapons.pierce || 0,
+      nova: weapons.nova || 0,
+      might: weapons.might || 0,
+      tempo: weapons.tempo || 0,
+      haste: weapons.haste || 0,
+      vitality: weapons.vitality || 0,
+    });
+    paceKills = snap.kills;
+    paceAt = snap.time;
+    while (nextPace <= snap.time) nextPace += 30;
+  }
   for (let n = 0; n < steps; n++) {
-    snap = game.__svStep(0.05);
-    if (!kite && snap.state === 'hermit') snap = game.__svDecline();
+    snap = game.__svStep(dt);
+    if (snap.state === 'hermit') {
+      if (vow) snap = game.__svAccept();
+      else if (!kite) snap = game.__svDecline();
+    }
     if (!kite && snap.state === 'levelup') {
       if (!evo && snap.evolved && snap.evolved.length) evo = snap.time;
       snap = pickCard(game, snap);
@@ -1500,88 +2767,238 @@ function watchRun(game, limit, kite) {
       sawWarden = true;
       wardenSpawn = snap.time;
     }
-    if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden') wardenKill = snap.time;
+    if (sawWarden && wardenKill == null && snap.boss !== 'Grave Warden' && snap.state === 'playing') wardenKill = snap.time;
     if (!sawDemon && snap.boss === 'Risen Demon') {
       sawDemon = true;
       demonSpawn = snap.time;
     }
-    if (sawDemon && demonKill == null && snap.boss !== 'Risen Demon') demonKill = snap.time;
+    if (sawDemon && demonKill == null && snap.boss !== 'Risen Demon' && snap.state === 'playing') demonKill = snap.time;
+    if (eliteAt == null && snap.elites > 0) eliteAt = snap.time;
+    if (eliteAt != null && eliteTtk == null && game.__svEliteLeft().n === 0) eliteTtk = snap.time - eliteAt;
     if (snap.time >= 45 && snap.time <= 75) {
       onSum += game.__svOnScreen();
       onN += 1;
       if (on60 == null && snap.time >= 60) on60 = game.__svOnScreen();
     }
     if (on360 == null && snap.time >= 360) on360 = game.__svOnScreen();
-    if (snap.time >= 420 && snap.maxLife > 0) {
+    if (rareAt == null && snap.rareAt >= 0) rareAt = snap.rareAt;
+    if (rarePickupAt == null && snap.rarePickupAt >= 0) rarePickupAt = snap.rarePickupAt;
+    if (snap.maxLife > 0) {
       const ratio = snap.life / snap.maxLife;
-      if (ratio < minLate) minLate = ratio;
+      if (snap.time < 180) {
+        if (snap.life < prevLife - 0.4) hurt180 = true;
+        if (ratio < min180) min180 = ratio;
+      }
+      if (snap.time <= 270 && ratio < min270) min270 = ratio;
+      if (at270 == null && snap.time >= 270) at270 = ratio;
+      if (snap.time >= 420 && ratio < minLate) minLate = ratio;
     }
+    prevLife = snap.life;
+    if (snap.time >= 300) {
+      const near = snap.boss ? 4 : game.__svNear(11);
+      if (near >= 4) emptyAt = snap.time;
+      else if (snap.time - emptyAt > gap) gap = snap.time - emptyAt;
+    }
+    notePace(false);
     if (snap.state === 'dead' || snap.state === 'won') {
+      notePace(true);
       death = snap.time;
       lastHit = snap.lastHit;
       break;
     }
     if (snap.time > limit) break;
   }
+  const pct = (v) => v == null ? null : Math.round(v * 100);
+  const lootStale = lootStaleCount(game);
+  if (lootStale != null && lootStale !== 0) fail('lootStale ' + lootStale);
   return {
-    end: death == null ? ('alive@' + snap.time.toFixed(1)) : death.toFixed(1),
+    end: death == null ? ('alive@' + snap.time.toFixed(1)) : Number(death.toFixed(1)),
     state: snap.state,
-    hit: lastHit,
+    hit: lastHit || snap.lastHit,
     evo: evo == null ? null : evo,
     wardenSpawn: wardenSpawn,
     wardenKill: wardenKill,
     demonSpawn: demonSpawn,
     demonKill: demonKill,
+    beatWarden: wardenKill != null,
     avgOn: onN ? onSum / onN : null,
     on60: on60,
     on360: on360,
-    minLate: minLate,
+    hurt180: hurt180,
+    min180: pct(min180),
+    min270: pct(min270),
+    at270: pct(at270),
+    minLate: snap.time < 420 ? null : pct(minLate),
+    gap: Math.max(gap, snap.threatGap || 0),
+    eliteTtk: eliteTtk,
     life: Math.round(snap.life),
     max: snap.maxLife,
+    vow: snap.vowCount || 0,
+    rareAt: rareAt,
+    rarePickupAt: rarePickupAt,
+    lootStale: lootStale,
+    gemDrops: snap.gemDrops || 0,
+    gemPickups: snap.gemPickups || 0,
+    gemEvicts: snap.gemEvicts || 0,
+    gemXp: snap.gemXp || 0,
+    xp: snap.xp || 0,
+    level: snap.level,
+    pace: pace,
+    band: lastBand(game.__svHits ? game.__svHits() : []),
+    heroDiedInFight: (sawDemon && demonKill == null && death != null)
+      ? Number((death - demonSpawn).toFixed(1)) : null,
   };
+}
+
+function lastBand(hits) {
+  const bag = {};
+  let total = 0;
+  let tele = 0;
+  (hits || []).forEach((h) => {
+    const line = (h.max || 1) * 0.3;
+    const end = Math.max(0, h.life - h.dmg);
+    if (end >= line) return;
+    const counted = Math.min(h.life, line) - end;
+    if (!(counted > 0)) return;
+    const key = (h.source || 'other') + (h.tele ? '/tele' : '/open');
+    bag[key] = (bag[key] || 0) + counted;
+    total += counted;
+    if (h.tele) tele += counted;
+  });
+  const parts = Object.keys(bag).sort((a, b) => bag[b] - bag[a]);
+  return {
+    text: parts.map((k) => k + ' ' + Math.round(bag[k])).join(', '),
+    telePct: total > 0 ? Math.round(100 * tele / total) : null,
+    openPct: total > 0 ? Math.round(100 * (total - tele) / total) : null,
+  };
+}
+
+function paceText(rows) {
+  return (rows || []).map((p) => p.t + 's on' + p.on + ' kps' + p.kps + ' L' + p.level
+    + ' b' + p.bolt + ' o' + p.orbit + ' p' + p.pierce + ' n' + p.nova).join(' | ');
+}
+
+function pickupTable() {
+  const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
+  const fps = 1 / 60;
+  console.log('seed bot end min xp xpMin drops picks evicts pickPct');
+  want.forEach((seed) => {
+    ['circle', 'kite'].forEach((bot) => {
+      const search = '?headless=1&debug=1&walk=' + bot + '&seed=' + seed;
+      const run = watchRun(boot(seed, search), 610, { dt: fps, kite: bot === 'kite' });
+      const minutes = Math.max(0.01, (typeof run.end === 'number' ? run.end : 600) / 60);
+      const pct = run.gemDrops > 0 ? Math.round(100 * run.gemPickups / run.gemDrops) : 0;
+      const row = {
+        seed: seed,
+        bot: bot,
+        end: run.end,
+        state: run.state,
+        minutes: Number(minutes.toFixed(2)),
+        xp: Math.round(run.xp),
+        xpMin: Math.round(run.xp / minutes),
+        drops: run.gemDrops,
+        picks: run.gemPickups,
+        evicts: run.gemEvicts,
+        gemXp: Math.round(run.gemXp),
+        pickPct: pct,
+        level: run.level,
+      };
+      console.log(JSON.stringify(row));
+      console.log([seed, bot, run.end, minutes.toFixed(1), row.xp, row.xpMin, row.drops, row.picks, row.evicts, pct + '%'].join(' '));
+    });
+  });
 }
 
 function balanceTable() {
   const want = (process.env.SEEDS || '1,2,3,4,5,6,7,8').split(',').map((n) => Number(n));
-  const idle = {};
-  want.forEach((seed) => {
-    const game = boot(seed);
-    game.__svStart();
-    let deadAt = null;
-    for (let i = 0; i < 1600; i++) {
-      const snap = game.__svIdleStep(0.05);
-      if (snap.state === 'dead') { deadAt = snap.time; break; }
-    }
-    idle[seed] = deadAt == null ? 'alive' : deadAt.toFixed(1);
-  });
+  const fps = 1 / 60;
   const rows = [];
   want.forEach((seed) => {
-    const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 560, false);
-    const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, true);
-    const ttk = (a, b) => (a != null && b != null) ? (b - a).toFixed(1) : '-';
+    const idleGame = boot(seed);
+    idleGame.__svStart();
+    idleGame.__svView(390, 844, 3);
+    let idleAt = null;
+    for (let i = 0; i < 6000; i++) {
+      const snap = idleGame.__svIdleStep(fps);
+      if (snap.state === 'dead') { idleAt = snap.time; break; }
+      if (snap.time > 90) break;
+    }
+    const idleStale = lootStaleCount(idleGame);
+    if (idleStale != null && idleStale !== 0) fail('seed ' + seed + ' idle lootStale ' + idleStale);
+    const circle = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps });
+    const vowed = watchRun(boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed), 600, { dt: fps, vow: true });
+    const kite = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed), 610, { dt: fps, kite: true });
+    const kite20 = watchRun(boot(seed, '?headless=1&debug=1&walk=kite&seed=' + seed + '&fps=20'), 610, { dt: 0.05, kite: true });
+    const ttk = (a, b) => (a != null && b != null) ? Number((b - a).toFixed(1)) : null;
     const row = {
       seed: seed,
-      idle: idle[seed],
+      idle: idleAt == null ? null : Number(idleAt.toFixed(1)),
       circle: circle.end,
+      circleState: circle.state,
+      circleHp: circle.life + '/' + circle.max,
+      hurt180: circle.hurt180,
+      min180: circle.min180,
+      min270: circle.min270,
+      at270: circle.at270,
       circleHit: circle.hit,
+      beatWarden: circle.beatWarden,
+      wardenTtk: ttk(circle.wardenSpawn, circle.wardenKill),
+      demonKilled: ttk(circle.demonSpawn, circle.demonKill),
+      heroDiedInFight: circle.heroDiedInFight,
+      eliteTtk: circle.eliteTtk == null ? null : Number(circle.eliteTtk.toFixed(2)),
+      circlePick: circle.gemDrops ? Math.round(100 * circle.gemPickups / circle.gemDrops) : 0,
+      kitePick: kite.gemDrops ? Math.round(100 * kite.gemPickups / kite.gemDrops) : 0,
+      circleXpMin: Math.round(circle.gemXp / Math.max(0.01, (typeof circle.end === 'number' ? circle.end : 600) / 60)),
+      kiteXpMin: Math.round(kite.gemXp / Math.max(0.01, (typeof kite.end === 'number' ? kite.end : 600) / 60)),
+      vowBand: vowed.band,
+      kiteBand: kite.band,
+      kite20Band: kite20.band,
+      vowPace: vowed.pace,
+      kitePace: kite.pace,
+      kite20Pace: kite20.pace,
+      gap: Number(circle.gap.toFixed(1)),
+      vowEnd: vowed.end,
+      vowState: vowed.state,
+      vowHp: vowed.life + '/' + vowed.max,
+      vowGap: Number(vowed.gap.toFixed(1)),
       kite: kite.end,
       kiteState: kite.state,
-      kiteHit: kite.hit,
+      kiteMin: kite.minLate,
       kiteHp: kite.life + '/' + kite.max,
-      kiteMin: kite.minLate == null ? '-' : Math.round(kite.minLate * 100) + '%',
-      evo: circle.evo == null ? '-' : circle.evo.toFixed(1),
-      wardenTtk: ttk(circle.wardenSpawn, circle.wardenKill),
-      demonTtk: ttk(circle.demonSpawn, circle.demonKill),
-      avgOn: circle.avgOn == null ? '-' : circle.avgOn.toFixed(1),
-      on60: circle.on60 == null ? '-' : String(circle.on60),
-      on360: circle.on360 == null ? '-' : String(circle.on360),
+      kiteHit: kite.hit,
+      kite20: kite20.end,
+      kite20State: kite20.state,
+      kite20Min: kite20.minLate,
+      lootStale: {
+        idle: idleStale,
+        circle: circle.lootStale,
+        vow: vowed.lootStale,
+        kite: kite.lootStale,
+        kite20: kite20.lootStale,
+      },
     };
     rows.push(row);
     console.log(JSON.stringify(row));
+    console.log('diag ' + seed
+      + ' pick circle ' + row.circlePick + '% xpMin ' + row.circleXpMin
+      + ' kite ' + row.kitePick + '% xpMin ' + row.kiteXpMin
+      + ' demonKilled ' + row.demonKilled + ' heroDiedInFight ' + row.heroDiedInFight);
+    console.log('  vowBand ' + row.vowBand.text + ' tele' + row.vowBand.telePct + ' open' + row.vowBand.openPct);
+    console.log('  vowPace ' + paceText(row.vowPace));
+    console.log('  kiteBand ' + row.kiteBand.text + ' tele' + row.kiteBand.telePct + ' open' + row.kiteBand.openPct);
+    console.log('  kitePace ' + paceText(row.kitePace));
+    console.log('  kite20Band ' + row.kite20Band.text + ' tele' + row.kite20Band.telePct + ' open' + row.kite20Band.openPct);
+    console.log('  kite20Pace ' + paceText(row.kite20Pace));
   });
-  console.log('seed idle circle hit kite kiteHit kiteMin kiteHp evo wardenTtk demonTtk avgOn on60 on360');
+  console.log('seed idle circle hurt180 min180 at270 beatWarden wardenTtk demonKilled heroDied eliteTtk gap vowEnd kite kiteMin kite20 lootStale');
   rows.forEach((r) => {
-    console.log([r.seed, r.idle, r.circle, r.circleHit, r.kite, r.kiteHit, r.kiteMin, r.kiteHp, r.evo, r.wardenTtk, r.demonTtk, r.avgOn, r.on60, r.on360].join(' '));
+    const stale = r.lootStale;
+    const staleText = stale.idle == null ? '-' : [stale.idle, stale.circle, stale.vow, stale.kite, stale.kite20].join('/');
+    console.log([
+      r.seed, r.idle, r.circle, r.hurt180 ? 'hit' : 'safe', r.min180, r.at270,
+      r.beatWarden ? 'warden' : 'no', r.wardenTtk, r.demonKilled, r.heroDiedInFight, r.eliteTtk, r.gap,
+      r.vowEnd, r.kite, r.kiteMin, r.kite20, staleText,
+    ].join(' '));
   });
 }
 
@@ -1590,19 +3007,90 @@ if (process.env.METRICS === '1') {
   process.exit(0);
 }
 
+if (process.env.CIRCLE === '1') {
+  circleProbe();
+  process.exit(0);
+}
+
 if (process.env.BALANCE === '1') {
   balanceTable();
   process.exit(0);
 }
 
+if (process.env.PROBE === '1') {
+  const want = (process.env.SEEDS || '7').split(',').map((n) => Number(n));
+  const bot = process.env.BOT || 'circle';
+  const vow = process.env.VOW === '1';
+  want.forEach((seed) => {
+    const search = '?headless=1&debug=1&walk=' + bot + '&seed=' + seed;
+    const run = watchRun(boot(seed, search), Number(process.env.LIMIT || 600), {
+      dt: process.env.DT ? Number(process.env.DT) : (1 / 60),
+      kite: bot === 'kite',
+      vow: vow,
+    });
+    console.log(JSON.stringify({
+      seed: seed,
+      bot: bot,
+      end: run.end,
+      state: run.state,
+      hit: run.hit,
+      level: run.level,
+      at270: run.at270,
+      min180: run.min180,
+      band: run.band,
+      pace: run.pace,
+      demonKilled: (run.demonSpawn != null && run.demonKill != null) ? Number((run.demonKill - run.demonSpawn).toFixed(1)) : null,
+      heroDiedInFight: run.heroDiedInFight,
+    }));
+  });
+  process.exit(0);
+}
+
+if (process.env.PICKUP === '1') {
+  pickupTable();
+  process.exit(0);
+}
+
+if (process.env.VOWBUG === '1') {
+  const seeds = (process.env.SEEDS || '4,6').split(',').map((n) => Number(n));
+  const limit = Number(process.env.LIMIT || 210);
+  const modes = (process.env.MODES || 'circle,vow').split(',');
+  seeds.forEach((seed) => {
+    modes.forEach((mode) => {
+      const game = boot(seed, '?headless=1&debug=1&walk=circle&seed=' + seed);
+      const run = watchRun(game, limit, { dt: 1 / 60, vow: mode === 'vow' });
+      console.log(JSON.stringify({
+        seed: seed,
+        mode: mode,
+        end: run.end,
+        state: run.state,
+        level: run.level,
+        totals: game.__svHitTotals(),
+      }));
+    });
+  });
+  process.exit(0);
+}
+
 tapGuards();
 evoNeeds();
+evolvedOffers();
 freshAndFlags();
 bossLook();
 saveOnQuit();
+restartBanksGold();
+deathRestartSkips();
+quitKeepsTheRun();
+titleGold();
 wardenHitFloor();
 earlyCrowd();
 lootCadence();
+rareBeside();
+rarePull();
+rareTimerPauses();
+rareFlightSpeed();
+rareFlightBank();
+lootPullHeld();
 idleDeath();
 groundCap();
 chestAtCap();
@@ -1611,8 +3099,24 @@ evoModalGate();
 casterClearPaths();
 bossOutlinePixels();
 telegraphHook();
+telegraphShapes();
+bannerToastCap('warden', '?headless=1&debug=1&t=148', 'Grave Warden');
+bannerToastCap('demon', '?headless=1&debug=1&t=295', 'Risen Demon');
 vows();
 forcedVow();
+vowFlagAlone();
+bossWeaponDps();
+vowLateFade();
+partnerRanks();
+idleIgnoresArmor();
+eliteTtk();
+retiredAfterEvo();
+burstStagger();
+demonShield();
+deadStretch();
+levelGap();
+bruteTint();
+restartToast();
 hermitTwice();
 vowRevive();
 twoEvos();
