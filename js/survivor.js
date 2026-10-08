@@ -635,9 +635,11 @@
   }
 
   function wardenContactDmg() {
-    const cut = 18 * BALANCE.wardenHit;
-    const floor = (hero.base.life || 90) * BALANCE.wardenHitFloor;
-    return Math.max(cut, floor);
+    return 18 * BALANCE.wardenHit;
+  }
+
+  function wardenLifeFloor() {
+    return (hero.base.life || 90) * BALANCE.wardenHitFloor;
   }
 
   function wardenShotDmg() {
@@ -1237,12 +1239,13 @@
     return pxToWorld(36);
   }
 
-  function hurt(amount, heavy) {
+  function hurt(amount, heavy, floorLife) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
     let incoming = curse > 0 ? amount * vowSpec().hit : amount;
     incoming *= vowDanger('dmg');
     const cut = stillT >= BALANCE.idleGrace ? 0 : armorCut();
-    const dmg = Math.max(1, incoming - cut);
+    let dmg = Math.max(1, incoming - cut);
+    if (floorLife > 0) dmg = Math.max(dmg, floorLife);
     player.life -= dmg;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -2276,7 +2279,8 @@
     if (hit && en.touchCd <= 0) {
       en.touchCd = (player.moving && en.elite) ? 22 : 0.7;
       lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
-      hurt(dmg == null ? en.dmg : dmg, en.boss);
+      const floor = en.bossKind === 'warden' ? wardenLifeFloor() : 0;
+      hurt(dmg == null ? en.dmg : dmg, en.boss, floor);
     }
   }
 
@@ -5574,7 +5578,11 @@
         if (enemies[i].bossKind === 'warden') dmg = enemies[i].dmg;
       }
       const base = hero.base.life || 90;
-      return { dmg: dmg, base: base, pct: base ? dmg / base : 0, shot: wardenShotDmg() };
+      player.invuln = 0;
+      const before = player.life;
+      hurt(dmg || wardenContactDmg(), true, wardenLifeFloor());
+      const landed = before - player.life;
+      return { dmg: landed, raw: dmg, base: base, pct: base ? landed / base : 0, shot: wardenShotDmg() };
     };
     window.__svSpawn = (id, x, y, kind) => {
       const opts = kind ? { bossKind: kind, name: kind === 'warden' ? 'Grave Warden' : 'Risen Demon' } : null;

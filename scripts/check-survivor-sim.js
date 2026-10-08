@@ -181,12 +181,14 @@ function titleGold() {
 function wardenHitFloor() {
   const game = boot(1);
   game.__svStart();
+  game.__svApplyBuild({ bolt: 1, armor: 5 });
   game.__svSpawn('brute', 8, 0, 'warden');
   const hit = game.__svWardenHit();
   if (!(hit.pct >= 0.15 - 1e-9)) fail('warden contact ' + (hit.pct * 100).toFixed(2) + '%');
-  if (hit.dmg + 1e-9 < hit.base * 0.15) fail('warden contact damage ' + hit.dmg);
+  if (hit.dmg + 1e-9 < hit.base * 0.15) fail('warden contact damage ' + hit.dmg + ' under armour');
+  if (hit.raw + 1e-9 >= hit.base * 0.15 && hit.dmg <= hit.raw) fail('floor was applied before armour ' + hit.raw);
   if (hit.shot !== 5) fail('warden volley ' + hit.shot);
-  console.log('warden contact ' + (hit.pct * 100).toFixed(1) + '% of base ' + hit.base + ' (' + hit.dmg + '), volley ' + hit.shot);
+  console.log('warden contact ' + (hit.pct * 100).toFixed(1) + '% of base ' + hit.base + ' after armour (' + hit.dmg + ', raw ' + hit.raw + '), volley ' + hit.shot);
 }
 
 function earlyCrowd() {
