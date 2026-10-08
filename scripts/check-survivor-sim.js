@@ -76,7 +76,7 @@ function fakeDocument() {
   };
 }
 
-function boot(seed0, search) {
+function boot(seed0, search, storage) {
   let seed = (seed0 == null ? 1 : seed0) >>> 0;
   const math = Object.create(Math);
   math.random = () => {
@@ -87,7 +87,7 @@ function boot(seed0, search) {
     console, Math: math, Date, Number, String, JSON, parseInt, Array, Object, isNaN,
     navigator: { doNotTrack: '1', sendBeacon: () => false },
     location: { search: search || '?headless=1' },
-    localStorage: memoryStorage(),
+    localStorage: storage || memoryStorage(),
     document: fakeDocument(),
     performance: { now: () => 0 },
     requestAnimationFrame() {},
@@ -109,6 +109,7 @@ function boot(seed0, search) {
   files.forEach((name) => {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
   });
+  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
   return context;
 }
@@ -711,6 +712,184 @@ if (process.env.BOSS_SPREAD) {
   process.exit(0);
 }
 
+function guardPress(setup, which, read) {
+  ['pointerdown', 'click'].forEach((type) => {
+    const game = setup();
+    const before = read(game);
+    game.__svClock(250);
+    let snap = game.__svPress(which, type);
+    if (read(game, snap) !== before) fail(which + ' ' + type + ' at 250ms counted');
+    game.__svClock(320);
+    snap = game.__svPress(which, type);
+    if (read(game, snap) === before) fail(which + ' ' + type + ' at 320ms did not pick');
+  });
+  const game = setup();
+  const before = read(game);
+  game.__svClock(250);
+  game.__svPress(which, 'pointerdown');
+  if (read(game) !== before) fail(which + ' pointer at 250ms counted');
+  game.__svClock(320);
+  game.__svPress(which, 'click');
+  if (read(game) === before) fail(which + ' blocked pointer swallowed the click at 320ms');
+  console.log(which + ' guard drops 250ms and takes 320ms');
+}
+
+function tapGuards() {
+  guardPress(() => {
+    const game = boot(1);
+    game.__svStart();
+    game.__svClock(0);
+    game.__svOpenLevel();
+    return game;
+  }, 'card', (game) => game.__svSnap().state);
+  guardPress(() => {
+    const game = boot(1);
+    game.__svStart();
+    game.__svClock(0);
+    game.__svHurt(9999);
+    return game;
+  }, 'restart', (game) => game.__svSnap().state);
+  guardPress(() => {
+    const game = boot(1);
+    game.__svStart();
+    game.__svClock(0);
+    game.__svOpenHermit();
+    return game;
+  }, 'hermit-yes', (game) => game.__svSnap().state + ':' + game.__svSnap().vowCount);
+}
+
+function evoNeeds() {
+  const game = boot(1);
+  game.__svStart();
+  game.__svGive('orbit', 5);
+  if (game.__svHint('orbit') !== 'Needs: Battle Tempo') fail('orbit hint ' + game.__svHint('orbit'));
+  game.__svGive('nova', 3);
+  if (game.__svHint('nova') !== 'Needs: Cinder Heart') fail('nova hint ' + game.__svHint('nova'));
+  game.__svGive('cinder', 1);
+  if (game.__svHint('nova') !== 'Needs: Star Nova') fail('nova rank hint ' + game.__svHint('nova'));
+  game.__svGive('nova', 5);
+  if (game.__svHint('nova') !== 'Ready') fail('nova ready ' + game.__svHint('nova'));
+  if (game.__svHint('cinder') !== 'Ready') fail('cinder ready ' + game.__svHint('cinder'));
+  console.log('evolution hints name the missing piece');
+}
+
+function freshAndFlags() {
+  const bag = memoryStorage();
+  const progress = JSON.stringify({ version: 1, gold: 1005, upgrades: { vitality: 2 }, bestTime: 0, bestKills: 0 });
+  bag.setItem('abyss-survivor-progress', progress);
+  bag.setItem('abyss-survivor-profile', JSON.stringify({ version: 1, playerId: 'tester', cosmetics: { skin: null, effect: null } }));
+  bag.setItem('abyss-survivor-inventory', JSON.stringify({ version: 1, items: [], equipped: { charm: null, armour: null, ring: null } }));
+  let writes = 0;
+  const wrapped = {
+    getItem: (k) => bag.getItem(k),
+    setItem: (k, v) => {
+      if (String(k).indexOf('abyss-survivor') === 0) writes += 1;
+      bag.setItem(k, v);
+    },
+    removeItem: (k) => bag.removeItem(k),
+  };
+  const fresh = boot(1, '?headless=1&fresh=1&walk=circle&t=120&skel=1&seed=4', wrapped);
+  fresh.__svStart();
+  if (fresh.__svPurse() !== 0) fail('fresh kept stored gold ' + fresh.__svPurse());
+  if (writes !== 0) fail('fresh wrote the stored save');
+  if (bag.getItem('abyss-survivor-progress') !== progress) fail('fresh overwrote progress');
+  if (fresh.__svSnap().time < 119) fail('fresh ignored t= ' + fresh.__svSnap().time);
+  if (!fresh.SurvivorSprites.skelOn()) fail('skel flag did not reach the baker');
+  let moved = fresh.__svSnap();
+  for (let i = 0; i < 40; i++) {
+    moved = fresh.__svStep(0.05);
+    if (moved.state === 'levelup' || moved.state === 'hermit') moved = fresh.__svDismiss();
+  }
+  if (Math.hypot(moved.x, moved.y) < 0.2) fail('fresh+walk did not move');
+  const plain = boot(1, '?headless=1', bag);
+  plain.__svStart();
+  if (plain.__svPurse() !== 1005) fail('normal load dropped stored gold ' + plain.__svPurse());
+  if (plain.SurvivorSprites.skelOn()) fail('normal load enabled skel');
+  if (plain.__svSnap().time > 1) fail('normal load honored t=');
+  function pose(extra) {
+    const game = boot(2, '?headless=1&debug=1&fresh=1&walk=circle&t=120&seed=9' + extra);
+    game.__svStart();
+    let snap = game.__svSnap();
+    for (let i = 0; i < 20; i++) {
+      snap = game.__svStep(0.05);
+      if (snap.state === 'levelup' || snap.state === 'hermit') snap = game.__svDismiss();
+    }
+    return snap.x.toFixed(3) + ',' + snap.y.toFixed(3) + ',' + snap.enemies;
+  }
+  const withSkel = pose('&skel=1');
+  const without = pose('');
+  if (withSkel !== without) fail('skel changed the sim ' + withSkel + ' vs ' + without);
+  console.log('fresh save stays in memory and combines with walk, t, seed, skel');
+}
+
+function bossLook() {
+  const game = boot(1, '?headless=1&debug=1&t=147&skel=1');
+  const S = game.SurvivorSprites;
+  if (S.BOSS_OUTLINE_PX !== 2) fail('boss outline width ' + S.BOSS_OUTLINE_PX);
+  if (String(S.BOSS_OUTLINE_COLOR).toLowerCase() !== '#ff5ad6') fail('boss outline color ' + S.BOSS_OUTLINE_COLOR);
+  const rim = S.SKEL_RIM_RGB;
+  if (!rim || rim[0] !== 200 || rim[1] !== 212 || rim[2] !== 232) fail('skel rim ' + rim);
+  const w = 7;
+  const h = 7;
+  const src = new Uint8ClampedArray(w * h * 4);
+  const body = (3 * w + 3) * 4;
+  src[body] = 120;
+  src[body + 1] = 120;
+  src[body + 2] = 120;
+  src[body + 3] = 255;
+  function magenta(baked) {
+    const d = baked.data;
+    let n = 0;
+    for (let p = 0; p < d.length; p += 4) {
+      if (d[p + 3] > 16 && d[p] === 255 && d[p + 1] === 90 && d[p + 2] === 214) n += 1;
+    }
+    return n;
+  }
+  const boss = S.bakePixels(src, w, h, { outline: true });
+  const skel = S.bakePixels(src, w, h, { skel: true });
+  const crowd = S.bakePixels(src, w, h, {});
+  if (magenta(boss) < 8) fail('boss outline missing, magenta ' + magenta(boss));
+  if (magenta(skel) !== 0 || magenta(crowd) !== 0) fail('magenta leaked onto a non-boss');
+  const rimPx = [skel.data[body], skel.data[body + 1], skel.data[body + 2]];
+  if (rimPx[0] === 255 && rimPx[1] === 90 && rimPx[2] === 214) fail('rim used the boss colour');
+  if (rimPx[0] === 120 && rimPx[1] === 120 && rimPx[2] === 120) fail('skeleton recolour did not bake');
+  if (!S.skelOn()) fail('skel=1 was off');
+  const sized = boot(1);
+  sized.__svStart();
+  sized.__svSpawn('brute', 2, 0, 'warden');
+  sized.__svSpawn('brute', -2, 0, 'demon');
+  const scales = sized.__svScales();
+  scales.forEach((en) => {
+    if (!en.boss) return;
+    if (en.scale < 1.5) fail(en.kind + ' scale ' + en.scale);
+  });
+  const warden = scales.filter((en) => en.kind === 'warden')[0];
+  const demon = scales.filter((en) => en.kind === 'demon')[0];
+  if (!warden || Math.abs(warden.radius - (0.78 / 0.9) * 1.5) > 0.001) fail('warden hitbox ' + (warden && warden.radius));
+  if (!demon || Math.abs(demon.radius - 0.9 * 1.5) > 0.001) fail('demon hitbox ' + (demon && demon.radius));
+  game.__svStart();
+  let snap = game.__svSnap();
+  for (let i = 0; i < 80 && snap.time < 148.2; i++) {
+    snap = game.__svStep(0.05);
+    if (snap.state === 'levelup' || snap.state === 'hermit') snap = game.__svDismiss();
+  }
+  if (!snap.banner || snap.banner.indexOf('Grave Warden') < 0) fail('warden banner ' + snap.banner);
+  if (snap.boss) fail('warden spawned inside the warning');
+  const later = boot(1, '?headless=1&debug=1&t=297');
+  later.__svStart();
+  let demonSnap = later.__svSnap();
+  for (let i = 0; i < 40 && demonSnap.time < 298.2; i++) {
+    demonSnap = later.__svStep(0.05);
+    if (demonSnap.state === 'levelup' || demonSnap.state === 'hermit') demonSnap = later.__svDismiss();
+  }
+  if (!demonSnap.banner || demonSnap.banner.indexOf('Risen Demon') < 0) fail('demon banner ' + demonSnap.banner);
+  console.log('boss outline, scale, and warning');
+}
+
+tapGuards();
+evoNeeds();
+freshAndFlags();
+bossLook();
 idleDeath();
 vows();
 hermitTwice();

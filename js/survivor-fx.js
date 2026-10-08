@@ -15,6 +15,9 @@
  * same 3-per-0.1s silhouette window at 60% white. Above 20 kills per second
  * the kill is one chunk and no flash. Elite and boss shakes wait 0.5s.
  * A second full-screen evolve within 1s of the last one is a hero ring.
+ * The evolve sweep (`FX.EVOLVE_SWEEP_MS`, 400) rides that same clock: every
+ * effect advances only by the dt passed to FX.update. FX.sweepRadius() is the
+ * front edge in art px, or -1 when no sweep is running.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
  */
@@ -29,10 +32,11 @@ const FX = (function () {
   const VOW_CAP = 8;
   const CD_N = 24;
   const BEAM_N = 64;
-  const NUM_N = 24;
   const KILL_N = 32;
   const TINT_N = 16;
   const LEVELUP_RADIUS = 48;
+  const EVOLVE_SWEEP_MS = 400;
+  const SWEEP_N = 40;
   const ORBIT_SPRITE = 15;
   const FLASH_LIFE = 0.1;
   const TAU = 6.283185307179586;
@@ -44,7 +48,7 @@ const FX = (function () {
   for (let i = 0; i < CAP; i++) {
     const p = parts[i] = {
       life: 0.5, max: 0.5, x: 0.5, y: 0.5, vx: 0.5, vy: 0.5, w: 2, h: 2, tone: 0, peak: 0.5,
-      art: 0, grav: 0, screen: 0,
+      art: 0, grav: 0, screen: 0, sweep: 0, ang: 0.5,
     };
     p.life = 0;
     p.max = 1;
@@ -53,6 +57,7 @@ const FX = (function () {
     p.vx = 0;
     p.vy = 0;
     p.peak = 1;
+    p.ang = 0;
   }
   let partCursor = 0;
 
@@ -132,29 +137,6 @@ const FX = (function () {
     b.age = 0;
   }
 
-  const nums = new Array(NUM_N);
-  const digScratch = [0, 0, 0, 0];
-  const DIGIT = [
-    [0x7, 0x5, 0x5, 0x5, 0x7],
-    [0x2, 0x6, 0x2, 0x2, 0x7],
-    [0x7, 0x1, 0x7, 0x4, 0x7],
-    [0x7, 0x1, 0x7, 0x1, 0x7],
-    [0x5, 0x5, 0x7, 0x1, 0x1],
-    [0x7, 0x4, 0x7, 0x1, 0x7],
-    [0x7, 0x4, 0x7, 0x5, 0x7],
-    [0x7, 0x1, 0x1, 0x1, 0x1],
-    [0x7, 0x5, 0x7, 0x5, 0x7],
-    [0x7, 0x5, 0x7, 0x1, 0x7],
-  ];
-  for (let i = 0; i < NUM_N; i++) {
-    const n = nums[i] = { on: 0, x: 0.5, y: 0.5, v: 0, crit: 0, age: 0.5, life: 0.5, vy: 0.5 };
-    n.x = 0;
-    n.y = 0;
-    n.age = 0;
-    n.life = 0.55;
-    n.vy = 0;
-  }
-
   const shakeOut = { x: 0.5, y: 0.5 };
   shakeOut.x = 0;
   shakeOut.y = 0;
@@ -165,6 +147,46 @@ const FX = (function () {
   shakeLife = 0;
   shakeMax = 1;
   let shakeAt = -10;
+
+  const sweepOut = { x: 0.5, y: 0.5 };
+  sweepOut.x = 0;
+  sweepOut.y = 0;
+  let sweepOn = 0;
+  let sweepEnd = 0;
+  let sweepAge = 0.5;
+  let sweepDur = 0.5;
+  let sweepMax = 0.5;
+  let sweepX = 0.5;
+  let sweepY = 0.5;
+  let sweepScreen = 0;
+  sweepAge = 0;
+  sweepDur = EVOLVE_SWEEP_MS / 1000;
+  sweepMax = 0;
+  sweepX = 0;
+  sweepY = 0;
+  let lastW = 0;
+  let lastH = 0;
+  let lastZoom = 0.5;
+  lastZoom = 0;
+
+  const GROUND_N = 20;
+  const groundX = new Array(GROUND_N);
+  const groundY = new Array(GROUND_N);
+  (function () {
+    let n = 0;
+    for (let x = -4; x <= 3; x++) {
+      groundX[n] = x;
+      groundY[n] = -2;
+      n += 1;
+      groundX[n] = x;
+      groundY[n] = 1;
+      n += 1;
+    }
+    groundX[n] = -5; groundY[n] = -1; n += 1;
+    groundX[n] = 4; groundY[n] = -1; n += 1;
+    groundX[n] = -5; groundY[n] = 0; n += 1;
+    groundX[n] = 4; groundY[n] = 0;
+  })();
 
   let clock = 0;
   let vows = 0;
@@ -314,23 +336,31 @@ const FX = (function () {
     }
   }
 
-  function takePart() {
-    for (let n = 0; n < CAP; n++) {
-      const i = (partCursor + n) % CAP;
-      if (parts[i].life <= 0) {
-        partCursor = (i + 1) % CAP;
-        parts[i].art = 0;
-        parts[i].grav = 0;
-        parts[i].screen = 0;
-        return parts[i];
-      }
-    }
-    const p = parts[partCursor];
-    partCursor = (partCursor + 1) % CAP;
+  function releasePart(p) {
     p.art = 0;
     p.grav = 0;
     p.screen = 0;
-    return p;
+    p.sweep = 0;
+  }
+
+  function takePart() {
+    for (let n = 0; n < CAP; n++) {
+      const i = (partCursor + n) % CAP;
+      if (parts[i].sweep) continue;
+      if (parts[i].life <= 0) {
+        partCursor = (i + 1) % CAP;
+        releasePart(parts[i]);
+        return parts[i];
+      }
+    }
+    for (let n = 0; n < CAP; n++) {
+      const i = (partCursor + n) % CAP;
+      if (parts[i].sweep) continue;
+      partCursor = (i + 1) % CAP;
+      releasePart(parts[i]);
+      return parts[i];
+    }
+    return parts[SWEEP_N];
   }
 
   function takeRing() {
@@ -527,34 +557,6 @@ const FX = (function () {
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on && beams[i].id === id) beams[i].on = 0;
     }
-  }
-
-  function spawnNum(x, y, amount, crit) {
-    let slot = -1;
-    let oldest = 0;
-    let age = -1;
-    for (let i = 0; i < NUM_N; i++) {
-      if (!nums[i].on) {
-        slot = i;
-        break;
-      }
-      if (nums[i].age > age) {
-        age = nums[i].age;
-        oldest = i;
-      }
-    }
-    const n = slot >= 0 ? nums[slot] : nums[oldest];
-    let v = amount | 0;
-    if (v < 0) v = 0;
-    if (v > 9999) v = 9999;
-    n.on = 1;
-    n.x = x;
-    n.y = y - 0.15;
-    n.v = v;
-    n.crit = crit ? 1 : 0;
-    n.age = 0;
-    n.life = 0.55;
-    n.vy = -0.95;
   }
 
   function tryShake(amp) {
@@ -774,6 +776,96 @@ const FX = (function () {
     return 1.65 + ((t - 0.16) / 0.84) * (1 - 1.65);
   }
 
+  function defaultSweepRadius() {
+    const zoom = lastZoom > 0 ? lastZoom : 3;
+    const w = lastW > 0 ? lastW : 390;
+    const h = lastH > 0 ? lastH : 844;
+    const lift = heroHalfSprite() * zoom;
+    const hx = w * 0.5;
+    const hy = h * 0.5 - lift;
+    const dx = hx > (w - hx) ? hx : (w - hx);
+    const dy = hy > (h - hy) ? hy : (h - hy);
+    return Math.sqrt(dx * dx + dy * dy) / zoom;
+  }
+
+  function sweepFront() {
+    let u = sweepDur > 0 ? sweepAge / sweepDur : 1;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    const inv = 1 - u;
+    return sweepMax * (1 - inv * inv);
+  }
+
+  function placeSweepPart(p) {
+    const front = sweepFront();
+    const c = Math.cos(p.ang);
+    const s = Math.sin(p.ang);
+    if (p.screen) {
+      p.x = c * front;
+      p.y = s * front;
+    } else {
+      const tiles = front / 16;
+      p.x = sweepX + c * tiles;
+      p.y = sweepY + s * tiles;
+    }
+  }
+
+  function clearSweepParts() {
+    for (let i = 0; i < SWEEP_N; i++) {
+      parts[i].life = 0;
+      parts[i].sweep = 0;
+    }
+  }
+
+  function spawnSweepChunks() {
+    const dur = EVOLVE_SWEEP_MS / 1000;
+    for (let i = 0; i < SWEEP_N; i++) {
+      const p = parts[i];
+      p.life = dur;
+      p.max = dur;
+      p.ang = (i / SWEEP_N) * TAU;
+      p.w = 2;
+      p.h = 2;
+      p.tone = (i & 1) ? 3 : 0;
+      p.peak = 1;
+      p.art = 1;
+      p.grav = 0;
+      p.screen = sweepScreen;
+      p.sweep = 1;
+      p.vx = 0;
+      p.vy = 0;
+      placeSweepPart(p);
+    }
+  }
+
+  function beginSweep(opts, withChunks) {
+    let rad = defaultSweepRadius();
+    if (opts && opts.radius > 0) rad = opts.radius;
+    sweepOn = 1;
+    sweepEnd = 0;
+    sweepAge = 0;
+    sweepDur = EVOLVE_SWEEP_MS / 1000;
+    sweepMax = rad;
+    if (opts && ok(opts.x) && ok(opts.y)) {
+      sweepX = opts.x;
+      sweepY = opts.y;
+      sweepScreen = 0;
+    } else {
+      sweepX = 0;
+      sweepY = 0;
+      sweepScreen = 1;
+    }
+    sweepOut.x = sweepX;
+    sweepOut.y = sweepY;
+    if (withChunks) spawnSweepChunks();
+    else clearSweepParts();
+  }
+
+  function readSweepRadius() {
+    if (!sweepOn) return -1;
+    return sweepFront();
+  }
+
   function step(dt) {
     if (!(dt > 0)) return;
     if (dt > 0.05) dt = 0.05;
@@ -794,7 +886,7 @@ const FX = (function () {
     }
     for (let i = 0; i < CAP; i++) {
       const p = parts[i];
-      if (p.life <= 0) continue;
+      if (p.life <= 0 || p.sweep) continue;
       p.life -= dt;
       if (p.life <= 0) continue;
       p.x += p.vx * dt;
@@ -805,6 +897,21 @@ const FX = (function () {
         const damp = 1 - dt * 1.5;
         p.vx *= damp;
         p.vy *= damp;
+      }
+    }
+    if (sweepEnd) {
+      sweepOn = 0;
+      sweepEnd = 0;
+      clearSweepParts();
+    } else if (sweepOn) {
+      sweepAge += dt;
+      if (sweepAge + 0.0001 >= sweepDur) {
+        sweepAge = sweepDur;
+        sweepEnd = 1;
+      }
+      for (let i = 0; i < SWEEP_N; i++) {
+        const p = parts[i];
+        if (p.sweep && p.life > 0) placeSweepPart(p);
       }
     }
     for (let i = 0; i < RING_CAP; i++) {
@@ -822,13 +929,6 @@ const FX = (function () {
     }
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on) beams[i].age += dt;
-    }
-    for (let i = 0; i < NUM_N; i++) {
-      const n = nums[i];
-      if (!n.on) continue;
-      n.age += dt;
-      n.y += n.vy * dt;
-      if (n.age > n.life) n.on = 0;
     }
   }
 
@@ -906,58 +1006,6 @@ const FX = (function () {
     ctx.restore();
   }
 
-  function paintNums(ctx, zoom, tile, camX, camY) {
-    for (let i = 0; i < NUM_N; i++) {
-      const n = nums[i];
-      if (!n.on) continue;
-      let scale = 1;
-      if (n.age < 0.12) scale = 1.4 - (0.4 * (n.age / 0.12));
-      if (n.crit) scale *= 1.5;
-      const cell = Math.max(1, Math.round(zoom * scale));
-      let v = n.v | 0;
-      let nd = 0;
-      if (v <= 0) {
-        digScratch[0] = 0;
-        nd = 1;
-      } else {
-        while (v > 0 && nd < 4) {
-          digScratch[nd] = v % 10;
-          nd += 1;
-          v = (v / 10) | 0;
-        }
-      }
-      const glyphW = cell * 3;
-      const total = nd * glyphW + (nd - 1) * cell;
-      let sx = Math.round(n.x * tile + camX) - (total >> 1);
-      const sy = Math.round(n.y * tile + camY);
-      let fade = 1;
-      if (n.age > 0.4) fade = (n.life - n.age) / 0.15;
-      if (fade < 0) fade = 0;
-      if (fade > 1) fade = 1;
-      for (let d = nd - 1; d >= 0; d--) {
-        const g = DIGIT[digScratch[d]];
-        for (let row = 0; row < 5; row++) {
-          const bits = g[row];
-          for (let col = 0; col < 3; col++) {
-            if (((bits >> (2 - col)) & 1) === 0) continue;
-            const px = sx + col * cell;
-            const py = sy + row * cell;
-            if (n.crit) {
-              ctx.globalAlpha = fade;
-              ctx.fillStyle = '#14120f';
-              ctx.fillRect(px - 1, py - 1, cell + 2, cell + 2);
-            }
-            ctx.globalAlpha = fade;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(px, py, cell, cell);
-          }
-        }
-        sx += glyphW + cell;
-      }
-    }
-    ctx.globalAlpha = 1;
-  }
-
   function beamAlpha() {
     if (reducedNow()) return 0.8;
     const s = Math.sin(clock * 12.566370614359172);
@@ -965,6 +1013,12 @@ const FX = (function () {
     if (a < 0.72) a = 0.72;
     if (a > 0.92) a = 0.92;
     return a;
+  }
+
+  function legendAlpha() {
+    if (reducedNow()) return 0.55;
+    const s = Math.sin(clock * 6.283185307179586);
+    return 0.46 + s * 0.16;
   }
 
   function rarityFill(r) {
@@ -984,27 +1038,31 @@ const FX = (function () {
       if (!b.on || b.r <= 0) continue;
       const sx = Math.round(b.x * tile + camX);
       const sy = Math.round(b.y * tile + camY);
-      ctx.globalAlpha = a;
+      const colA = b.r === 4 ? legendAlpha() : a;
+      ctx.globalAlpha = colA;
       if (b.r === 1) {
         const s = 6 * cell;
+        ctx.globalAlpha = a;
         ctx.fillStyle = '#5ed37a';
         ctx.fillRect(sx - (s >> 1), sy - (cell >> 1), s, cell);
         ctx.fillRect(sx - (cell >> 1), sy - (s >> 1), cell, s);
         continue;
       }
       const hArt = b.r === 2 ? 24 : (b.r === 3 ? 56 : 72);
-      const wArt = b.r >= 3 ? 2 : 1;
+      const wArt = b.r === 2 ? 2 : (b.r === 3 ? 3 : 4);
       const h = hArt * cell;
       const w = wArt * cell;
-      const x0 = sx - (w >> 1);
-      const y0 = sy - h;
+      const x0 = Math.round(sx - w / 2);
+      const y0 = Math.round(sy - h);
       if (sx > -w && sx < viewW + w && sy > -8 && y0 < viewH + 8) {
         if (b.r === 4) {
           ctx.fillStyle = '#f4f2ff';
           ctx.fillRect(x0, y0, w, h);
           for (let row = 0; row < hArt; row++) {
             ctx.fillStyle = (row & 1) ? '#c9b6ff' : '#7fb2ff';
-            ctx.fillRect(x0, y0 + row * cell, cell, cell);
+            const yy = y0 + row * cell;
+            ctx.fillRect(x0, yy, cell, cell);
+            ctx.fillRect(x0 + (wArt - 1) * cell, yy, cell, cell);
           }
         } else {
           ctx.fillStyle = rarityFill(b.r);
@@ -1021,6 +1079,9 @@ const FX = (function () {
             ctx.fillRect(Math.round(sx + w * 0.5 + cell), Math.round(sy - ph * cell), cell, cell);
           }
         }
+      }
+      if (sy > -16 && sy < viewH + 16 && sx > -40 && sx < viewW + 40) {
+        paintGround(ctx, Math.round(sx), Math.round(sy), cell, rarityFill(b.r), b.r === 4 ? colA : 1);
       }
     }
     ctx.globalAlpha = 1;
@@ -1063,6 +1124,48 @@ const FX = (function () {
     }
   }
 
+  function paintGround(ctx, sx, sy, cell, color, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    const c = cell;
+    for (let i = 0; i < GROUND_N; i++) {
+      ctx.fillRect(sx + groundX[i] * c, sy + groundY[i] * c, c, c);
+    }
+  }
+
+  function paintSweep(ctx, zoom, tile, camX, camY, heroX, heroY) {
+    if (!sweepOn) return;
+    const front = sweepFront();
+    if (!(front > 1)) return;
+    let px;
+    let py;
+    if (sweepScreen) {
+      px = heroX;
+      py = heroY;
+    } else {
+      px = sweepX * tile + camX;
+      py = sweepY * tile + camY;
+    }
+    const cell = Math.max(1, zoom | 0);
+    let u = sweepDur > 0 ? sweepAge / sweepDur : 1;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    ctx.globalAlpha = 0.9 - u * 0.25;
+    ctx.lineWidth = cell;
+    ctx.beginPath();
+    ctx.arc(px, py, Math.max(1, (front - 0.5) * zoom), 0, TAU);
+    ctx.strokeStyle = '#5fd8ff';
+    ctx.stroke();
+    const inner = (front - 1.5) * zoom;
+    if (inner > 1) {
+      ctx.beginPath();
+      ctx.arc(px, py, inner, 0, TAU);
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function paintBeamArrows(ctx, zoom, tile, camX, camY, viewW, viewH) {
     const cell = Math.max(1, zoom | 0);
     const inset = 8 * cell;
@@ -1097,6 +1200,9 @@ const FX = (function () {
     const camY = cam && ok(cam.y) ? cam.y : 0;
     const viewW = ctx.canvas.width;
     const viewH = ctx.canvas.height;
+    lastW = viewW;
+    lastH = viewH;
+    lastZoom = zoom;
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = false;
@@ -1126,6 +1232,7 @@ const FX = (function () {
     const lift = heroHalfSprite() * zoom;
     const heroX = viewW * 0.5;
     const heroY = viewH * 0.5 - lift;
+    paintSweep(ctx, zoom, tile, camX, camY, heroX, heroY);
     for (let i = 0; i < CAP; i++) {
       const p = parts[i];
       if (p.life <= 0) continue;
@@ -1158,7 +1265,6 @@ const FX = (function () {
       }
     }
     ctx.globalAlpha = 1;
-    paintNums(ctx, zoom, tile, camX, camY);
     for (let i = 0; i < RING_CAP; i++) {
       const r = rings[i];
       if (!r.on) continue;
@@ -1231,13 +1337,10 @@ const FX = (function () {
     hit: function (x, y, vis) {
       if (!ok(x) || !ok(y)) return;
       const heavy = !!(vis && (vis.boss || vis.elite));
-      if (heavy) spray(x, y, 6, 0.16, 5.6, 5, 5, true);
-      else spray(x, y, 4, 0.12, 4.4, 3, 3, true);
+      const crit = !!(vis && vis.crit);
+      if (heavy) spray(x, y, crit ? 7 : 6, 0.16, 5.6, crit ? 6 : 5, crit ? 6 : 5, true);
+      else spray(x, y, crit ? 5 : 4, crit ? 0.14 : 0.12, crit ? 4.8 : 4.4, crit ? 4 : 3, crit ? 4 : 3, true);
       if (heavy && allowSpriteFlash(vis)) spawnSil(x, y, vis, 0.6);
-      if (vis && (ok(vis.n) || ok(vis.amount))) {
-        const amount = ok(vis.n) ? vis.n : vis.amount;
-        spawnNum(x, y, amount, !!vis.crit);
-      }
     },
 
     death: function (x, y, type, vis) {
@@ -1291,7 +1394,7 @@ const FX = (function () {
       if (!reducedNow()) spawnStreaks(px, py, placed ? 0 : 1);
     },
 
-    evolve: function (weapon) {
+    evolve: function (weapon, opts) {
       if (weapon == null || weapon === '') return;
       if (weapon === 'halo' || weapon === 'nova') halo = 1;
       if (weapon === 'storm' || weapon === 'orbit') {
@@ -1299,12 +1402,22 @@ const FX = (function () {
         popOn = 1;
         popT = 0;
       }
-      if (reducedNow() || clock - evolveFlashAt < 1 || !tryConsumeFlash()) {
+      if (clock - evolveFlashAt < 1) {
+        addRing(1, 0, 0, 12, 28, 2, 0.24, 0, 0);
+        return;
+      }
+      if (reducedNow()) {
+        evolveFlashAt = clock;
+        beginSweep(opts, false);
+        return;
+      }
+      if (!tryConsumeFlash()) {
         addRing(1, 0, 0, 12, 28, 2, 0.24, 0, 0);
         return;
       }
       evolveFlashAt = clock;
       flashLeft = FLASH_LIFE;
+      beginSweep(opts, true);
     },
 
     vow: function (stackCount) {
@@ -1351,7 +1464,6 @@ const FX = (function () {
       for (let i = 0; i < RING_CAP; i++) rings[i].on = 0;
       for (let i = 0; i < SIL_CAP; i++) sils[i].life = 0;
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
-      for (let i = 0; i < NUM_N; i++) nums[i].on = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       shakeAmp = 0;
@@ -1360,6 +1472,16 @@ const FX = (function () {
       shakeAt = -10;
       shakeOut.x = 0;
       shakeOut.y = 0;
+      sweepOn = 0;
+      sweepEnd = 0;
+      sweepAge = 0;
+      sweepMax = 0;
+      sweepX = 0;
+      sweepY = 0;
+      sweepScreen = 0;
+      sweepOut.x = 0;
+      sweepOut.y = 0;
+      clearSweepParts();
       for (let i = 0; i < MAX_B; i++) {
         const b = blades[i];
         b.live = 0;
@@ -1417,6 +1539,17 @@ const FX = (function () {
       return readShake();
     },
 
+    sweepRadius: function () {
+      return readSweepRadius();
+    },
+
+    sweepCenter: function () {
+      sweepOut.x = sweepX;
+      sweepOut.y = sweepY;
+      return sweepOut;
+    },
+
     LEVELUP_RADIUS: LEVELUP_RADIUS,
+    EVOLVE_SWEEP_MS: EVOLVE_SWEEP_MS,
   };
 })();
