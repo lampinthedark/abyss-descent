@@ -61,7 +61,7 @@ function fakeDocument() {
       querySelectorAll() { return []; },
       getContext() { return ctx; },
       getBoundingClientRect() { return { left: 0, top: 0, width: 1100, height: 800 }; },
-      parentElement: { clientWidth: 1100, clientHeight: 800 },
+      parentElement: { clientWidth: 390, clientHeight: 844 }, // phone portrait, like the testers
     };
   }
   return {
@@ -94,9 +94,9 @@ function boot(seed0, search, storage) {
     setTimeout() { return 0; },
     addEventListener() {},
     removeEventListener() {},
-    innerWidth: 1100,
-    innerHeight: 800,
-    devicePixelRatio: 1,
+    innerWidth: 390,
+    innerHeight: 844,
+    devicePixelRatio: 2,
     matchMedia: () => ({ matches: false }),
   };
   context.window = context;
@@ -115,31 +115,59 @@ function boot(seed0, search, storage) {
 }
 
 
-// Medieval demo (?mode=medieval): the kite bot must get the first evolution by
-// 1:30, meet Malgrath at 5:00, and kill him into a victory screen.
-function medievalRun(seed) {
-  const g = boot(seed, '?headless=1&debug=1&walk=kite&mode=medieval');
+// Medieval demo (?mode=medieval), stepped at 60 fps like the browser. Bots
+// take their own picks (no skipped level-ups):
+// - walk=kite: kites and dodges Malgrath's telegraphs. Must win every seed.
+// - walk=circle: a fixed circle with sensible picks. Must win at least half.
+// Both: first evolution by 1:30, no second evolution before Malgrath, boss
+// at 5:00, his fight at least 45 s, and no level-up gap over 25 s before 5:00.
+function medievalRun(seed, walk) {
+  const g = boot(seed, '?headless=1&debug=1&walk=' + walk + '&mode=medieval');
   g.__svStart();
   let s = g.__svSnap();
   let evoAt = null;
+  let evo2At = null;
   let bossAt = null;
-  for (let i = 0; i < 12000; i++) {
-    s = g.__svStep(0.05);
-    if (s.state === 'levelup' || s.state === 'hermit') s = g.__svDismiss();
+  let bossEnd = null;
+  let lv = s.level;
+  let lastUp = 0;
+  let gap = 0;
+  let minHp = 1;
+  const step = 1 / 60;
+  for (let i = 0; i < 700 * 60; i++) {
+    s = g.__svStep(step);
+    if (s.state === 'hermit') s = g.__svDismiss();
+    if (s.level > lv) {
+      lv = s.level;
+      if (s.time < 300) { gap = Math.max(gap, s.time - lastUp); lastUp = s.time; }
+    }
+    minHp = Math.min(minHp, s.life / s.maxLife);
     if (evoAt == null && s.evolved && s.evolved.length) evoAt = s.time;
+    if (evo2At == null && s.evolved && s.evolved.length > 1) evo2At = s.time;
     if (bossAt == null && s.boss) bossAt = s.time;
+    if (bossAt != null && bossEnd == null && !s.boss) bossEnd = s.time;
     if (s.state === 'dead' || s.state === 'won') break;
   }
-  return { state: s.state, time: s.time, evoAt, bossAt, gold: s.gold, kills: s.kills, boss: s.boss };
+  if (bossAt != null && bossEnd == null) bossEnd = s.time;
+  if (s.time >= 300) gap = Math.max(gap, 300 - lastUp);
+  return { walk, seed, state: s.state, time: s.time, evoAt, evo2At, bossAt, fight: bossAt != null ? bossEnd - bossAt : null, gap, minHp, gold: s.gold };
 }
 
 const results = [];
-for (let seed = 1; seed <= 4; seed++) {
-  const r = medievalRun(seed);
-  results.push(r);
-  if (r.evoAt == null || r.evoAt > 90) fail('medieval seed ' + seed + ' evolution at ' + r.evoAt);
-  if (r.bossAt == null || r.bossAt < 299.9 || r.bossAt > 300.5) fail('medieval seed ' + seed + ' boss at ' + r.bossAt);
+for (const walk of ['kite', 'circle']) {
+  for (let seed = 1; seed <= 4; seed++) {
+    const r = medievalRun(seed, walk);
+    results.push(r);
+    const tag = 'medieval ' + walk + ' seed ' + seed;
+    if (r.evoAt == null || r.evoAt > 90) fail(tag + ' evolution at ' + r.evoAt);
+    if (r.evo2At != null && r.bossAt != null && r.evo2At < r.bossAt) fail(tag + ' second evolution before Malgrath at ' + r.evo2At);
+    if (r.bossAt == null || r.bossAt < 299.9 || r.bossAt > 300.5) fail(tag + ' boss at ' + r.bossAt);
+    if (r.state === 'won' && r.fight < 45) fail(tag + ' Malgrath died in ' + r.fight.toFixed(1) + 's');
+    if (r.gap > 25) fail(tag + ' level-up gap ' + r.gap.toFixed(1) + 's');
+  }
 }
-const wins = results.filter((r) => r.state === 'won');
-if (wins.length < 3) fail('medieval bot won ' + wins.length + '/4: ' + JSON.stringify(results));
-console.log('medieval ok: evo ' + results.map((r) => r.evoAt.toFixed(1)).join(', ') + '; boss 5:00; wins ' + wins.length + '/4 at ' + wins.map((r) => r.time.toFixed(0) + 's/' + r.gold + 'g').join(', '));
+const kiteWins = results.filter((r) => r.walk === 'kite' && r.state === 'won').length;
+const circleWins = results.filter((r) => r.walk === 'circle' && r.state === 'won').length;
+if (kiteWins < 4) fail('medieval kite bot won ' + kiteWins + '/4: ' + JSON.stringify(results));
+if (circleWins < 2) fail('medieval circle walker won ' + circleWins + '/4: ' + JSON.stringify(results));
+console.log('medieval ok: kite ' + kiteWins + '/4, circle ' + circleWins + '/4; ' + results.map((r) => r.walk[0] + r.seed + ' ' + r.state[0] + ' ' + r.time.toFixed(0) + 's min' + Math.round(r.minHp * 100) + '% fight ' + (r.fight == null ? '-' : r.fight.toFixed(0)) + 's gap ' + r.gap.toFixed(0) + 's ' + r.gold + 'g').join('; '));
