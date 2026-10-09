@@ -318,6 +318,9 @@
   let evoIgnoreClock = false;
   let evoPollAt = 1;
   let evolvePending = '';
+  // UI game feel batch 2: Dawnbreaker cinematic owner + banner state.
+  let evoCineId = '';
+  let evoCineBanner = false;
   const evolveQueue = [];
   let spawnedThisFrame = 0;
   let uiGuardUntil = 0;
@@ -3320,6 +3323,23 @@
       }
       dt = simDt;
     }
+    if (evoCineId) {
+      // UI game feel batch 2: hold the sim through the cinematic, then commit (the 360 sweep fires).
+      const cineBox = fxBox();
+      if (cineBox && typeof cineBox.evoHold === 'function' && cineBox.evoHold()) {
+        fxCall('update', dt);
+        evoCineTitle(cineBox.evoTitleScale());
+        evoWindow = true;
+        return;
+      }
+      evoCineTitle(-1);
+      const cineId = evoCineId;
+      evoCineId = '';
+      if (evolvePending === cineId && state === 'playing') {
+        evolvePending = '';
+        commitEvolve(cineId);
+      }
+    }
     if (state === 'playing' && (evoHold || time >= evoPollAt)) {
       if (time >= evoPollAt) evoPollAt = time + 1;
       evoHold = false;
@@ -3367,7 +3387,14 @@
       }
     }
     syncVowChrome();
+    const walkX = player.x;
+    const walkY = player.y;
     movePlayer(dt);
+    const walkBox = fxBox();
+    if (walkBox && typeof walkBox.heroWalk === 'function') {
+      // UI game feel batch 2: lean, step bob, stop squash, idle breath, dust.
+      walkBox.heroWalk(dt, player.x - walkX, player.y - walkY, player.moving, player.x, player.y, moveSpeed() / Math.max(0.01, hero.base.move));
+    }
     director(dt);
     tickIdleChip();
     if (state !== 'playing') return;
@@ -3401,7 +3428,7 @@
       openHermit();
       return;
     }
-    if (evolvePending && evoSlow <= 0 && state === 'playing') {
+    if (evolvePending && evoSlow <= 0 && state === 'playing' && !evoCineId) {
       const evolvedId = evolvePending;
       evolvePending = '';
       commitEvolve(evolvedId);
@@ -3571,6 +3598,9 @@
     evoIgnoreClock = false;
     evoPollAt = 1;
     evolvePending = '';
+    evoCineId = '';
+    evoCineBanner = false;
+    evoCineTitle(-1);
     evolveQueue.length = 0;
     slowLeft = 0;
     sweepOn = false;
@@ -4379,7 +4409,8 @@
   function commitEvolve(id) {
     player.invuln = Math.max(player.invuln, 0.5);
     evoLog.push({ id: id, t: time, tick: simTick });
-    raiseBanner(evoTitle(id), true);
+    if (!evoCineBanner) raiseBanner(evoTitle(id), true);
+    evoCineBanner = false;
     if (!sweepOn) beginSweep(id);
     else if (typeof FX !== 'undefined' && typeof FX.evolve === 'function') {
       sweepInfo.x = player.x;
@@ -4399,6 +4430,15 @@
       evoHold = true;
       return;
     }
+    const cine = fxBox();
+    if (MEDIEVAL && id === 'storm' && cine && typeof cine.evoCinematic === 'function'
+      && cine.evoCinematic(id, { x: player.x, y: player.y, facing: player.facing, sprite: rangerOn() ? 'ysolde' : 'hero' }) > 0) {
+      // UI game feel: Dawnbreaker's 1.6 s cinematic; sim pauses while FX.evoHold() (see sim()).
+      evolvePending = id;
+      evoCineId = id;
+      evoWindow = true;
+      return;
+    }
     if (reduceMotion) {
       commitEvolve(id);
       return;
@@ -4407,6 +4447,25 @@
     evoSlow = BALANCE.evoSlow;
     evoWindow = true;
     raiseBanner(evoTitle(id), true);
+  }
+
+  // Banner for the cinematic: raised when FX's title appears, scaled 0.6 -> 1.0 by FX.
+  let evoCineScale = -1;
+  function evoCineTitle(scale) {
+    const el = $('sv-warn');
+    if (!(scale >= 0)) {
+      if (evoCineScale >= 0 && el && el.style) el.style.transform = '';
+      evoCineScale = -1;
+      return;
+    }
+    if (!evoCineBanner) {
+      evoCineBanner = true;
+      raiseBanner(evoTitle(evoCineId), true);
+    }
+    const k = Math.round(scale * 100) / 100;
+    if (k === evoCineScale) return;
+    evoCineScale = k;
+    if (el && el.style) el.style.transform = 'translateX(-50%) scale(' + k + ')';
   }
 
   function grantEvolve(id) {
@@ -5070,7 +5129,21 @@
   function drawHeroBody() {
     const x = sxOf(player.x);
     const y = syOf(player.y);
-    SurvivorSprites.drawHero(ctx, x, y, fillHeroDraw());
+    const walkBox = fxBox();
+    const hp = walkBox && typeof walkBox.heroPose === 'function' ? walkBox.heroPose() : null;
+    if (hp) {
+      // UI game feel batch 2: feet-anchored lean / bob / squash; run frames at FX's 10-12 fps.
+      const hd = fillHeroDraw();
+      if (player.moving) hd.time = hp.animT;
+      ctx.save();
+      ctx.translate(x, y + hp.bob * zoom);
+      ctx.rotate(hp.rot);
+      ctx.scale(hp.sx, hp.sy);
+      SurvivorSprites.drawHero(ctx, 0, 0, hd);
+      ctx.restore();
+    } else {
+      SurvivorSprites.drawHero(ctx, x, y, fillHeroDraw());
+    }
     if (player.life < player.maxLife) {
       ctx.fillStyle = '#200808';
       ctx.fillRect(x - 16, y - 30 * zoom - 4, 32, 4);
