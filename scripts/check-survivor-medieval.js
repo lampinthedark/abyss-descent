@@ -122,7 +122,7 @@ function boot(seed0, search, storage) {
 // Both: first evolution by 1:30, no second evolution before Malgrath, boss
 // at 5:00, his fight at least 45 s, and no level-up gap over 25 s before 5:00.
 function medievalRun(seed, walk) {
-  const g = boot(seed, '?headless=1&debug=1&walk=' + walk + '&mode=medieval');
+  const g = boot(seed, '?headless=1&debug=1&walk=' + walk + '&mode=medieval&autopick=1');
   g.__svStart();
   let s = g.__svSnap();
   let evoAt = null;
