@@ -51,6 +51,28 @@
  * FX.draw pass. One new ring per 180 ms (extra calls return false), 4 pooled.
  * Reduced motion: no growth, 120 ms fade. FX.guardNumberStyle is the grey
  * {color, scale} for glanced damage numbers.
+ *
+ * Game feel batch 1 (design/game-feel.md 1, 2 and the shake rules):
+ * FX.shake(level 1..4) = S1 2px/120ms, S2 4/200, S3 6/300, S4 8/400 (art px,
+ * outQuad decay, value noise, no rotation). Never stacks: a shake replaces
+ * the running one only if stronger than what is left; cap 8. Reduced motion
+ * halves it. FX.hitstop(vis) -> seconds: elites 60 ms, boss crits 40 ms,
+ * never normal mobs, 150 ms gap, none with reduced motion; overlapping stops
+ * take the max, never the sum. The game scales its sim dt with
+ * FX.consumeHitstop(dt) (0 while frozen); FX.hitstopLeft() reads it. The
+ * renderer never stops. FX.knockTiles(vis)
+ * (6 px, elite 3, boss 0) + FX.knockStep(age, dt) (outQuad over 90 ms).
+ * FX.foePose(hitAge, flashLeft, deathAge, pop) fills one shared {sx, sy,
+ * white}: squash 1.15x0.85 back over 100 ms (outBack); death pop to 1.25
+ * (60 ms) then inQuad shrink to 0 (120 ms) in white. FX.drawWhite(ctx, vis,
+ * x, y, a) overlays the sprite from the cached white atlas (one drawImage,
+ * no scratch canvas). Flashes are 60 ms (FX.HIT_FLASH), 50% with reduced
+ * motion. FX.kill returns 1/0 (white pop on/off) and bursts 4-6 shards
+ * (bone, goblin green, imp orange, devil red) at the end of the pop: 350 ms,
+ * 20-40 px with gravity; elites 10 + a 24 px outCubic ring + S2. Above 80
+ * live foes (opts.crowd) a kill is 1-2 shards; above 150 every second pop
+ * is skipped. Shards live in the fixed particle pool, cap at 120 and recycle
+ * the oldest; they draw as flat rects batched by colour.
  */
 const FX = (function () {
   'use strict';
@@ -79,7 +101,7 @@ const FX = (function () {
   for (let i = 0; i < CAP; i++) {
     const p = parts[i] = {
       life: 0.5, max: 0.5, x: 0.5, y: 0.5, vx: 0.5, vy: 0.5, w: 2, h: 2, tone: 0, peak: 0.5,
-      art: 0, grav: 0, screen: 0, sweep: 0, ang: 0.5,
+      art: 0, grav: 0, screen: 0, sweep: 0, ang: 0.5, shard: 0,
     };
     p.life = 0;
     p.max = 1;
@@ -91,12 +113,13 @@ const FX = (function () {
     p.ang = 0;
   }
   let partCursor = 0;
+  let lastRing = 0;
 
   const rings = new Array(RING_CAP);
   for (let i = 0; i < RING_CAP; i++) {
     const r = rings[i] = {
       on: 0, age: 0.5, dur: 0.5, delay: 0.5,
-      x: 0.5, y: 0.5, r0: 0.5, r1: 0.5, thick: 2, space: 0, tone: 0,
+      x: 0.5, y: 0.5, r0: 0.5, r1: 0.5, thick: 2, space: 0, tone: 0, ease: 0,
     };
     r.age = 0;
     r.dur = 0.2;
@@ -178,6 +201,54 @@ const FX = (function () {
   shakeLife = 0;
   shakeMax = 1;
   let shakeAt = -10;
+
+  // ---- Game feel, batch 1 (design/game-feel.md: hit reaction, deaths, shake).
+  // Shake levels S1..S4: amplitude in art px (the game multiplies by zoom), seconds.
+  const SHAKE_AMP = [0, 2, 4, 6, 8];
+  const SHAKE_DUR = [0, 0.12, 0.2, 0.3, 0.4];
+  const SHAKE_CAP = 8;
+  let shakeSeed = 0;
+  // Hit reaction.
+  const HIT_FLASH = 0.06;
+  const KNOCK_T = 0.09;
+  const KNOCK_PX = 6;
+  const KNOCK_PX_ELITE = 3;
+  const SQUASH_T = 0.1;
+  const SQUASH_X = 1.15;
+  const SQUASH_Y = 0.85;
+  const STOP_CRIT = 0.04;
+  const STOP_ELITE = 0.06;
+  const STOP_GAP = 0.15;
+  let stopEnd = -10;
+  let stopLeft = 0;
+  let stopClock = 0;
+  // Death: pop to 1.25 (60 ms), shrink to 0 with inQuad (120 ms) while white;
+  // 4-6 shards at the end of the pop, 350 ms, 20-40 px with gravity.
+  const POP_T = 0.06;
+  const SHRINK_T = 0.12;
+  const DEATH_T = POP_T + SHRINK_T;
+  const POP_SCALE = 1.25;
+  const SHARD_LIFE = 0.35;
+  const SHARD_CAP = 120;
+  const CROWD_N = 150; // spec: skip every second white pop above 150 foes
+  const THIN_N = 80;   // perf limit: 1-2 shards per death above 80 foes
+  const SHARD_BONE = '#e8e0c8';
+  const SHARD_GOBLIN = '#6cbf4a';
+  const SHARD_IMP = '#ff8a2a';
+  const SHARD_DEVIL = '#d0302a';
+  const BURST_N = 32;
+  const SHARD_TONE_N = 8;
+  const shardTones = new Uint8Array(SHARD_TONE_N);
+  const burstT = new Float64Array(BURST_N);
+  const burstX = new Float64Array(BURST_N);
+  const burstY = new Float64Array(BURST_N);
+  const burstNum = new Uint8Array(BURST_N);
+  const burstTone = new Uint8Array(BURST_N);
+  const burstOn = new Uint8Array(BURST_N);
+  let burstCursor = 0;
+  let crowdKill = 0;
+  const pose = { sx: 1, sy: 1, white: 0.5 };
+  pose.white = 0;
 
   const sweepOut = { x: 0.5, y: 0.5 };
   sweepOut.x = 0;
@@ -319,6 +390,7 @@ const FX = (function () {
   let guardSerial = 0;
   let heroHalf = 0;
   let whiteAtlas = null;
+  let whiteSrc = null; // atlas the white copy was baked from (rebake if Sprites repacks)
   let bladeImg = null;
   let rng = 1;
 
@@ -384,14 +456,14 @@ const FX = (function () {
   }
 
   function ensureWhite() {
-    if (whiteAtlas) return whiteAtlas;
     let atlas = null;
     try {
       const s = typeof Sprites !== 'undefined' ? Sprites : null;
       atlas = s ? s.atlas : null;
     } catch (e) {
-      return null;
+      return whiteAtlas;
     }
+    if (whiteAtlas && (whiteSrc === atlas || !atlas)) return whiteAtlas;
     if (!atlas || !atlas.width || typeof document === 'undefined' || !document.createElement) return null;
     try {
       const c = document.createElement('canvas');
@@ -406,6 +478,7 @@ const FX = (function () {
       g.fillRect(0, 0, c.width, c.height);
       g.globalCompositeOperation = 'source-over';
       whiteAtlas = c;
+      whiteSrc = atlas;
       return c;
     } catch (e) {
       return null;
@@ -444,6 +517,7 @@ const FX = (function () {
   }
 
   function releasePart(p) {
+    p.shard = 0;
     p.art = 0;
     p.grav = 0;
     p.screen = 0;
@@ -666,65 +740,298 @@ const FX = (function () {
     }
   }
 
-  function tryShake(amp) {
-    if (reducedNow()) return;
-    if (clock - shakeAt < 0.5) return;
+  function shakeNow() {
+    if (shakeLife <= 0 || shakeMax <= 0) return 0;
+    const k = shakeLife / shakeMax; // 1 -> 0; outQuad decay: amp * k^2
+    return shakeAmp * k * k;
+  }
+
+  // Levels 1..4 (S1..S4). Never stacks: replaces the running shake only when
+  // its amplitude beats what is left of it. Hard cap 8 art px.
+  function shakeLevel(level) {
+    const lv = level >= 4 ? 4 : (level >= 1 ? (level | 0) : 0);
+    if (!lv) return false;
+    let amp = SHAKE_AMP[lv];
+    if (amp > SHAKE_CAP) amp = SHAKE_CAP;
+    if (!(amp > shakeNow())) return false;
     shakeAt = clock;
     shakeAmp = amp;
-    shakeLife = amp >= 4 ? 0.18 : 0.14;
+    shakeLife = SHAKE_DUR[lv];
     shakeMax = shakeLife;
+    shakeSeed = (shakeSeed + 17) % 997;
+    return true;
+  }
+
+  function noise1(i) {
+    const v = Math.sin(i * 12.9898 + shakeSeed * 78.233) * 43758.5453;
+    return (v - Math.floor(v)) * 2 - 1;
+  }
+
+  // Smoothed value noise at 30 Hz, two channels, rotation stays 0.
+  function noiseAt(t, ch) {
+    const f = t * 30 + ch * 101;
+    const i = Math.floor(f);
+    const u = f - i;
+    const w = u * u * (3 - 2 * u);
+    const a = noise1(i);
+    return a + (noise1(i + 1) - a) * w;
   }
 
   function readShake() {
     shakeOut.x = 0;
     shakeOut.y = 0;
-    if (reducedNow() || shakeLife <= 0 || shakeMax <= 0) return shakeOut;
-    const mag = shakeAmp * (shakeLife / shakeMax);
-    shakeOut.x = Math.sin(clock * 47) * mag;
-    shakeOut.y = Math.cos(clock * 41) * mag * 0.65;
+    let mag = shakeNow();
+    if (!(mag > 0)) return shakeOut;
+    if (reducedNow()) mag *= 0.5;
+    if (mag > SHAKE_CAP) mag = SHAKE_CAP;
+    const t = shakeMax - shakeLife;
+    shakeOut.x = noiseAt(t, 0) * mag;
+    shakeOut.y = noiseAt(t, 1) * mag;
     return shakeOut;
   }
 
+  function outQuad(u) { return 1 - (1 - u) * (1 - u); }
+  function inQuad(u) { return u * u; }
+  function outCubic(u) { const v = 1 - u; return 1 - v * v * v; }
+  function outBack(u) {
+    const c1 = 1.70158;
+    const v = u - 1;
+    return 1 + (c1 + 1) * v * v * v + c1 * v * v;
+  }
+
+  // Hitstop seconds for a hit (0 = none). Normal mobs never; elites 60 ms on
+  // any hit, the boss 40 ms on crits only; none with reduced motion. Never
+  // stacks: while a stop runs, a new one only raises what is left to the max
+  // (not the sum); after it ends the next waits 150 ms. Time runs only in
+  // FX.consumeHitstop(dt), which the game calls with its sim dt.
+  function hitstopFor(vis) {
+    if (!vis || reducedNow()) return 0;
+    const elite = !!vis.elite && !vis.boss;
+    const boss = !!vis.boss;
+    if (!elite && !boss) return 0;
+    const dur = elite ? STOP_ELITE : (vis.crit ? STOP_CRIT : 0);
+    if (!(dur > 0)) return 0;
+    if (stopLeft > 0) {
+      if (dur > stopLeft) stopLeft = dur;
+      return stopLeft;
+    }
+    if (stopClock < stopEnd + STOP_GAP - 1e-9) return 0;
+    stopLeft = dur;
+    stopEnd = stopClock + dur;
+    return dur;
+  }
+
+  // Returns the sim dt to use this frame: 0 while frozen, the remainder on
+  // the frame a stop ends. Only the sim clock pauses; keep drawing.
+  function consumeHitstop(dt) {
+    if (!(dt > 0)) return 0;
+    stopClock += dt;
+    if (stopLeft <= 0) return dt;
+    if (stopLeft >= dt) {
+      stopLeft -= dt;
+      if (stopLeft < 1e-9) stopLeft = 0;
+      if (stopLeft === 0) stopEnd = stopClock;
+      return 0;
+    }
+    const rest = dt - stopLeft;
+    stopLeft = 0;
+    stopEnd = stopClock - rest;
+    return rest;
+  }
+
+  // Knockback distance in tiles: 6 art px, elites 3, the boss 0.
+  function knockTiles(vis) {
+    if (!vis || vis.boss) return 0;
+    return (vis.elite ? KNOCK_PX_ELITE : KNOCK_PX) / framePx();
+  }
+
+  // Fraction of the knockback travelled between age and age + dt (outQuad, 90 ms).
+  function knockStep(age, dt) {
+    if (!ok(age) || !ok(dt) || dt <= 0 || age >= KNOCK_T) return 0;
+    const a0 = age < 0 ? 0 : age / KNOCK_T;
+    let a1 = (age + dt) / KNOCK_T;
+    if (a1 > 1) a1 = 1;
+    return outQuad(a1) - outQuad(a0);
+  }
+
+  function flashAlpha() {
+    return reducedNow() ? 0.5 : 1;
+  }
+
+  // Shared pose (no allocation): scale X/Y around the feet and white overlay
+  // alpha. hitAge: s since the last hit (squash). flashLeft: the game's hit
+  // flash timer. deathAge: s since death (-1 alive). pop: 0 when FX.kill
+  // skipped the white pop (crowd rule).
+  function foePose(hitAge, flashLeft, deathAge, pop) {
+    pose.sx = 1;
+    pose.sy = 1;
+    pose.white = flashLeft > 0 ? flashAlpha() : 0;
+    if (ok(deathAge) && deathAge >= 0) {
+      if (pop === 0) {
+        const u = deathAge >= DEATH_T ? 1 : deathAge / DEATH_T;
+        const k = 1 - inQuad(u);
+        pose.sx = k;
+        pose.sy = k;
+        pose.white = 0;
+      } else if (deathAge < POP_T) {
+        const k = 1 + (POP_SCALE - 1) * outQuad(deathAge / POP_T);
+        pose.sx = k;
+        pose.sy = k;
+      } else {
+        const u = deathAge >= DEATH_T ? 1 : (deathAge - POP_T) / SHRINK_T;
+        const k = POP_SCALE * (1 - inQuad(u));
+        pose.sx = k;
+        pose.sy = k;
+        pose.white = flashAlpha();
+      }
+      return pose;
+    }
+    if (ok(hitAge) && hitAge >= 0 && hitAge < SQUASH_T) {
+      const e = outBack(hitAge / SQUASH_T);
+      pose.sx = SQUASH_X + (1 - SQUASH_X) * e;
+      pose.sy = SQUASH_Y + (1 - SQUASH_Y) * e;
+    }
+    return pose;
+  }
+
+  // White overlay for a foe sprite from the cached white atlas, drawn exactly
+  // where Sprites.drawFoe puts it (screen px, feet at x, y). One drawImage.
+  function drawWhite(ctx, vis, x, y, alpha) {
+    if (!ctx || !vis || !(alpha > 0.01) || !ok(x) || !ok(y)) return false;
+    const fr = vis.frame;
+    if (!fr || !(fr.sw > 0) || !(fr.sh > 0)) return false;
+    const img = ensureWhite();
+    if (!img) return false;
+    // Zoom comes from the last FX.draw; before the first one the size is unknown, so skip.
+    if (!(lastZoom > 0)) return false;
+    const zoom = lastZoom;
+    const sc = vis.scale > 0 ? vis.scale : 1;
+    const dw = Math.max(1, Math.round(fr.sw * zoom * sc));
+    const dh = Math.max(1, Math.round(fr.sh * zoom * sc));
+    const foot = (fr.sh - framePad(fr)) * zoom * sc;
+    const dx = Math.round(x - dw / 2);
+    const dy = Math.round(y - foot);
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = alpha > 1 ? 1 : alpha;
+    if (vis.flip) ctx.drawImage(img, fr.sx, fr.sy, fr.sw, fr.sh, dx + dw, dy, -dw, dh);
+    else ctx.drawImage(img, fr.sx, fr.sy, fr.sw, fr.sh, dx, dy, dw, dh);
+    ctx.globalAlpha = prev;
+    return true;
+  }
+
+  function shardColor(type, opts) {
+    const sp = opts && opts.sprite;
+    const id = sp || type || '';
+    if (id === 'goblin') return SHARD_GOBLIN;
+    if (id === 'imp' || id === 'shooter') return SHARD_IMP;
+    if (id === 'chort' || id === 'charger' || id === 'boss' || id === 'demon') return SHARD_DEVIL;
+    if (id === 'skel' || id === 'armored' || id === 'brute') return SHARD_BONE;
+    return opts && opts.color ? opts.color : SHARD_BONE;
+  }
+
+  function liveShards() {
+    let n = 0;
+    for (let i = 0; i < CAP; i++) if (parts[i].shard && parts[i].life > 0) n++;
+    return n;
+  }
+
+  // Shards over the 120 cap recycle the oldest shard instead of spawning more.
+  function takeShard(live) {
+    if (live < SHARD_CAP) return takePart();
+    let best = -1;
+    let bestLife = 1e9;
+    for (let i = 0; i < CAP; i++) {
+      const p = parts[i];
+      if (p.shard && p.life > 0 && p.life < bestLife) { bestLife = p.life; best = i; }
+    }
+    return best >= 0 ? parts[best] : takePart();
+  }
+
+  function spawnShards(x, y, n, tone) {
+    if (n <= 0) return;
+    let live = liveShards();
+    const base = rand() * TAU;
+    const stepA = TAU / n;
+    const frame = framePx();
+    for (let i = 0; i < n; i++) {
+      const p = takeShard(live);
+      if (!p.shard || p.life <= 0) live++;
+      releasePart(p);
+      const a = base + i * stepA + (rand() - 0.5) * 0.5;
+      // 20-40 art px over 350 ms.
+      const dist = (20 + rand() * 20) / frame;
+      const sp = dist / SHARD_LIFE;
+      p.life = SHARD_LIFE;
+      p.max = SHARD_LIFE;
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp - 2;
+      const sz = rand() < 0.45 ? 1 : 2;
+      p.w = sz;
+      p.h = sz;
+      p.tone = tone;
+      p.peak = 1;
+      p.art = 1;
+      p.grav = 10;
+      p.screen = 0;
+      p.shard = 1;
+    }
+  }
+
+  function queueShards(x, y, n, tone, delay) {
+    const i = burstCursor;
+    burstCursor = (burstCursor + 1) % BURST_N;
+    if (burstOn[i]) spawnShards(burstX[i], burstY[i], burstNum[i], burstTone[i]);
+    burstOn[i] = 1;
+    burstT[i] = delay;
+    burstX[i] = x;
+    burstY[i] = y;
+    burstNum[i] = n;
+    burstTone[i] = tone;
+  }
+
+  // Returns 1 when the white pop should play, 0 when the crowd rule skips it.
   function doKill(x, y, type, opts) {
-    if (!ok(x) || !ok(y)) return;
+    if (!ok(x) || !ok(y)) return 0;
     noteKill();
-    const rate = killRate();
     const elite = !!(opts && opts.elite);
     const boss = !!(opts && opts.boss) || type === 'boss';
-    let chunks = 3;
-    let flash = true;
-    if (rate > 20) {
-      chunks = 1;
-      flash = false;
-    } else if (rate > 10) {
-      chunks = 2;
-    } else if (boss) {
-      chunks = 16;
-    } else if (elite) {
-      chunks = 8;
-    } else {
-      chunks = 3 + ((rand() * 3) | 0);
-    }
-    spawnChunks(x, y, chunks, colorTone(opts && opts.color));
+    const live = opts && ok(opts.crowd) ? opts.crowd : 0;
+    let pop = 1;
+    let n;
+    if (boss) n = 16;
+    else if (elite) n = 10;
+    else if (live > THIN_N) {
+      crowdKill = (crowdKill + 1) & 1;
+      n = 1 + crowdKill;
+      if (live > CROWD_N && crowdKill === 0) pop = 0;
+    } else n = 4 + ((rand() * 3) | 0);
+    const tone = colorTone(shardColor(type, opts));
+    queueShards(x, y, n, tone, pop ? POP_T : 0);
     if (elite || boss) {
-      addRing(0, x, y, 0.18, 1.05, 2, 0.26, 0, 0);
+      addRing(0, x, y, 0.2, 24 / framePx(), 2, 0.25, 0, 0);
+      rings[lastRing].ease = 1;
       if (boss) addRing(0, x, y, 0.28, 1.45, 2, 0.3, 0.04, 0);
-      tryShake(boss ? 4 : 2);
+      shakeLevel(boss ? 4 : 2);
     }
-    if (!flash) return;
+    if (!pop) return 0;
     if (reducedNow()) {
       if (!elite && !boss) addRing(0, x, y, 0.08, 0.62, 2, 0.2, 0, 0);
-      return;
+      return 1;
     }
     const fr = opts && opts.frame;
-    if (!fr || !(fr.sw > 0) || !(fr.sh > 0)) return;
-    if (!deathWindowOpen()) return;
+    if (!fr || !(fr.sw > 0) || !(fr.sh > 0)) return 1;
+    if (!deathWindowOpen()) return 1;
     commitDeathWindow();
     spawnSil(x, y, opts, 0.6, 0.012);
+    return 1;
   }
 
   function addRing(space, x, y, r0, r1, thick, dur, delay, tone) {
     const r = takeRing();
+    lastRing = rings.indexOf(r);
+    r.ease = 0;
     r.on = 1;
     r.age = 0;
     r.dur = dur > 0 ? dur : 0.2;
@@ -1033,6 +1340,14 @@ const FX = (function () {
     if (shakeLife > 0) {
       shakeLife -= dt;
       if (shakeLife < 0) shakeLife = 0;
+    }
+    for (let i = 0; i < BURST_N; i++) {
+      if (!burstOn[i]) continue;
+      burstT[i] -= dt;
+      if (burstT[i] <= 0) {
+        burstOn[i] = 0;
+        spawnShards(burstX[i], burstY[i], burstNum[i], burstTone[i]);
+      }
     }
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on) beams[i].age += dt;
@@ -1683,6 +1998,35 @@ const FX = (function () {
     ctx.globalAlpha = 1;
   }
 
+  // Death shards: flat-colour rects, one fillStyle per colour, alpha 1, no
+  // save/restore. They shrink over their last 100 ms instead of fading.
+  function paintShards(ctx, zoom, tile, camX, camY, viewW, viewH) {
+    let nTone = 0;
+    for (let i = 0; i < CAP; i++) {
+      const p = parts[i];
+      if (!p.shard || p.life <= 0) continue;
+      let seen = false;
+      for (let k = 0; k < nTone; k++) if (shardTones[k] === p.tone) { seen = true; break; }
+      if (!seen && nTone < SHARD_TONE_N) shardTones[nTone++] = p.tone;
+    }
+    if (!nTone) return;
+    ctx.globalAlpha = 1;
+    for (let k = 0; k < nTone; k++) {
+      const tone = shardTones[k];
+      ctx.fillStyle = tone >= 20 ? (tints[tone - 20] || '#e8e0c8') : (toneColor[tone] || '#ffffff');
+      for (let i = 0; i < CAP; i++) {
+        const p = parts[i];
+        if (!p.shard || p.life <= 0 || p.tone !== tone) continue;
+        const sx = Math.round(p.x * tile + camX);
+        const sy = Math.round(p.y * tile + camY);
+        if (sx < -20 || sy < -20 || sx > viewW + 20 || sy > viewH + 20) continue;
+        const k2 = p.life < 0.1 ? p.life / 0.1 : 1;
+        const d = Math.max(1, Math.round(p.w * zoom * k2));
+        ctx.fillRect(sx, sy, d, d);
+      }
+    }
+  }
+
   function paint(ctx, cam) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
@@ -1725,7 +2069,7 @@ const FX = (function () {
     paintSweep(ctx, zoom, tile, camX, camY, heroX, heroY);
     for (let i = 0; i < CAP; i++) {
       const p = parts[i];
-      if (p.life <= 0) continue;
+      if (p.life <= 0 || p.shard) continue;
       let sx;
       let sy;
       if (p.screen) {
@@ -1755,13 +2099,14 @@ const FX = (function () {
       }
     }
     ctx.globalAlpha = 1;
+    paintShards(ctx, zoom, tile, camX, camY, viewW, viewH);
     for (let i = 0; i < RING_CAP; i++) {
       const r = rings[i];
       if (!r.on) continue;
       const t = r.age - r.delay;
       if (t < 0 || t > r.dur) continue;
       const u = r.dur > 0 ? t / r.dur : 1;
-      const radius = r.r0 + (r.r1 - r.r0) * u;
+      const radius = r.r0 + (r.r1 - r.r0) * (r.ease ? outCubic(u) : u);
       let px;
       let py;
       let radPx;
@@ -1835,11 +2180,51 @@ const FX = (function () {
     },
 
     death: function (x, y, type, vis) {
-      doKill(x, y, type, vis);
+      return doKill(x, y, type, vis);
     },
 
     kill: function (x, y, type, opts) {
-      doKill(x, y, type, opts);
+      return doKill(x, y, type, opts);
+    },
+
+    shake: function (level) {
+      return shakeLevel(level);
+    },
+
+    shakeAmp: function () {
+      return shakeNow();
+    },
+
+    hitstop: function (vis) {
+      return hitstopFor(vis);
+    },
+
+    hitstopLeft: function () {
+      return stopLeft;
+    },
+
+    consumeHitstop: function (dt) {
+      return consumeHitstop(dt);
+    },
+
+    knockTiles: function (vis) {
+      return knockTiles(vis);
+    },
+
+    knockStep: function (age, dt) {
+      return knockStep(age, dt);
+    },
+
+    foePose: function (hitAge, flashLeft, deathAge, pop) {
+      return foePose(hitAge, flashLeft, deathAge, pop);
+    },
+
+    drawWhite: function (ctx, vis, x, y, alpha) {
+      return drawWhite(ctx, vis, x, y, alpha);
+    },
+
+    shardCount: function () {
+      return liveShards();
     },
 
     cast: function (kind, x, y, info) {
@@ -1967,6 +2352,11 @@ const FX = (function () {
       shakeLife = 0;
       shakeMax = 1;
       shakeAt = -10;
+      stopEnd = -10;
+      stopLeft = 0;
+      stopClock = 0;
+      crowdKill = 0;
+      for (let i = 0; i < BURST_N; i++) burstOn[i] = 0;
       shakeOut.x = 0;
       shakeOut.y = 0;
       sweepOn = 0;
@@ -2117,6 +2507,12 @@ const FX = (function () {
     MOB_FILL: MOB_FILL,
     MOB_EDGE: MOB_EDGE,
     LOWHP_AT: LOWHP_AT,
+    HIT_FLASH: HIT_FLASH,
+    DEATH_S: DEATH_T,
+    POP_S: POP_T,
+    SHARD_CAP: SHARD_CAP,
+    SHAKE_AMP: SHAKE_AMP,
+    SHAKE_MS: [0, 120, 200, 300, 400],
     guardNumberStyle: guardNumberStyle,
     GUARD_MS: GUARD_DUR * 1000,
     GUARD_GAP_MS: GUARD_GAP * 1000,
