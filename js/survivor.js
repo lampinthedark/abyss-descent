@@ -3549,6 +3549,7 @@
       } else if (kind !== 'won') {
         const keep = bloodVow ? MED.vow.keepOnDeath : MED.gold.keepOnDeath;
         const kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * keep));
+        goldBeforeCut = runGold;
         deathGoldLost = runGold - kept;
         runGold = kept;
       }
@@ -3809,6 +3810,11 @@
   function revivePlayer() {
     if (state !== 'dead' || revived) return;
     revived = true;
+    // Medieval: the death cut only sticks on a final death; a revive keeps the full run gold.
+    // The kept half is already banked, so the rest banks later through syncBank.
+    if (MEDIEVAL && goldBeforeCut > runGold) runGold = goldBeforeCut;
+    goldBeforeCut = 0;
+    deathGoldLost = 0;
     player.life = Math.round(player.maxLife * 0.55);
     player.invuln = 1.4;
     ended = false;
