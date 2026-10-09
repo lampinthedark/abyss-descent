@@ -1,4 +1,9 @@
-/** Procedural audio. No binary assets. Safe if Web Audio is missing or blocked. */
+/**
+ * Game audio. Procedural synth by default (no binary assets). A mode can call
+ * GameAudio.useSamples(manifest) to play recorded clips instead (medieval demo);
+ * any clip that fails to fetch or decode falls back to the synth voice for that name.
+ * Safe if Web Audio is missing or blocked.
+ */
 const GameAudio = (() => {
   const KEY = 'abyss-descent-muted';
   const MASTER = 0.62;
@@ -14,6 +19,157 @@ const GameAudio = (() => {
   let failed = false;
   let musicOn = false;
   let noiseBuf = null;
+  const muteListeners = [];
+
+  // ---- Recorded samples (optional). manifest: { base, music: { file, gain },
+  // clips: { name: { files: [...], gain, limit, window, gap, jitter, fallback } } }
+  let samples = null;
+  const sampleBytes = Object.create(null); // file -> Promise<ArrayBuffer>
+  const sampleBufs = Object.create(null);  // file -> AudioBuffer | 'failed'
+  const voiceLog = Object.create(null);    // clip -> recent start times (ms)
+  let activeVoices = 0;
+  let musicSrc = null;
+  let musicTrim = null;
+  let musicLoading = false;
+  let musicFailed = false;
+  let gemChain = 0;
+  let gemAt = -1e9;
+  const MAX_VOICES = 12;
+
+  function sampleExt() {
+    try {
+      const a = document.createElement('audio');
+      if (a.canPlayType && a.canPlayType('audio/ogg; codecs="vorbis"')) return '.ogg';
+    } catch (e) { /* ignore */ }
+    return '.m4a';
+  }
+
+  function fetchBytes(file) {
+    if (!sampleBytes[file]) {
+      const url = samples.base + file + samples.ext;
+      sampleBytes[file] = fetch(url).then((r) => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      });
+      sampleBytes[file].catch(() => {});
+    }
+    return sampleBytes[file];
+  }
+
+  function decodeFile(file) {
+    if (sampleBufs[file] || !ctx) return;
+    sampleBufs[file] = 'loading';
+    fetchBytes(file).then((ab) => new Promise((res, rej) => {
+      // Callback form for older Safari; promise form elsewhere.
+      const p = ctx.decodeAudioData(ab, res, rej);
+      if (p && p.then) p.then(res, rej);
+    })).then((buf) => { sampleBufs[file] = buf; }, () => { sampleBufs[file] = 'failed'; });
+  }
+
+  function decodeClips() {
+    if (!samples || !ctx) return;
+    Object.keys(samples.clips).forEach((name) => samples.clips[name].files.forEach(decodeFile));
+  }
+
+  function useSamples(manifest) {
+    if (!manifest || samples) return;
+    samples = manifest;
+    samples.ext = sampleExt();
+    // SFX bytes start downloading now (small); decoding waits for the AudioContext.
+    Object.keys(samples.clips).forEach((name) => samples.clips[name].files.forEach(fetchBytes));
+    if (ctx) decodeClips();
+  }
+
+  // Voice limits: at most `limit` starts per `window` ms per clip, none within `gap`
+  // ms of the last one (no stacking), and MAX_VOICES overall.
+  function voiceOk(name, clip, now) {
+    if (activeVoices >= MAX_VOICES) return false;
+    const log = voiceLog[name] || (voiceLog[name] = []);
+    while (log.length && now - log[0] > (clip.window || 100)) log.shift();
+    if (log.length >= (clip.limit || 6)) return false;
+    if (log.length && now - log[log.length - 1] < (clip.gap || 0)) return false;
+    log.push(now);
+    return true;
+  }
+
+  // Returns true when a recorded clip handled `name` (played or deliberately dropped).
+  function playSample(name, opts) {
+    if (!samples || !ctx) return false;
+    const clip = samples.clips[name];
+    if (!clip) return false;
+    const ready = clip.files.filter((f) => sampleBufs[f] && sampleBufs[f] !== 'loading' && sampleBufs[f] !== 'failed');
+    if (!ready.length) {
+      const pending = clip.files.some((f) => !sampleBufs[f] || sampleBufs[f] === 'loading');
+      if (!sampleBufs[clip.files[0]]) decodeClips();
+      return pending && !clip.fallbackWhileLoading ? true : false;
+    }
+    const now = ctx.currentTime * 1000;
+    if (!voiceOk(name, clip, now)) return true;
+    const buf = sampleBufs[ready[Math.floor(Math.random() * ready.length)]];
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    let rate = 1 + (Math.random() * 2 - 1) * (clip.jitter != null ? clip.jitter : 0.06);
+    if (clip.chain) {
+      // Gem pickups climb a semitone per quick pickup (up to an octave), reset after a pause.
+      gemChain = now - gemAt < (clip.chainReset || 650) ? Math.min(clip.chain, gemChain + 1) : 0;
+      gemAt = now;
+      rate = Math.pow(2, gemChain / 12);
+    }
+    if (clip.rate) rate *= clip.rate;
+    if (opts && opts.rate) rate *= opts.rate;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = clip.gain != null ? clip.gain : 1;
+    src.connect(g);
+    g.connect(sfxGain);
+    activeVoices += 1;
+    src.onended = () => { activeVoices = Math.max(0, activeVoices - 1); try { g.disconnect(); } catch (e) { /* ignore */ } };
+    src.start();
+    return true;
+  }
+
+  // Recorded music: fetched after the first tap, looped seamlessly from an AudioBuffer.
+  function startSampleMusic() {
+    if (!samples || !samples.music || musicFailed || musicSrc || musicLoading || !ctx) return !!musicSrc || musicLoading;
+    musicLoading = true;
+    fetchBytes(samples.music.file).then((ab) => new Promise((res, rej) => {
+      const p = ctx.decodeAudioData(ab, res, rej);
+      if (p && p.then) p.then(res, rej);
+    })).then((buf) => {
+      musicLoading = false;
+      if (musicSrc) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      musicTrim = ctx.createGain();
+      musicTrim.gain.setValueAtTime(0, ctx.currentTime);
+      musicTrim.gain.linearRampToValueAtTime(samples.music.gain != null ? samples.music.gain : 0.5, ctx.currentTime + 2);
+      src.connect(musicTrim);
+      musicTrim.connect(musicGain);
+      src.start();
+      musicSrc = src;
+      musicOn = true;
+    }, () => {
+      musicLoading = false;
+      musicFailed = true;
+      startSynthMusic(); // decoding failed: keep the old drone
+    });
+    return true;
+  }
+
+  /** Dip the music under a moment (boss entrance): to `level` x for `hold` s, then back. */
+  function duck(level, hold) {
+    if (!ctx || !musicGain) return;
+    try {
+      const t = ctx.currentTime;
+      const g = musicGain.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(MUSIC_BUS * level, t + 0.15);
+      g.setValueAtTime(MUSIC_BUS * level, t + 0.15 + hold);
+      g.linearRampToValueAtTime(MUSIC_BUS, t + 0.15 + hold + 1.2);
+    } catch (e) { /* ignore */ }
+  }
 
   function loadMute() {
     try { muted = localStorage.getItem(KEY) === '1'; } catch (e) { muted = false; }
@@ -49,6 +205,7 @@ const GameAudio = (() => {
       sfxGain.gain.value = SFX_BUS;
       musicGain.connect(master);
       sfxGain.connect(master);
+      if (samples) decodeClips();
       try {
         const comp = ctx.createDynamicsCompressor();
         comp.threshold.value = -16;
@@ -79,6 +236,12 @@ const GameAudio = (() => {
   }
 
   function startMusic() {
+    if (!ctx || musicOn || !musicGain) return;
+    if (samples && samples.music && startSampleMusic()) return;
+    startSynthMusic();
+  }
+
+  function startSynthMusic() {
     if (!ctx || musicOn || !musicGain) return;
     try {
       const filter = ctx.createBiquadFilter();
@@ -164,6 +327,7 @@ const GameAudio = (() => {
   function setMuted(next) {
     muted = !!next;
     storeMute();
+    muteListeners.forEach((fn) => { try { fn(muted); } catch (e) { /* ignore */ } });
     syncButtons();
     applyMaster();
     if (!muted && !heldMute) resume();
@@ -213,7 +377,7 @@ const GameAudio = (() => {
     src.stop(t + dur + 0.03);
   }
 
-  function sfx(name) {
+  function sfx(name, opts) {
     try {
       if (muted || heldMute || failed) return;
       if (!ensure()) return;
@@ -221,6 +385,9 @@ const GameAudio = (() => {
         const pending = ctx.resume();
         if (pending && pending.catch) pending.catch(() => {});
       }
+      if (samples && playSample(name, opts)) return;
+      // Synth fallback; new sample-only names borrow the nearest synth voice.
+      if (samples && samples.clips[name] && samples.clips[name].fallback) name = samples.clips[name].fallback;
       switch (name) {
         case 'swing':
           noise(0.09, 0.16, 'highpass', 900, 0.4);
@@ -337,6 +504,15 @@ const GameAudio = (() => {
 
   return {
     sfx,
+    useSamples,
+    duck,
+    onMute: (fn) => { if (typeof fn === 'function') muteListeners.push(fn); },
+    sampleState: () => ({
+      ext: samples ? samples.ext : null,
+      ready: Object.keys(sampleBufs).filter((k) => sampleBufs[k] && typeof sampleBufs[k] === 'object').length,
+      failed: Object.keys(sampleBufs).filter((k) => sampleBufs[k] === 'failed').length,
+      music: !!musicSrc, musicFailed, voices: activeVoices,
+    }),
     resume,
     toggle,
     setMuted,

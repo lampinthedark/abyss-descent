@@ -413,6 +413,35 @@ const SurvivorData = (() => {
     // Gold per run target 150-250 (100 or less on an early death).
     gold: { mul: 0.005, keepOnDeath: 0.5, perMinute: 18, bossBonus: 30, winHpBonus: 35, purse: 5, firstRunFloor: 50, firstRunMinTime: 20 }, // mul: kill gold; perMinute: flat gold per minute alive; bossBonus: on Malgrath's death; winHpBonus: x life fraction left at the win (+ boss.winGold); purse: filler card gold; firstRunFloor: a profile's first finished run banks at least this much even on a loss, if it lasted firstRunMinTime s (not under the Oath of Ruin)
 
+    // ---- Audio (CC0, see CREDITS.md). Files live in assets/audio/medieval as .ogg + .m4a
+    // (the browser picks one). limit/window: max starts per clip per window ms; gap: no
+    // restart within gap ms (no stacking); jitter: random pitch +-; chain: gem pickups
+    // climb a semitone each up to `chain`; fallback: synth voice if a clip fails to decode.
+    audio: {
+      base: 'assets/audio/medieval/',
+      music: { file: 'music', gain: 0.45 },   // lazy: fetched after the first tap, looped
+      bossDuck: 0.3,                          // music level under Malgrath's entrance
+      clips: {
+        hit: { files: ['hit1', 'hit2'], gain: 0.45, limit: 6, window: 100, gap: 15, fallback: 'hit' },
+        sword: { files: ['sword1', 'sword2'], gain: 0.4, limit: 4, window: 100, gap: 25, fallback: 'crit' },
+        death: { files: ['death1', 'death2'], gain: 0.35, limit: 4, window: 100, gap: 20, fallback: 'death' },
+        gem: { files: ['gem'], gain: 0.35, limit: 4, window: 100, gap: 30, jitter: 0, chain: 12, fallback: 'loot' },
+        loot: { files: ['gem'], gain: 0.4, limit: 2, window: 200, gap: 60, fallback: 'loot' },
+        chest: { files: ['chest'], gain: 0.8, limit: 1, window: 400, jitter: 0.02, fallback: 'lootRare' },
+        level: { files: ['level'], gain: 0.7, limit: 1, window: 300, jitter: 0, fallback: 'level' },
+        boss: { files: ['boss'], gain: 1, limit: 1, window: 2000, jitter: 0, fallback: 'portal' },
+        warn: { files: ['warn'], gain: 0.6, limit: 1, window: 400, jitter: 0.02, fallback: 'cast' },
+        hurt: { files: ['hurt'], gain: 0.7, limit: 2, window: 250, gap: 120, fallback: 'hurt' },
+        ui: { files: ['ui'], gain: 0.6, limit: 2, window: 100, gap: 40, jitter: 0.02, fallback: 'ui' },
+        victory: { files: ['victory'], gain: 0.8, limit: 1, window: 2000, jitter: 0, fallback: 'clear' },
+        defeat: { files: ['defeat'], gain: 0.8, limit: 1, window: 2000, jitter: 0, fallback: 'defeat' },
+        swing: { files: ['swing'], gain: 0.25, limit: 2, window: 150, gap: 60, fallback: 'swing' },
+        cast: { files: ['cast'], gain: 0.18, limit: 2, window: 150, gap: 60, fallback: 'cast' },
+        portal: { files: ['warn'], gain: 0.45, rate: 0.8, limit: 1, window: 600, jitter: 0, fallback: 'portal' }, // banners
+        talk: { files: ['talk'], gain: 0.6, limit: 1, window: 300, fallback: 'talk' },
+      },
+    },
+
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
 

@@ -581,8 +581,22 @@
     try { if (name) Analytics.event(name); } catch (e) {}
   }
 
-  function sfx(name) {
-    try { GameAudio.sfx(name); } catch (e) {}
+  function sfx(name, opts) {
+    try { GameAudio.sfx(name, opts); } catch (e) {}
+  }
+
+  // Medieval: recorded CC0 clips (MEDIEVAL_CFG.audio) replace the synth; the music loop
+  // is fetched after the first tap. Mute lives in the SurvivorSave profile too.
+  function medAudioInit() {
+    if (!MEDIEVAL || typeof GameAudio === 'undefined' || !MCFG.audio) return;
+    try { GameAudio.useSamples(JSON.parse(JSON.stringify(MCFG.audio))); } catch (e) {}
+    try {
+      const prof = SurvivorSave.loadProfile();
+      if (typeof prof.muted === 'boolean' && prof.muted !== GameAudio.isMuted()) GameAudio.setMuted(prof.muted);
+      GameAudio.onMute((m) => {
+        try { const p = SurvivorSave.loadProfile(); p.muted = !!m; SurvivorSave.saveProfile(p); } catch (e) {}
+      });
+    } catch (e) {}
   }
 
   function resize() {
@@ -1275,9 +1289,10 @@
       }
       hits += 1;
     }
-    if (!tick && time - hitSnd > 0.08) {
+    if (!tick && time - hitSnd > (MEDIEVAL ? 0.03 : 0.08)) {
       hitSnd = time;
-      sfx('hit');
+      // Medieval: steel on armour, elites, Malgrath and crits; a dull hit on the rest.
+      sfx(MEDIEVAL && (crit || en.boss || en.elite || en.sprite === 'armored') ? 'sword' : 'hit');
     }
     if (!tick) {
       const shown = Math.max(1, Math.round(amount));
@@ -1329,6 +1344,7 @@
         if (en.boss || en.elite) en.flashAt = time + 0.35;
       }
       kills += 1;
+      if (MEDIEVAL) sfx('death');
       if (sweepOn && en.sweepGen === sweepGen) sweepKills += 1;
       grantGold(en.gold);
       dropGem(en);
@@ -1998,6 +2014,8 @@
     demon.ai.step = 0;
     applyDemonFrac(demon);
     cullForBoss();
+    sfx('boss');
+    try { GameAudio.duck(MCFG.audio && MCFG.audio.bossDuck != null ? MCFG.audio.bossDuck : 0.3, 3); } catch (e) {}
     for (let i = 0; i < (b.adds || 0); i++) {
       const s2 = edgePoint((i / b.adds) * Math.PI * 2, 0.6);
       spawnEnemy('imp', s2.x, s2.y);
@@ -2122,6 +2140,7 @@
     ai.step = (ai.step || 0) + 1;
     ai.kind = order[ai.step % order.length];
     ai.mode = 'tell';
+    sfx('warn');
     ai.aim = Math.atan2(dy, dx);
     if (ai.kind === 'cleave') {
       ai.t = b.cleave.tell;
@@ -3015,7 +3034,8 @@
           fxCall('pickup', g.x, g.y, kind);
         }
         releaseGemAt(i);
-        if (time - lootSnd > 0.07) {
+        if (MEDIEVAL) sfx(kind === 'gem' ? 'gem' : (kind === 'chest' ? 'chest' : 'loot'));
+        else if (time - lootSnd > 0.07) {
           lootSnd = time;
           sfx('loot');
         }
@@ -3795,7 +3815,7 @@
     track(SurvivorData.levelUpCountEvent(levelUps));
     if (kind === 'won') track('survivor-won');
     else track(SurvivorData.deathEvent(time));
-    sfx(kind === 'won' ? 'clear' : 'defeat');
+    sfx(kind === 'won' ? (MEDIEVAL ? 'victory' : 'clear') : 'defeat');
     let earned = runGold;
     let vowBonus = 0;
     // Count the run as finished on any death or win (also a pending death, so closing the
@@ -5030,7 +5050,9 @@
   }
 
   function drawTypeLabel(en, x, y) {
-    if (!debug || bench || !en || en.life <= 0 || en.dying > 0) return;
+    // Type tags are a dev overlay: medieval shows them only with &debughud=1, so shots
+    // taken with &debug=1 (time jumps, bots) stay clean for the store.
+    if (!debug || (MEDIEVAL && !debugHud) || bench || !en || en.life <= 0 || en.dying > 0) return;
     const text = foeTypeTag(en);
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
@@ -5663,6 +5685,7 @@
 
   function bind() {
     if (MEDIEVAL) { try { paintMedievalTitle(); } catch (e) {} }
+    medAudioInit();
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 80));
