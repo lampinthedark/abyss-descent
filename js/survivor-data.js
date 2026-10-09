@@ -364,7 +364,7 @@ const SurvivorData = (() => {
 
     // ---- 5. Malgrath, the Pit Sovereign.
     boss: {
-      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.45, // scale: ~3x a 16px mob speedMul: 0.7, touchDmg: 10,
+      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.45, speedMul: 0.7, touchDmg: 10, // scale 1.45: ~3x a 16px mob
       adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
