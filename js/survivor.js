@@ -6342,7 +6342,7 @@
       window.__svChatLines = () => chatLines.map((l) => l.text);
       window.__svBossHp = () => { const d = enemies.find((e) => e.bossKind === 'demon'); return d ? { life: d.life, max: d.maxLife } : null; };
       window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
-      window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };
+      window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true, 'Test hit'); return state; };
       window.__svGuard = () => { uiGuardUntil = (performance.now ? performance.now() : Date.now()) + 300; return state; };
       let gemToken = 1;
       window.__svGem = (px) => {
@@ -6582,6 +6582,9 @@
       bossTell: (() => { const d = enemies.find((e) => e.bossKind === 'demon'); return d && d.ai && d.ai.mode === 'tell' ? d.ai.kind : ''; })(),
       hazards: hazards.length,
       quietBreaks: quietBreaks,
+      pendingEnd: pendingEnd,
+      reviveOpen: reviveOpen(),
+      summons: liveSummons(),
       hazardHits: hazardHits,
       quietHurtAt: quietHurtAt,
       enemies: enemies.length,
@@ -6803,8 +6806,9 @@
     window.__svSnap = () => snapRun();
     window.__svDecline = () => { if (state === 'hermit') declineHermit(); return snapRun(); };
     window.__svAccept = () => { if (state === 'hermit') acceptHermit(); return snapRun(); };
-    window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return snapRun(); };
+    window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true, 'Test hit'); return snapRun(); };
     window.__svRevive = () => { revivePlayer(); return snapRun(); };
+    window.__svOath = (on) => { bloodVow = !!on; return bloodVow; };
     window.__svDismiss = () => {
       if (state === 'levelup') {
         uiGuardUntil = 0;
