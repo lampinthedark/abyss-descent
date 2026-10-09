@@ -5297,6 +5297,57 @@
     }
   }
 
+  // Edge arrow toward Malgrath while he is off-screen (same shape as the chest arrows).
+  function drawBossArrow() {
+    if (!MEDIEVAL) return;
+    const pad = 36;
+    const w = canvas.width;
+    const h = canvas.height;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind !== 'demon' || !(en.life > 0)) continue;
+      const x = en.x * TILE + camX;
+      const y = en.y * TILE + camY;
+      if (x >= pad && y >= pad && x <= w - pad && y <= h - pad) continue;
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+      let dx = x - cx;
+      let dy = y - cy;
+      const dist = len2(dx, dy) || 1;
+      dx /= dist;
+      dy /= dist;
+      const k = 1 / Math.max(Math.abs(dx) / (w * 0.5 - pad), Math.abs(dy) / (h * 0.5 - pad));
+      ctx.save();
+      ctx.translate(cx + dx * k, cy + dy * k);
+      ctx.rotate(Math.atan2(dy, dx));
+      const s = 1.25 + 0.1 * Math.sin(time * 8);
+      ctx.scale(s, s);
+      ctx.fillStyle = '#ff5a2a';
+      ctx.strokeStyle = '#220604';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-10, 9);
+      ctx.lineTo(-10, -9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function bossArrowOn() {
+    const pad = 36;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind !== 'demon' || !(en.life > 0)) continue;
+      const x = en.x * TILE + (canvas.width / 2 - player.x * TILE);
+      const y = en.y * TILE + (canvas.height / 2 - player.y * TILE);
+      return x < pad || y < pad || x > canvas.width - pad || y > canvas.height - pad;
+    }
+    return false;
+  }
+
   function chestArrowOn() {
     const pad = 36;
     for (let i = 0; i < gems.length; i++) {
@@ -5367,6 +5418,7 @@
       lowBox.drawLowHp(ctx, canvas.width, canvas.height, player.life / Math.max(1, player.maxLife), time * 1000);
     }
     drawChestArrows();
+    drawBossArrow();
     ctx.restore();
     drawJoy();
   }
@@ -5600,6 +5652,8 @@
         return null;
       };
       window.__svChestArrow = () => chestArrowOn();
+    window.__svBossArrow = () => bossArrowOn();
+      window.__svBossArrow = () => bossArrowOn();
       window.__svArmRevival = () => { revivalLeft = 1; player.life = player.maxLife; return snapRun(); };
       window.__svOffers = () => offers.map((o) => o.id);
       window.__svChoose = (i) => { uiGuardUntil = 0; choose(i); return snapRun(); };

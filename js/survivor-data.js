@@ -413,7 +413,7 @@ const SurvivorData = (() => {
 
     // ---- Art readability. The hero must be the brightest actor on the dark floor.
     // Multipliers apply to sprite pixels; rims are the 1px outlines.
-    art: { heroBright: 1.12, heroRim: [255, 255, 255], skelDim: 0.8, foeBright: 1.12, foeRim: [216, 74, 58], bossRim: [[176, 52, 26], [34, 6, 4]] }, // bossRim: Malgrath's 2px outline, inner ember then outer near-black
+    art: { heroBright: 1.12, heroRim: [255, 255, 255], skelDim: 0.8, foeBright: 1.12, foeRim: [14, 8, 8], bossRim: [[176, 52, 26], [34, 6, 4]] }, // foeRim: dark outline on every normal foe; bossRim: only Malgrath keeps the ember (inner) + near-black (outer) 2px outline
 
     // ---- Level-up names. [name, blurb, optional rank lines]. Ids stay the same.
     names: {
