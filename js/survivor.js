@@ -226,6 +226,7 @@
   let doubleLocked = false;
   let bankedAmount = 0;
   let goldBeforeCut = 0;
+  let pendingEnd = false; // medieval: died with Revive still on offer; final death not yet confirmed
   let timeGoldAcc = 0;
   const goldSrc = { kills: 0, time: 0, purse: 0, boss: 0, win: 0 };
   let toastEntry = null;
@@ -3054,16 +3055,25 @@
     tryShowLevel();
   }
 
-  function syncBank() {
-    const extra = Math.round(runGold - bankedAmount);
+  function syncBank(target) {
+    const goal = target == null ? runGold : target;
+    const extra = Math.round(goal - bankedAmount);
     if (extra <= 0) return;
     SurvivorData.bankGold(extra);
-    bankedAmount = runGold;
+    bankedAmount = goal;
+  }
+
+  // Medieval: share of run gold a death keeps (50%, none under the Oath of Ruin).
+  function deathKeep() {
+    return bloodVow ? MED.vow.keepOnDeath : MED.gold.keepOnDeath;
   }
 
   function persistRun() {
     if (state !== 'playing' && state !== 'paused' && state !== 'levelup' && state !== 'hermit') return;
-    syncBank();
+    // Medieval banks mid-run only what a death would keep, so a backgrounded tab never
+    // raises the floor above 50% of the final run gold.
+    if (MEDIEVAL) syncBank(Math.floor(runGold * deathKeep()));
+    else syncBank();
     if (time <= 0 && runGold <= 0 && kills <= 0) return;
     try { SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
   }
@@ -3266,6 +3276,7 @@
     boltBossTurn = true;
     bankedAmount = 0;
     goldBeforeCut = 0;
+    pendingEnd = false;
     timeGoldAcc = 0;
     goldSrc.kills = 0; goldSrc.time = 0; goldSrc.purse = 0; goldSrc.boss = 0; goldSrc.win = 0;
     medGoldLine = '';
@@ -3651,11 +3662,13 @@
         vowBonus = Math.round(runGold * (MED.vow.winGoldMul - 1));
         runGold += vowBonus;
       } else if (kind !== 'won') {
-        const keep = bloodVow ? MED.vow.keepOnDeath : MED.gold.keepOnDeath;
-        const kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * keep));
+        const kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * deathKeep()));
         goldBeforeCut = runGold;
         deathGoldLost = runGold - kept;
         runGold = kept;
+        // Revive still on offer: the kept half banks now (safe if the tab closes), but the
+        // screen shows Revive / End run; the cut and Double gold wait for the final death.
+        pendingEnd = reviveOpen();
       }
     }
     syncBank();
@@ -3697,9 +3710,10 @@
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
     const reviveBtn = $('sv-revive');
-    if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived || (MEDIEVAL && bloodVow && MED.vow.noAdRevive));
+    if (reviveBtn) reviveBtn.classList.toggle('hidden', kind !== 'dead' || !reviveOpen());
     const goldBtn = $('sv-double');
-    if (goldBtn) {
+    if (MEDIEVAL) medFooterState();
+    else if (goldBtn) {
       const offer = !!(adsOn && !doubled && (kind === 'dead' || kind === 'won') && !(MEDIEVAL && runGold <= 0));
       goldBtn.disabled = !offer;
       goldBtn.classList.toggle('hidden', !offer);
@@ -3718,6 +3732,43 @@
     return name + ' broken: ' + (deathGoldLost > 0 ? deathGoldLost + ' run gold lost' : 'run gold lost');
   }
 
+  function reviveOpen() {
+    return !!(adsOn && !revived && !(MEDIEVAL && bloodVow && MED.vow.noAdRevive));
+  }
+
+  // Medieval footer by phase. Pending death: Revive + End run. Final death or win:
+  // Double gold (if anything to double, once per run) + Play again.
+  function medFooterState() {
+    const pend = state === 'dead' && pendingEnd;
+    const rv = $('sv-revive');
+    if (rv) rv.classList.toggle('hidden', !pend);
+    const er = $('sv-end-run');
+    if (er) er.classList.toggle('hidden', !pend);
+    const again = $('sv-restart');
+    if (again) again.classList.toggle('hidden', pend);
+    const goldBtn = $('sv-double');
+    if (goldBtn) {
+      const offer = doubleOffered();
+      goldBtn.disabled = !offer;
+      goldBtn.classList.toggle('hidden', !offer);
+    }
+    const g = $('sv-end-gold');
+    if (g) g.textContent = pend
+      ? 'Run gold ' + goldBeforeCut + ' · revive to keep it all, or end the run to bank ' + runGold
+      : medGoldLine;
+    const loot = $('sv-end-loot');
+    if (loot) loot.textContent = itemDrops + ' items · ' + (pend ? goldBeforeCut : runGold) + 'g';
+  }
+
+  // End run from the pending-death screen: the death is final, the 50% cut stands.
+  function endRunFinal() {
+    if (state !== 'dead' || !pendingEnd) return false;
+    pendingEnd = false;
+    uiGuardUntil = nowMs() + 300;
+    medFooterState();
+    return true;
+  }
+
   // Medieval end screen footer, pinned, top to bottom: Revive, Double gold, Play again.
   function medEndFooter() {
     let foot = $('sv-end-foot');
@@ -3727,7 +3778,20 @@
     foot = document.createElement('div');
     foot.id = 'sv-end-foot';
     foot.className = 'sv-end-foot';
-    ['sv-revive', 'sv-double', 'sv-restart'].forEach((id) => {
+    if (!$('sv-end-run')) {
+      const er = document.createElement('button');
+      er.type = 'button';
+      er.id = 'sv-end-run';
+      er.className = 'sv-end-run hidden';
+      er.textContent = 'End run';
+      er.addEventListener('click', () => {
+        if (tapBlocked()) return;
+        endRunFinal();
+      });
+      const rv = $('sv-revive');
+      if (rv && rv.parentNode) rv.parentNode.insertBefore(er, rv.nextSibling);
+    }
+    ['sv-revive', 'sv-end-run', 'sv-double', 'sv-restart'].forEach((id) => {
       const el = $(id);
       if (el) foot.appendChild(el);
     });
@@ -3913,7 +3977,9 @@
 
   function revivePlayer() {
     if (state !== 'dead' || revived) return;
+    if (MEDIEVAL && !pendingEnd) return;
     revived = true;
+    pendingEnd = false;
     // Medieval: the death cut only sticks on a final death; a revive keeps the full run gold.
     // The kept half is already banked, so the rest banks later through syncBank.
     if (MEDIEVAL && goldBeforeCut > runGold) runGold = goldBeforeCut;
@@ -5314,7 +5380,7 @@
     doubleLocked = false;
     const btn = $('sv-double');
     if (!btn) return;
-    const offer = !!(adsOn && (state === 'dead' || state === 'won') && !(MEDIEVAL && runGold <= 0));
+    const offer = doubleOffered();
     btn.disabled = !offer;
     btn.classList.toggle('hidden', !offer);
   }
@@ -5333,6 +5399,7 @@
   function pressDouble() {
     if (doubleLocked || doubled) return 'locked';
     if (state !== 'dead' && state !== 'won') return 'closed';
+    if (pendingEnd) return 'closed';
     doubleLocked = true;
     const btn = $('sv-double');
     if (btn) btn.disabled = true;
@@ -5345,11 +5412,14 @@
   function applyDoubleGold() {
     if (doubled) return false;
     if (state !== 'dead' && state !== 'won') return false;
+    if (pendingEnd) return false; // never before the death is final
     doubled = true;
     doubleLocked = true;
     const bankedBeforeDouble = runGold;
     const extra = Math.round(runGold * (SurvivorData.REWARDS.doubleMult - 1));
     runGold += extra;
+    // Medieval: double exactly the banked amount; unbanked kill-gold crumbs are not doubled.
+    if (MEDIEVAL) goldMilli = 0;
     goldMilli = Math.round(goldMilli * SurvivorData.REWARDS.doubleMult);
     const spill = Math.floor(goldMilli / 1000);
     if (spill > 0) {
@@ -5373,7 +5443,7 @@
   }
 
   function doubleOffered() {
-    return !!(adsOn && !doubled && (state === 'dead' || state === 'won') && !(MEDIEVAL && runGold <= 0));
+    return !!(adsOn && !doubled && !pendingEnd && (state === 'dead' || state === 'won') && !(MEDIEVAL && runGold <= 0));
   }
 
   function bind() {
@@ -5404,6 +5474,7 @@
     $('sv-revive').addEventListener('click', () => {
       if (tapBlocked()) return;
       if (state !== 'dead' || revived) return;
+      if (MEDIEVAL && !pendingEnd) return;
       try { Ads.offerRevive(); } catch (e) {}
     });
     $('sv-double').addEventListener('click', () => {
@@ -5801,6 +5872,9 @@
       warnOn: warnOn,
       doubled: doubled,
       doubleOffered: doubleOffered(),
+      pendingEnd: pendingEnd,
+      goldBeforeCut: goldBeforeCut,
+      banked: bankedAmount,
       secondChanceFx: secondChanceFx,
       curse: curse,
       hermit: hermit.on,
@@ -5847,6 +5921,7 @@
     window.__svBuy = (id) => buyUpgrade(id);
     window.__svSpeed = () => moveSpeed();
     window.__svDouble = () => applyDoubleGold();
+    window.__svEndRun = () => endRunFinal();
     window.__svOfferDouble = () => doubleOffered();
     window.__svAddGold = (n) => { grantGold(n || 0); return snapRun(); };
     window.__svWardenHit = () => {
