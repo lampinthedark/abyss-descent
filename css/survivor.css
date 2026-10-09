@@ -344,3 +344,18 @@ body.survivor #sv-chat p {
 .sv-med-spend { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .sv-med-spend .sv-med-purse { margin: 0; color: #f2c96b; font-weight: 700; }
 .sv-med-spend .sv-med-buy { width: 100%; font-size: 15px; padding: 8px 10px; }
+
+/* Medieval demo end screens: the panel scrolls, Play again stays pinned. */
+body.sv-medieval #sv-end.overlay { align-items: flex-end; padding: 0; }
+body.sv-medieval #sv-end .sv-end-panel {
+  max-height: 100vh; max-height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 0; box-sizing: border-box;
+}
+body.sv-medieval #sv-end #sv-end-title { font-size: 26px; margin: 4px 0; }
+body.sv-medieval #sv-end .sv-end-stats { margin: 4px 0 6px; }
+body.sv-medieval #sv-end .sv-end-stats div { padding: 6px 4px; }
+body.sv-medieval #sv-end .sv-end-stats b { font-size: 18px; }
+body.sv-medieval #sv-end #sv-restart {
+  position: sticky; bottom: 0; z-index: 2; margin: 8px 0 0; min-height: 60px;
+  box-shadow: 0 -12px 16px 4px #120e0c;
+}
