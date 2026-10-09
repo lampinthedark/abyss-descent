@@ -925,7 +925,13 @@
     return s;
   }
 
-  const GUARD_GREY = '#9a958e';
+  // Glanced-hit number style: UI's FX.guardNumberStyle when present, else our grey at 0.8.
+  const GUARD_FALLBACK = { color: '#9a958e', scale: 0.8 };
+  function guardStyle() {
+    const fx = fxBox();
+    const st = fx && fx.guardNumberStyle;
+    return st && st.color ? st : GUARD_FALLBACK;
+  }
   function floatText(x, y, text, color, big, fid, amount, crit, guard) {
     if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
@@ -1251,8 +1257,8 @@
       en.dmgBudget = Math.max(0, en.dmgBudget - amount);
       // Guard flash on every glanced hit (UI's FX.bossGuard throttles itself).
       if (glanced && !tick) {
-        const gbox = fxBox();
-        if (gbox && typeof gbox.bossGuard === 'function') gbox.bossGuard(en.x, en.y);
+        const gb = fxBox();
+        if (gb && typeof gb.bossGuard === 'function') gb.bossGuard(en.x, en.y - (40 * (en.scale || 1)) / 32, 52);
       }
     }
     en.life -= amount;
@@ -1275,7 +1281,7 @@
       const shown = Math.max(1, Math.round(amount));
       const big = shown >= 18 || !!en.boss;
       // Glanced hits on Malgrath read as small grey numbers; full hits stay big and white.
-      if (glanced) floatText(en.x, en.y - 0.15, ntext(Math.round(amount)), GUARD_GREY, false, 'g' + en.fid, Math.round(amount), false, true);
+      if (glanced) floatText(en.x, en.y - 0.15, ntext(Math.round(amount)), guardStyle().color, false, 'g' + en.fid, Math.round(amount), false, true);
       else floatText(en.x, en.y - 0.15, ntext(shown), '#ffffff', big, en.fid, shown, crit);
       const sparkN = (owned.might || 0) >= 2 ? 5 : 3;
       const sparkSp = (owned.might || 0) >= 2 ? 3.4 : 2.2;
@@ -5175,7 +5181,7 @@
       let scale = 1;
       if (age < 0.12) scale = 1.4 - 0.4 * (age / 0.12);
       if (f.crit) scale *= 1.5;
-      const size = Math.round((f.big ? 28 : f.guard ? 12 : 15) * scale);
+      const size = Math.round((f.big ? 28 : 15) * (f.guard ? (guardStyle().scale || 0.8) : 1) * scale);
       let alpha = 1;
       if (f.life < 0.15) alpha = f.life > 0 ? f.life / 0.15 : 0;
       ctx.globalAlpha = alpha;
