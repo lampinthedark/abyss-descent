@@ -3491,7 +3491,7 @@
     let earned = runGold;
     let vowBonus = 0;
     if (MEDIEVAL) {
-      // Death keeps part of the run's gold (none under the Blood Vow); a vowed win doubles it.
+      // Death keeps part of the run's gold (none under the Oath of Ruin); a vowed win doubles it.
       if (kind === 'won' && bloodVow) {
         vowBonus = Math.round(runGold * (MED.vow.winGoldMul - 1));
         runGold += vowBonus;
@@ -3535,7 +3535,7 @@
     if (MEDIEVAL) paintMedievalEnd(kind, earned, vowBonus);
     const vowsLine = $('sv-end-vows');
     if (vowsLine) {
-      if (MEDIEVAL) vowsLine.textContent = bloodVow ? (kind === 'won' ? '\u2694 Blood Vow kept: gold doubled' : 'Blood Vow broken: run gold lost') : 'No vow sworn';
+      if (MEDIEVAL) vowsLine.textContent = vowEndLine(kind, vowBonus);
       else vowsLine.textContent = 'Vows survived: ' + vowsSurvived;
     }
     uiGuardUntil = nowMs() + 300;
@@ -3554,12 +3554,19 @@
     show('sv-end');
   }
 
+  // Victory/death line for the pre-run vow. Gold numbers come from finish().
+  function vowEndLine(kind, vowBonus) {
+    const name = MED.vow.name;
+    if (!bloodVow) return 'No oath sworn';
+    if (kind === 'won') return '\u2694 ' + name + ' kept: gold \u00d7' + MED.vow.winGoldMul + (vowBonus > 0 ? ' (+' + vowBonus + ')' : '');
+    return name + ' broken: ' + (deathGoldLost > 0 ? deathGoldLost + ' run gold lost' : 'run gold lost');
+  }
+
   function paintMedievalEnd(kind, earned, vowBonus) {
     if (kind) {
       const g = $('sv-end-gold');
       let line = 'Gold earned ' + earned + ' \u00b7 banked ' + runGold;
-      if (vowBonus > 0) line += ' (Blood Vow \u00d72: +' + vowBonus + ')';
-      if (deathGoldLost > 0) line += ' \u00b7 lost ' + deathGoldLost + (bloodVow ? ' to the Blood Vow' : '');
+      if (deathGoldLost > 0) line += ' \u00b7 lost ' + deathGoldLost;
       if (g) g.textContent = line;
       const shopBtn = $('sv-end-shop');
       if (shopBtn) shopBtn.textContent = 'Spend gold';
@@ -3643,8 +3650,11 @@
       btn.className = 'big-btn secondary';
       const note = document.createElement('p');
       note.className = 'lore sv-vow-note';
-      note.textContent = 'Blood Vow: -30% max HP, no revive ad, lose all run gold on death. Win for \u00d72 gold and extra chests.';
-      const paint = () => { btn.textContent = bloodVow ? '\u2694 Blood Vow sworn' : 'Swear the Blood Vow'; };
+      const v = MED.vow;
+      note.textContent = v.name + ': ' + Math.round((v.lifeMul - 1) * 100) + '% max HP' + (v.noAdRevive ? ', no revive ad' : '')
+        + ', lose ' + (v.keepOnDeath > 0 ? Math.round((1 - v.keepOnDeath) * 100) + '% of' : 'all') + ' run gold on death. Win for \u00d7' + v.winGoldMul + ' gold'
+        + (v.extraChest ? ' and extra chests.' : '.');
+      const paint = () => { btn.textContent = bloodVow ? ('\u2694 ' + v.name + ' sworn') : ('Swear the ' + v.name); };
       paint();
       btn.addEventListener('click', () => { bloodVow = !bloodVow; paint(); });
       play.parentNode.insertBefore(note, play.nextSibling);

@@ -374,8 +374,8 @@ const SurvivorData = (() => {
     // Gold per run target 150-250 (100 or less on an early death).
     gold: { mul: 0.3, keepOnDeath: 0.5 },
 
-    // ---- 7. Blood Vow, sworn on the title screen before the run.
-    vow: { lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
+    // ---- 7. Oath of Ruin, sworn on the title screen before the run.
+    vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
 
     // ---- Level-up names. [name, blurb, optional rank lines]. Ids stay the same.
     names: {
