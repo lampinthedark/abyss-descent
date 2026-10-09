@@ -339,3 +339,8 @@ body.survivor #sv-chat p {
 [data-pending]{position:relative}
 [data-pending]::after{content:"\00d7" attr(data-pending);position:absolute;top:6px;right:6px;padding:3px 7px;font:700 13px/1 monospace;color:#0b0a0d;background:#5fd8ff;border:1px solid #0b0a0d;border-radius:3px;pointer-events:none}
 [data-pending="0"]::after,[data-pending="1"]::after{display:none}
+
+/* Medieval demo: quick permanent upgrades on the victory and death screens. */
+.sv-med-spend { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.sv-med-spend .sv-med-purse { margin: 0; color: #f2c96b; font-weight: 700; }
+.sv-med-spend .sv-med-buy { width: 100%; font-size: 15px; padding: 8px 10px; }

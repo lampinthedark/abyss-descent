@@ -10,7 +10,8 @@
   const PHONE_CSS_PER_ART = 1.5;
   const BOSS_SCALE = 1.5;
   const RUN_SECONDS = 600;
-  const MINI_AT = 300;
+  const MINI_AT = (typeof SurvivorData !== 'undefined' && SurvivorData.MEDIEVAL && SurvivorData.MEDIEVAL_CFG)
+    ? SurvivorData.MEDIEVAL_CFG.boss.at : 300;
   // BALANCE 6.1.1 — one table. Revert this block to undo the tuning pass.
   // Evolutions wait for the clock. After the Demon, pressure ramps so a
   // circle dies between 6:00 and 8:00 while the screen stays full.
@@ -49,6 +50,56 @@
     idleClose: 2.4,
     idleReach: 3.6,
   };
+  // Dark medieval demo (?mode=medieval): knight hero, skeleton -> goblin ->
+  // demon waves, a guaranteed Wheel of Judgement by 1:30, and the Risen Demon
+  // at 5:00 ends the run in victory.
+  const MEDIEVAL = !!(typeof SurvivorData !== 'undefined' && SurvivorData.MEDIEVAL);
+  // All medieval numbers come from SurvivorData.MEDIEVAL_CFG (js/survivor-data.js).
+  const MCFG = (typeof SurvivorData !== 'undefined' && SurvivorData.MEDIEVAL_CFG) || {};
+  const MED = {
+    evoAt: MCFG.evolution.evoAt, evoForce: MCFG.evolution.evoForce,
+    boss: MCFG.boss, hero2: MCFG.unlockHero, vow: MCFG.vow, gold: MCFG.gold,
+    heroKey: 'abyss-survivor-hero',
+  };
+  if (MEDIEVAL) {
+    BALANCE.evoAt = MED.evoAt;
+    BALANCE.demonHp = MED.boss.hp;
+  }
+  let victoryAt = -1;
+  let heroPick = 'knight';
+  let bloodVow = false;
+  let medEventIx = 0;
+  let chiefDown = false;
+  let medPicks = 0;
+  let deathGoldLost = 0;
+  if (MEDIEVAL) {
+    try {
+      if (typeof SurvivorSave !== 'undefined' && SurvivorSave.SHOP) {
+        const shop = SurvivorSave.SHOP;
+        Object.keys(MCFG.shop || {}).forEach((id) => {
+          const row = shop.find((u) => u.id === id);
+          const c = MCFG.shop[id];
+          if (!row) return;
+          row.name = c.name;
+          row.max = c.prices.length;
+          row.blurb = c.label;
+          row.cost = (n) => c.prices[Math.min(c.prices.length - 1, n)];
+        });
+        (MCFG.hiddenShop || []).forEach((id) => {
+          const i = shop.findIndex((u) => u.id === id);
+          if (i >= 0) shop.splice(i, 1);
+        });
+        const h = MED.hero2;
+        if (!shop.some((u) => u.id === h.id)) shop.push({ id: h.id, name: h.name, blurb: h.blurb, max: 1, cost: () => h.cost });
+      }
+    } catch (e) {}
+    try { if (localStorage.getItem(MED.heroKey) === MED.hero2.id) heroPick = MED.hero2.id; } catch (e) {}
+  }
+  // Per-rank effect of a meta-shop upgrade (medieval table, else the classic number).
+  function medPer(id, classic) {
+    if (!MEDIEVAL || !MCFG.shop || !MCFG.shop[id]) return classic;
+    return MCFG.shop[id].per;
+  }
   const PARTICLE_CAP = 40;
   const FLOAT_CAP = 40;
   const FLOAT_LIFE = 0.55;
@@ -423,7 +474,7 @@
 
   function grantGold(amount) {
     if (!(amount > 0)) return;
-    goldMilli += Math.round(amount * 1000);
+    goldMilli += Math.round(amount * (MEDIEVAL ? MED.gold.mul : 1) * 1000);
     const whole = Math.floor(goldMilli / 1000);
     if (whole <= 0) return;
     runGold += whole;
@@ -442,10 +493,37 @@
     return Math.min(12, gemChain);
   }
 
+  function rangerOn() {
+    return MEDIEVAL && heroPick === MED.hero2.id && shopRank(MED.hero2.id) > 0;
+  }
+
+  function medWave() {
+    const rows = MCFG.waves || [];
+    let row = rows[0];
+    for (let i = 0; i < rows.length; i++) if (time >= rows[i].at) row = rows[i];
+    return row;
+  }
+
+  function medKind() {
+    const row = medWave();
+    const keys = Object.keys(row.kinds || {});
+    if (!keys.length) return 'skel';
+    let total = 0;
+    keys.forEach((k) => { total += row.kinds[k]; });
+    let r = Math.random() * total;
+    for (let i = 0; i < keys.length; i++) {
+      r -= row.kinds[keys[i]];
+      if (r <= 0) return keys[i];
+    }
+    return keys[0];
+  }
+
   function blankPlayer() {
     let bonusLife = 0;
-    try { bonusLife = SurvivorSave.itemBonus().life + shopRank('vitality') * 12; } catch (e) {}
-    const maxLife = Math.max(1, Math.round(hero.base.life + bonusLife));
+    try { bonusLife = SurvivorSave.itemBonus().life + shopRank('vitality') * medPer('vitality', 12); } catch (e) {}
+    let maxLife = Math.max(1, Math.round(hero.base.life + bonusLife));
+    if (rangerOn()) maxLife = Math.max(1, Math.round(maxLife * MED.hero2.lifeMul));
+    if (MEDIEVAL && bloodVow) maxLife = Math.max(1, Math.round(maxLife * MED.vow.lifeMul));
     return {
       x: 0, y: 0,
       classId: hero.id,
@@ -523,7 +601,9 @@
   typeById.charger = { id: 'charger', name: 'Charger', speed: 1.25, radius: 0.34, behaviour: 'charger' };
   typeById.shooter = { id: 'shooter', name: 'Shooter', speed: 1.05, radius: 0.3, behaviour: 'shooter' };
 
-  function spawnEnemy(id, x, y, opts) {
+  function spawnEnemy(id0, x, y, opts) {
+    const mk = MEDIEVAL && MCFG.kinds ? MCFG.kinds[id0 === 'imp' ? 'imp' : id0] : null;
+    const id = mk ? mk.eid : id0;
     const type = typeById[id] || typeById.skel;
     const en = enemyPool.pop() || {};
     const bossKind = (opts && opts.bossKind) || '';
@@ -544,7 +624,13 @@
     en.bossKind = bossKind || (bossFlag ? 'demon' : '');
     en.sprite = bossKind === 'warden' ? 'warden' : (bossFlag ? 'boss' : '');
     en.elite = !!(opts && opts.elite);
-    if (bossFlag) en.scale = BOSS_SCALE;
+    if (MEDIEVAL && !bossFlag) {
+      const k = mk || MCFG.kinds[type.id === 'charger' ? 'fiend' : type.id === 'shooter' ? 'imp' : 'skel'];
+      en.sprite = k ? k.sprite : '';
+      if (k && !(opts && opts.name)) en.name = k.name;
+      if (k) en.speed *= k.speedMul || 1;
+    }
+    if (bossFlag) en.scale = (MEDIEVAL && en.bossKind === 'demon') ? MED.boss.scale : BOSS_SCALE;
     else if (en.elite) en.scale = 1.65;
     else if (type.id === 'brute') en.scale = 0.625;
     else en.scale = 1;
@@ -578,11 +664,19 @@
       en.radius = tuned * BOSS_SCALE;
     } else if (en.elite) en.radius = 0.48;
     en.flashAt = 0;
-    const greed = (1 + shopRank('greed') * 0.08) * (1 + (itemStats().greed || 0)) * vowMult();
+    const greed = (1 + shopRank('greed') * medPer('greed', 0.08)) * (1 + (itemStats().greed || 0)) * vowMult();
     const baseGold = bossFlag ? SurvivorData.REWARDS.gold.mini : (en.elite ? 6 : (SurvivorData.REWARDS.gold[type.id] || 1));
     if (!(en.elite && en.gold > baseGold)) en.gold = baseGold * greed;
     else en.gold *= greed;
     if (!en.elite) en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
+    if (MEDIEVAL && mk && mk.hpMul && mk.hpMul !== 1 && !bossFlag) {
+      en.maxLife = Math.max(1, Math.round(en.maxLife * mk.hpMul));
+      en.life = en.maxLife;
+      if (mk.hpMul >= 2) en.scale = 1.2;
+    }
+    en.medChest = false;
+    en.medEvolve = false;
+    en.medGrant = false;
     enemies.push(en);
     biteIfStill(en);
     return en;
@@ -672,6 +766,12 @@
     g.shower = 0;
     gems.push(g);
     if (sweepOn) markShowerGem(g);
+    if (MEDIEVAL && en.medGrant) chiefDown = true;
+    if (MEDIEVAL && en.medChest && !en.boss) {
+      const chest = dropPickup(en, 'chest', null);
+      if (chest) chest.medEvolve = !!en.medEvolve;
+      if (bloodVow && MED.vow.extraChest) placePickup(en.x + 0.9, en.y + 0.3, 'chest', null);
+    }
     if (en.boss) {
       const chest = dropPickup(en, 'chest', null);
       if (chest && en.bossKind === 'warden') chest.withFood = 1;
@@ -722,6 +822,7 @@
     g.age = 0;
     g.big = false;
     g.shower = 0;
+    g.medEvolve = false;
     gems.push(g);
     if (kind === 'item' && item) {
       if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
@@ -864,7 +965,7 @@
     const rank = Math.min(5, owned.might || 0);
     let itemMight = 0;
     try { itemMight = itemStats().might; } catch (e) {}
-    const scale = (1 + steps[rank]) * (1 + shopRank('might') * 0.06 + itemMight);
+    const scale = (1 + steps[rank]) * (1 + shopRank('might') * medPer('might', 0.06) + itemMight);
     return scale;
   }
   function haste() {
@@ -875,7 +976,7 @@
   function area() {
     const steps = [0, 0.06, 0.1, 0.22, 0.28, 0.42];
     const rank = Math.min(5, owned.area || 0);
-    return 1 + steps[rank];
+    return (1 + steps[rank]) * (rangerOn() ? (MED.hero2.areaMul || 1) : 1);
   }
   function armorCut() {
     const steps = [0, 1, 2, 3, 4, 6];
@@ -883,7 +984,7 @@
   }
   function moveSpeed() {
     const hasteMove = 1 + Math.min(5, owned.haste || 0) * 0.02;
-    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04);
+    return hero.base.move * hasteMove * (1 + shopRank('stride') * 0.04) * (rangerOn() ? MED.hero2.moveMul : 1);
   }
   function boltDamage() {
     const rank = Math.max(1, Math.min(5, owned.bolt || 1));
@@ -1109,7 +1210,14 @@
       }
       if (en.shieldAdd) onShieldAddDead(en.shieldAdd);
       if (en.bossKind === 'warden') wardenCleared = true;
-      else if (en.boss) demonCleared = true;
+      else if (en.boss) {
+        demonCleared = true;
+        if (MEDIEVAL && en.bossKind === 'demon' && victoryAt < 0) {
+          victoryAt = time + MED.boss.winDelay;
+          raiseBanner('Malgrath is slain!', true);
+          if (!reduceMotion) slowLeft = Math.max(slowLeft, 1.2);
+        }
+      }
       if (!(en.boss || en.elite) || time >= (en.flashAt || 0)) {
         en.hitFlash = 0.08;
         if (en.boss || en.elite) en.flashAt = time + 0.35;
@@ -1431,6 +1539,7 @@
   }
 
   function spawnKind() {
+    if (MEDIEVAL) return medKind();
     const n = spawnSerial;
     const u = lateT();
     if (time >= MINI_AT && !wardenAlive()) {
@@ -1444,6 +1553,7 @@
   }
 
   function spawnRate() {
+    if (MEDIEVAL) return medWave().rate;
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     let rate = 2.2;
     if (time < 12) rate = 4;
@@ -1461,6 +1571,10 @@
   }
 
   function spawnCap() {
+    if (MEDIEVAL) {
+      if (boss5) return 0;
+      return Math.min(LIVE_CAP, Math.round(medWave().cap * (MCFG.densityMul || 1)));
+    }
     let cap = 340;
     if (time < 12) cap = 14;
     else if (time < 35) cap = 32;
@@ -1524,6 +1638,7 @@
         }
       }
     }
+    if (MEDIEVAL) medDirector();
     if (!eliteWarned && time >= 148) {
       eliteWarned = true;
       raiseBanner('Grave Warden approaches', true);
@@ -1534,12 +1649,16 @@
     }
     if (!demonWarned && time >= MINI_AT - 2) {
       demonWarned = true;
-      raiseBanner('Risen Demon approaches', true);
+      raiseBanner(MEDIEVAL ? 'Malgrath approaches' : 'Risen Demon approaches', true);
+    }
+    if (MEDIEVAL && time >= MINI_AT && !boss5) {
+      boss5 = true;
+      spawnMedBoss();
     }
     if (time >= MINI_AT && !boss5) {
       boss5 = true;
       const spot = spawnBossEdge();
-      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: 'Risen Demon' });
+      const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: MEDIEVAL ? MED.boss.name : 'Risen Demon' });
       applyDemonFrac(demon);
     }
     if (state === 'playing' && !hermit.on && curse <= 0 && !vowPayout && time >= nextVowAt && time >= vowSpec().earliest) {
@@ -1569,7 +1688,19 @@
         spawnForwardPack();
       }
     }
-    if (time >= RUN_SECONDS) {
+    if (MEDIEVAL && victoryAt >= 0 && time >= victoryAt) {
+      runGold += MED.boss.winGold;
+      finish('won');
+      return;
+    }
+    if (MEDIEVAL && state === 'playing' && !evolved.orbit && time >= MED.evoAt && (chiefDown || time >= MED.evoForce)) {
+      // The saints answer: the Holy Sword always becomes the Wheel by 1:30.
+      owned.orbit = Math.max(owned.orbit || 0, BALANCE.evoRank || 5);
+      owned.tempo = Math.max(owned.tempo || 0, BALANCE.evoPartner || 1);
+      evoIgnoreClock = true;
+      checkEvolutions();
+    }
+    if (!MEDIEVAL && time >= RUN_SECONDS) {
       runGold += SurvivorData.REWARDS.gold.win;
       finish('won');
       return;
@@ -1588,6 +1719,7 @@
     // Standing still tightens it again; the bodies stay on the edge.
     let ringEvery = swarm ? 1.6 : 3.0;
     if (stillRing()) ringEvery = swarm ? 1.25 : 2.2;
+    if (MEDIEVAL && medWave().breather) ringEvery = 1e9;
     if (ringAcc >= ringEvery && enemies.length < cap) {
       ringAcc = 0;
       spawnWave();
@@ -1601,6 +1733,151 @@
       const spot = spawnRing(0);
       spawnEnemy(spawnKind(), spot.x, spot.y);
     }
+  }
+
+  // ---- Medieval demo director: one-shot beats from MEDIEVAL_CFG.events.
+  function medDirector() {
+    const list = MCFG.events || [];
+    while (medEventIx < list.length && time >= list[medEventIx].at) {
+      const ev = list[medEventIx++];
+      if (ev.type === 'banner') raiseBanner(ev.text, true);
+      else if (ev.type === 'heal') {
+        player.life = Math.min(player.maxLife, player.life + player.maxLife * ev.pct);
+        if (ev.text) raiseBanner(ev.text, false);
+      }
+      else if (ev.type === 'ring') {
+        for (let i = 0; i < ev.count; i++) {
+          const ang = (i / ev.count) * Math.PI * 2;
+          const spot = edgePoint(ang, 0.4);
+          spawnEnemy(ev.kind, spot.x, spot.y);
+        }
+      } else if (ev.type === 'elite') {
+        const spot = spawnRing(0.2);
+        const en = spawnEnemy(ev.kind, spot.x, spot.y, { elite: true, name: ev.name });
+        en.maxLife = ev.hp;
+        en.life = ev.hp;
+        en.scale = 1.75;
+        en.medChest = !!ev.chest;
+        en.medEvolve = !!ev.evolve;
+        en.medGrant = !!ev.evolve && !!(MCFG.evolution && MCFG.evolution.chiefGrants);
+        raiseBanner(ev.name + ' appears', true);
+      }
+    }
+  }
+
+  function spawnMedBoss() {
+    const spot = spawnBossEdge();
+    const b = MED.boss;
+    const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: b.name });
+    demon.shieldUsed = true;
+    demon.speed *= b.speedMul || 1;
+    if (b.touchDmg) demon.dmg = b.touchDmg;
+    demon.ai.mode = 'seek';
+    demon.ai.t = 0;
+    demon.ai.step = 0;
+    applyDemonFrac(demon);
+    for (let i = 0; i < (b.adds || 0); i++) {
+      const s2 = edgePoint((i / b.adds) * Math.PI * 2, 0.6);
+      spawnEnemy('imp', s2.x, s2.y);
+    }
+    return demon;
+  }
+
+  // Malgrath: Hellfire Cleave (cone), Brimstone Rain (circles), and below
+  // half life a Pit Charge. Every attack is telegraphed for its windup.
+  function tickMedBoss(en, dt) {
+    const b = MED.boss;
+    const ai = en.ai;
+    const dx = player.x - en.x;
+    const dy = player.y - en.y;
+    const dist = len2(dx, dy) || 1;
+    if (ai.mode !== 'dash') en.facing = dx >= 0 ? 1 : -1;
+    if (ai.mode === 'tell') {
+      ai.t -= dt;
+      if (ai.t > 0) return;
+      if (ai.kind === 'cleave') {
+        const rel = Math.atan2(dy, dx) - ai.aim;
+        const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
+        if (dist <= b.cleave.range && off <= b.cleave.arc / 2) {
+          lastHit = 'boss';
+          hurt(b.cleave.dmg, true);
+        }
+        addShake(3);
+        ai.mode = 'recover';
+        ai.t = 0.6;
+      } else if (ai.kind === 'rain') {
+        let hit = false;
+        for (let i = 0; i < ai.circles.length; i++) {
+          const c = ai.circles[i];
+          spark(c.x, c.y, '#ff7a3c', 4, 2.4);
+          if (!hit && len2(player.x - c.x, player.y - c.y) <= b.rain.radius) hit = true;
+        }
+        if (hit) {
+          lastHit = 'boss';
+          hurt(b.rain.dmg, true);
+        }
+        addShake(2.5);
+        ai.mode = 'recover';
+        ai.t = 0.5;
+      } else {
+        ai.mode = 'dash';
+        ai.t = b.charge.time;
+        ai.hitDone = false;
+      }
+      return;
+    }
+    if (ai.mode === 'dash') {
+      ai.t -= dt;
+      en.x += Math.cos(ai.aim) * b.charge.speed * dt;
+      en.y += Math.sin(ai.aim) * b.charge.speed * dt;
+      if (!ai.hitDone && len2(player.x - en.x, player.y - en.y) < (en.radius || 1) + 0.35) {
+        ai.hitDone = true;
+        lastHit = 'boss';
+        hurt(b.charge.dmg, true);
+      }
+      if (ai.t <= 0) {
+        for (let i = 0; i < b.charge.imps; i++) {
+          const ang = (i / b.charge.imps) * Math.PI * 2;
+          spawnEnemy('imp', en.x + Math.cos(ang) * 1.4, en.y + Math.sin(ang) * 1.4);
+        }
+        ai.mode = 'recover';
+        ai.t = 0.9;
+      }
+      return;
+    }
+    if (ai.mode === 'recover') {
+      ai.t -= dt;
+      steer(en, dt, en.speed * 0.6);
+      touchPlayer(en, dist, en.dmg, dt);
+      if (ai.t <= 0) { ai.mode = 'seek'; ai.t = 0; }
+      return;
+    }
+    steer(en, dt, en.speed);
+    touchPlayer(en, dist, en.dmg, dt);
+    ai.t += dt;
+    if (ai.t < b.cycle) return;
+    const low = en.life <= en.maxLife * b.charge.belowHp;
+    const order = low ? ['cleave', 'rain', 'charge'] : ['cleave', 'rain'];
+    ai.step = (ai.step || 0) + 1;
+    ai.kind = order[ai.step % order.length];
+    ai.mode = 'tell';
+    ai.aim = Math.atan2(dy, dx);
+    if (ai.kind === 'cleave') {
+      ai.t = b.cleave.tell;
+    } else if (ai.kind === 'rain') {
+      ai.t = b.rain.tell;
+      ai.circles = [{ x: player.x, y: player.y }];
+      for (let i = 1; i < b.rain.circles; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const r = 1 + Math.random() * (b.rain.spread - 1);
+        ai.circles.push({ x: player.x + Math.cos(ang) * r, y: player.y + Math.sin(ang) * r });
+      }
+    } else {
+      ai.t = b.charge.tell;
+      raiseBanner('Malgrath roars!', false);
+    }
+    ai.tell0 = ai.t;
+    telegraph(en, 0, Math.round(ai.t * 1000));
   }
 
   function bossFightOn() {
@@ -2207,26 +2484,31 @@
     const dy = player.y - en.y;
     const dist = len2(dx, dy) || 1;
     en.facing = dx >= 0 ? 1 : -1;
+    if (MEDIEVAL && en.bossKind === 'demon') { tickMedBoss(en, dt); return; }
     if (en.bossKind === 'demon') tickDemonShield(en, dt);
     if (ai.mode === 'tell') {
       ai.t -= dt;
       if (ai.t <= 0) {
+        const mb = MEDIEVAL && en.bossKind === 'demon' ? MED.boss : null;
         if (ai.kind === 'slam') {
-          if (dist < 2.15) {
+          if (dist < (mb ? mb.slam.radius : 2.15)) {
             lastHit = 'boss';
-            hurt(en.dmg + 6, true);
+            hurt(en.dmg + (mb ? mb.slam.bonusDmg : 6), true);
           }
           ai.mode = 'recover';
-          ai.t = 1.1;
+          ai.t = mb ? mb.slam.recover : 1.1;
         } else {
-          const base = Math.atan2(dy, dx);
-          const volley = en.bossKind === 'warden' ? wardenShotDmg() : 7;
-          for (let i = -1; i <= 1; i++) {
-            const ang = base + i * 0.32;
-            spawnFoeShot(en.x, en.y, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, volley);
+          const base = MEDIEVAL && ai.aim != null ? ai.aim : Math.atan2(dy, dx);
+          const volley = en.bossKind === 'warden' ? wardenShotDmg() : (mb ? mb.volley.dmg : 7);
+          const shots = mb ? mb.volley.shots : 3;
+          const spread = mb ? mb.volley.spread : 0.32;
+          const spd = mb ? mb.volley.speed : 3.1;
+          for (let i = 0; i < shots; i++) {
+            const ang = base + (i - (shots - 1) / 2) * spread;
+            spawnFoeShot(en.x, en.y, Math.cos(ang) * spd, Math.sin(ang) * spd, volley);
           }
           ai.mode = 'recover';
-          ai.t = 1.3;
+          ai.t = mb ? mb.volley.recover : 1.3;
         }
       }
       return;
@@ -2241,11 +2523,15 @@
     steer(en, dt, en.speed);
     touchPlayer(en, dist, en.dmg, dt);
     ai.t += dt;
-    if (ai.t > 2.4) {
+    const medBoss = MEDIEVAL && en.bossKind === 'demon';
+    if (ai.t > (medBoss ? MED.boss.cycle : 2.4)) {
       ai.mode = 'tell';
       ai.kind = ai.kind === 'slam' ? 'volley' : 'slam';
-      ai.t = ai.kind === 'slam' ? 0.75 : 0.55;
-      if (ai.kind === 'volley') telegraph(en, index, 550);
+      ai.t = ai.kind === 'slam' ? (medBoss ? MED.boss.slam.tell : 0.75) : (medBoss ? MED.boss.volley.tell : 0.55);
+      ai.tell0 = ai.t;
+      ai.aim = Math.atan2(dy, dx);
+      if (ai.kind === 'volley') telegraph(en, index, Math.round(ai.t * 1000));
+      else if (MEDIEVAL) telegraph(en, index, Math.round(ai.t * 1000));
     }
   }
 
@@ -2417,6 +2703,7 @@
           player.life = Math.min(player.maxLife, player.life + 16);
         } else if (kind === 'chest') {
           openChest(g.x, g.y, chestItem(), g.withFood);
+          if (MEDIEVAL && g.medEvolve) chiefDown = true;
         } else if (kind === 'food') {
           const gain = player.maxLife * 0.25;
           player.life = Math.min(player.maxLife, player.life + gain);
@@ -2849,6 +3136,14 @@
     hits = 0;
     owned = { bolt: 1 };
     cds = { bolt: T.firstBolt, nova: 1.6, pierce: 1.2 };
+    victoryAt = -1;
+    if (MEDIEVAL) {
+      const start = (MCFG.startWeapons || {})[rangerOn() ? MED.hero2.id : 'knight'] || { bolt: 1 };
+      owned = Object.assign({}, start);
+      medEventIx = 0;
+      chiefDown = false;
+      deathGoldLost = 0;
+    }
     orbitAngle = 0;
     hermit.on = false;
     hermit.used = false;
@@ -2912,6 +3207,14 @@
     uiGuardUntil = 0;
     fxCall('reset');
     fxCall('vow', 0);
+    if (MEDIEVAL) {
+      // The demo has its own beats: no Grave Warden, no timed elites, no Hermit.
+      eliteWarned = true;
+      eliteSpawned = true;
+      wardenCleared = true;
+      nextEliteAt = 1e9;
+      nextVowAt = 1e9;
+    }
   }
 
   function syncReducedMotion(flag) {
@@ -3130,7 +3433,19 @@
       gems.push(g);
     });
     plantPendingCasters();
-    if (time >= 295) {
+    if (MEDIEVAL) {
+      nextEliteAt = 1e9;
+      nextVowAt = 1e9;
+      const evs = MCFG.events || [];
+      while (medEventIx < evs.length && evs[medEventIx].at < time) medEventIx++;
+      if (time >= MINI_AT) {
+        demonWarned = true;
+        boss5 = true;
+        raiseBanner('Malgrath approaches', true);
+        bannerT = 2.4;
+        spawnMedBoss();
+      }
+    } else if (time >= 295) {
       eliteWarned = true;
       eliteSpawned = true;
       wardenCleared = true;
@@ -3173,11 +3488,28 @@
     if (kind === 'won') track('survivor-won');
     else track(SurvivorData.deathEvent(time));
     sfx(kind === 'won' ? 'clear' : 'defeat');
+    let earned = runGold;
+    let vowBonus = 0;
+    if (MEDIEVAL) {
+      // Death keeps part of the run's gold (none under the Blood Vow); a vowed win doubles it.
+      if (kind === 'won' && bloodVow) {
+        vowBonus = Math.round(runGold * (MED.vow.winGoldMul - 1));
+        runGold += vowBonus;
+      } else if (kind !== 'won') {
+        const keep = bloodVow ? MED.vow.keepOnDeath : MED.gold.keepOnDeath;
+        const kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * keep));
+        deathGoldLost = runGold - kept;
+        runGold = kept;
+      }
+    }
     syncBank();
     let record = { isBest: false, previous: 0, gold: runGold, next: null };
     try { record = SurvivorSave.recordRun({ time: time, kills: kills, level: player.level }); } catch (e) {}
     const title = $('sv-end-title');
-    if (title) title.textContent = kind === 'won' ? 'You survived' : 'You fell';
+    if (title) {
+      if (MEDIEVAL) title.textContent = kind === 'won' ? 'Victory! The Demon is slain' : 'You fell in the dark';
+      else title.textContent = kind === 'won' ? 'You survived' : 'You fell';
+    }
     const prior = Math.max(0, bestAtStart);
     const best = $('sv-best');
     if (best) best.classList.toggle('hidden', !(time > prior));
@@ -3200,12 +3532,16 @@
     if (endLevel) endLevel.textContent = String(player.level);
     if (endGold) endGold.textContent = '+' + runGold + ' gold banked';
     paintNextOffer(record.next);
+    if (MEDIEVAL) paintMedievalEnd(kind, earned, vowBonus);
     const vowsLine = $('sv-end-vows');
-    if (vowsLine) vowsLine.textContent = 'Vows survived: ' + vowsSurvived;
+    if (vowsLine) {
+      if (MEDIEVAL) vowsLine.textContent = bloodVow ? (kind === 'won' ? '\u2694 Blood Vow kept: gold doubled' : 'Blood Vow broken: run gold lost') : 'No vow sworn';
+      else vowsLine.textContent = 'Vows survived: ' + vowsSurvived;
+    }
     uiGuardUntil = nowMs() + 300;
     uiGesture = 0;
     const reviveBtn = $('sv-revive');
-    if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived);
+    if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived || (MEDIEVAL && bloodVow && MED.vow.noAdRevive));
     const goldBtn = $('sv-double');
     if (goldBtn) {
       const offer = !!(adsOn && !doubled && (kind === 'dead' || kind === 'won'));
@@ -3216,6 +3552,120 @@
     hide('sv-pause');
     hide('sv-hermit');
     show('sv-end');
+  }
+
+  function paintMedievalEnd(kind, earned, vowBonus) {
+    if (kind) {
+      const g = $('sv-end-gold');
+      let line = 'Gold earned ' + earned + ' \u00b7 banked ' + runGold;
+      if (vowBonus > 0) line += ' (Blood Vow \u00d72: +' + vowBonus + ')';
+      if (deathGoldLost > 0) line += ' \u00b7 lost ' + deathGoldLost + (bloodVow ? ' to the Blood Vow' : '');
+      if (g) g.textContent = line;
+      const shopBtn = $('sv-end-shop');
+      if (shopBtn) shopBtn.textContent = 'Spend gold';
+      const again = $('sv-restart');
+      if (again) again.textContent = 'Play again';
+    }
+    const stats = $('sv-end-stats');
+    if (stats && !$('sv-end-loot')) {
+      const cell = document.createElement('div');
+      cell.innerHTML = '<b id="sv-end-loot">0</b><span>loot</span>';
+      stats.appendChild(cell);
+    }
+    const loot = $('sv-end-loot');
+    if (loot) loot.textContent = itemDrops + ' items · ' + runGold + 'g';
+    let box = $('sv-med-spend');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'sv-med-spend';
+      box.className = 'sv-med-spend';
+      const row = $('sv-next');
+      if (row && row.parentNode) row.parentNode.insertBefore(box, row);
+    }
+    box.innerHTML = '';
+    let purse = 0;
+    try { purse = SurvivorSave.gold(); } catch (e) {}
+    const head = document.createElement('p');
+    head.className = 'sv-med-purse';
+    head.textContent = 'Purse: ' + purse + ' gold';
+    box.appendChild(head);
+    let rows = [];
+    try { rows = SurvivorSave.shopList(); } catch (e) {}
+    Object.keys(MCFG.shop || {}).concat([MED.hero2.id]).forEach((id) => {
+      const u = rows.find((r) => r.id === id);
+      if (!u) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'big-btn secondary sv-med-buy';
+      btn.id = 'sv-med-buy-' + id;
+      const heroRow = id === MED.hero2.id;
+      if (u.soldOut) {
+        btn.disabled = !heroRow;
+        btn.textContent = heroRow ? ('Hero: ' + (heroPick === id ? 'Sister Ysolde' : 'Knight') + ' (tap to switch)') : (u.name + ' maxed');
+      } else {
+        btn.disabled = purse < u.cost;
+        const what = heroRow ? ('Unlock ' + MED.hero2.name) : (u.label + ': ' + MCFG.shop[id].label);
+        btn.textContent = what + ' \u00b7 ' + u.cost + 'g';
+      }
+      btn.addEventListener('click', () => {
+        if (heroRow && u.soldOut) {
+          heroPick = heroPick === id ? 'knight' : id;
+          try { localStorage.setItem(MED.heroKey, heroPick); } catch (e) {}
+        } else if (buyUpgrade(id).ok && heroRow) {
+          heroPick = id;
+          try { localStorage.setItem(MED.heroKey, heroPick); } catch (e) {}
+        }
+        paintMedievalEnd();
+        paintNextOffer();
+      });
+      box.appendChild(btn);
+    });
+  }
+
+  function paintMedievalTitle() {
+    const h1 = document.querySelector('#sv-title h1');
+    if (h1) h1.textContent = 'GRAVE KNIGHT';
+    const sub = document.querySelector('#sv-title .subtitle');
+    if (sub) sub.textContent = 'The castle yard is full of the dead. Your steel swings itself.';
+    const lore = document.querySelector('#sv-title .lore');
+    if (lore) lore.textContent = 'Skeletons, then goblins, then demons. At 5:00 Malgrath, the Pit Sovereign, rises. Slay him.';
+    const hints = document.querySelectorAll('#sv-title .controls-hint li');
+    if (hints[1]) hints[1].innerHTML = 'No attack button. Your Oathblade and Holy Bolts strike on their own.';
+    document.title = 'Grave Knight \u2014 Survivor';
+    const warn = $('sv-warn');
+    if (warn) warn.textContent = 'Malgrath';
+    document.body.classList.add('sv-medieval');
+    const play = $('sv-play');
+    if (play && !$('sv-blood-vow')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'sv-blood-vow';
+      btn.className = 'big-btn secondary';
+      const note = document.createElement('p');
+      note.className = 'lore sv-vow-note';
+      note.textContent = 'Blood Vow: -30% max HP, no revive ad, lose all run gold on death. Win for \u00d72 gold and extra chests.';
+      const paint = () => { btn.textContent = bloodVow ? '\u2694 Blood Vow sworn' : 'Swear the Blood Vow'; };
+      paint();
+      btn.addEventListener('click', () => { bloodVow = !bloodVow; paint(); });
+      play.parentNode.insertBefore(note, play.nextSibling);
+      play.parentNode.insertBefore(btn, play.nextSibling);
+      const heroBtn = document.createElement('button');
+      heroBtn.type = 'button';
+      heroBtn.id = 'sv-hero-pick';
+      heroBtn.className = 'big-btn secondary';
+      const paintHero = () => {
+        const unlocked = shopRank(MED.hero2.id) > 0;
+        heroBtn.classList.toggle('hidden', !unlocked);
+        heroBtn.textContent = 'Hero: ' + (rangerOn() ? 'Sister Ysolde' : 'Knight');
+      };
+      paintHero();
+      heroBtn.addEventListener('click', () => {
+        heroPick = heroPick === MED.hero2.id ? 'knight' : MED.hero2.id;
+        try { localStorage.setItem(MED.heroKey, heroPick); } catch (e) {}
+        paintHero();
+      });
+      play.parentNode.insertBefore(heroBtn, play.nextSibling);
+    }
   }
 
   function iconSvg(id) {
@@ -4027,6 +4477,7 @@
     heroDraw.facing = player.facing;
     heroDraw.time = animT;
     heroDraw.lunge = player.swing || 0;
+    heroDraw.sprite = rangerOn() ? 'ysolde' : 'hero';
     return heroDraw;
   }
 
@@ -4133,6 +4584,50 @@
       ctx.beginPath();
       ctx.arc(x, y - 18, 4 + grow * 8, 0, Math.PI * 2);
       ctx.fill();
+    } else if (MEDIEVAL && en.behaviour === 'boss' && en.bossKind === 'demon') {
+      const bc = MED.boss;
+      const span = ai.tell0 || 1;
+      const u = Math.max(0, Math.min(1, 1 - ai.t / span));
+      ctx.fillStyle = 'rgba(230, 40, 25, ' + (0.18 + 0.3 * u) + ')';
+      ctx.strokeStyle = '#ff5a3c';
+      ctx.lineWidth = 3;
+      if (ai.kind === 'cleave') {
+        const r = bc.cleave.range * TILE;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, r, ai.aim - bc.cleave.arc / 2, ai.aim + bc.cleave.arc / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255, 140, 60, 0.35)';
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, r * u, ai.aim - bc.cleave.arc / 2, ai.aim + bc.cleave.arc / 2);
+        ctx.closePath();
+        ctx.fill();
+      } else if (ai.kind === 'rain' && ai.circles) {
+        const r = bc.rain.radius * TILE;
+        for (let i = 0; i < ai.circles.length; i++) {
+          const cx = sxOf(ai.circles[i].x);
+          const cy = syOf(ai.circles[i].y);
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r * u, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      } else if (ai.kind === 'charge') {
+        const len = bc.charge.speed * bc.charge.time * TILE;
+        ctx.strokeStyle = 'rgba(255, 60, 40, ' + (0.45 + 0.5 * u) + ')';
+        ctx.lineWidth = 6 + 10 * u;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y - 20);
+        ctx.lineTo(x + Math.cos(ai.aim) * len, y - 20 + Math.sin(ai.aim) * len);
+        ctx.stroke();
+      }
     } else if (en.behaviour === 'boss' && ai.kind === 'slam') {
       ctx.strokeStyle = '#d0b4ff';
       ctx.lineWidth = 3;
@@ -4540,6 +5035,7 @@
   }
 
   function bind() {
+    if (MEDIEVAL) { try { paintMedievalTitle(); } catch (e) {} }
     resize();
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', () => setTimeout(resize, 80));

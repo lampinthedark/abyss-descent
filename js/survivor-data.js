@@ -257,7 +257,11 @@ const SurvivorData = (() => {
     pulls.heavy.forEach((item) => {
       for (let n = 0; n < 16; n++) bag.push(item);
     });
-    if (random() < 0.4) bag.push(healCard());
+    if (random() < 0.4) {
+      const heal = healCard();
+      if (MEDIEVAL) heal.name = MEDIEVAL_CFG.names.heal[0];
+      bag.push(heal);
+    }
     const out = [];
     let guard = 0;
     while (out.length < 3 && bag.length && guard++ < 40) {
@@ -296,8 +300,122 @@ const SurvivorData = (() => {
     return out;
   }
 
+  // =====================================================================
+  // MEDIEVAL DEMO CONFIG (?mode=medieval). Every designer tunable for the
+  // dark medieval demo lives in this one table. Swap numbers here; no code
+  // changes needed. Times are run seconds; money is the shared gold purse.
+  // =====================================================================
+  const MEDIEVAL_CFG = {
+    // Source: /workspace/design/medieval-survivor.md (v1).
+    // ---- 1. Wave timeline (run seconds). A row holds until the next row's
+    // `at`. kinds: spawn kind -> weight. cap: foes on screen. rate: spawns/s.
+    // Kinds: skel (Bone Rattler), goblin (Gutter Goblin), armored (Armoured
+    // Rattler, 3x HP), imp (Cinder Imp, ranged), fiend (Horned Fiend, charges).
+    densityMul: 1.4,          // multiplies every cap (phone screens read fuller)
+    waves: [
+      { at: 0, kinds: { skel: 1 }, cap: 15, rate: 3 },
+      { at: 30, kinds: { skel: 2, goblin: 1 }, cap: 25, rate: 5 },
+      { at: 60, kinds: { goblin: 2, skel: 1 }, cap: 40, rate: 8 },
+      { at: 90, kinds: { skel: 1 }, cap: 60, rate: 16 },
+      { at: 120, kinds: { imp: 1, skel: 1 }, cap: 45, rate: 10 },
+      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 55, rate: 12 },
+      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 50, rate: 12 },
+      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 80, rate: 22 },
+      { at: 240, kinds: { fiend: 1, imp: 1, skel: 1 }, cap: 70, rate: 18, walls: true },
+      { at: 270, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true },
+      { at: 300, kinds: {}, cap: 0, rate: 0 },               // boss: spawns stop
+    ],
+    // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
+    kinds: {
+      skel: { eid: 'skel', sprite: 'skel', name: 'Bone Rattler', speedMul: 1, hpMul: 1 },
+      goblin: { eid: 'skel', sprite: 'goblin', name: 'Gutter Goblin', speedMul: 1.36, hpMul: 1 },
+      armored: { eid: 'skel', sprite: 'armored', name: 'Armoured Rattler', speedMul: 0.82, hpMul: 3 },
+      imp: { eid: 'shooter', sprite: 'imp', name: 'Cinder Imp', speedMul: 1, hpMul: 1 },
+      fiend: { eid: 'charger', sprite: 'chort', name: 'Horned Fiend', speedMul: 1, hpMul: 1.5 },
+    },
+    // One-shot beats.
+    events: [
+      { at: 60, type: 'ring', kind: 'goblin', count: 18 },     // goblin ring around the hero
+      { at: 60, type: 'elite', kind: 'goblin', name: 'Goblin Chief', hp: 260, chest: true, evolve: true },
+      { at: 180, type: 'elite', kind: 'fiend', name: 'Elite Fiend', hp: 420, chest: true },
+      { at: 270, type: 'banner', text: 'The Pit stirs\u2026' },
+      { at: 285, type: 'heal', pct: 0.4, text: 'The saints mend your wounds' }, // breather heal before the boss
+    ],
+
+    // ---- 3. Evolution: Oathblade (orbit) + Iron Gauntlet (tempo) = Dawnbreaker.
+    // The Goblin Chief's chest grants it (never before evoAt); evoForce is the
+    // safety net if the chief is not dead yet.
+    evolution: { evoAt: 75, evoForce: 82, chiefGrants: true },
+    startWeapons: { knight: { bolt: 1, orbit: 1 }, ysolde: { bolt: 1, nova: 1 } },
+
+    // ---- 5. Malgrath, the Pit Sovereign.
+    boss: {
+      at: 300, name: 'Malgrath, the Pit Sovereign', hp: 750, scale: 2.2, speedMul: 0.7, touchDmg: 10,
+      adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
+      cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 14 },
+      rain: { tell: 1.5, circles: 7, radius: 0.85, spread: 3.6, dmg: 10 },
+      charge: { tell: 0.8, belowHp: 0.5, speed: 11, time: 0.6, dmg: 12, imps: 4 },
+    },
+
+    // ---- 6. Meta shop, paid from the SurvivorSave purse. prices[rank].
+    shop: {
+      might: { name: 'Tempered Steel', label: '+5% damage', per: 0.05, prices: [120, 200, 300, 450, 650] },
+      vitality: { name: 'Stout Heart', label: '+10 max HP', per: 10, prices: [100, 180, 280, 400, 600] },
+      stride: { name: 'Swift Stride', label: '+4% move speed', per: 0.04, prices: [150, 300, 500] },
+      greed: { name: 'Gilded Tithe', label: '+10% gold', per: 0.1, prices: [200, 400, 700] },
+      revival: { name: 'Second Wind', label: '1 free revive per run', per: 1, prices: [900] },
+    },
+    hiddenShop: ['magnet'],
+    unlockHero: {
+      id: 'ysolde', name: 'Sister Ysolde, Ember Nun', sprite: 'elf_f', cost: 600,
+      lifeMul: 0.8, areaMul: 1.15, moveMul: 1,
+      blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
+    },
+    // Gold per run target 150-250 (100 or less on an early death).
+    gold: { mul: 0.3, keepOnDeath: 0.5 },
+
+    // ---- 7. Blood Vow, sworn on the title screen before the run.
+    vow: { lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
+
+    // ---- Level-up names. [name, blurb, optional rank lines]. Ids stay the same.
+    names: {
+      orbit: ['Oathblade', 'Sworn steel circles you and cuts whatever it touches.', ['One blade.', 'The blade swings faster.', 'A second blade joins.', 'The arc widens.', 'Three blades. Ready for the Gauntlet.']],
+      bolt: ['Holy Bolts', 'A fast bolt seeks the nearest foe.', ['One bolt.', 'A heavier bolt.', 'A second bolt follows.', 'It pierces one more foe.', 'Three bolts in a spread.']],
+      nova: ['Ward Bell', 'A shockwave rings out around you.', ['A single toll.', 'The bell rings sooner.', 'It tolls twice.', 'The toll reaches farther.', 'A double toll that covers the crowd.']],
+      pierce: ['Hurled Axe', 'A spinning axe that cleaves through a line of foes.', ['One axe.', 'A broader head.', 'It cleaves a thicker crowd.', 'It flies faster.', 'Two axes, side by side.']],
+      tempo: ['Iron Gauntlet', 'A heavier grip. The key to Dawnbreaker.', ['A firm grip.', 'Heavier blows.', 'The grip locks in.', 'Iron knuckles.', 'Dawn-ready.']],
+      cinder: ['Reliquary', 'A saint\'s relic that wakes the Cathedral of Embers.'],
+      might: ['Bloodstone Ring', 'Your blows get heavier.'],
+      haste: ['Hourglass Charm', 'Weapons cycle faster.'],
+      magnet: ['Lodestone', 'Soul gems pull in from farther away.'],
+      vitality: ['Mead Horn', 'More life, and a heal when you take it.'],
+      area: ['Pilgrim Censer', 'Blades, bells and bolts cover more ground.'],
+      armor: ['Squire\'s Mail', 'Each rank turns a hit aside.'],
+      heal: ['Pilgrim\'s Bread'],
+    },
+    evolutionNames: { orbit: 'Dawnbreaker', nova: 'Cathedral of Embers' },
+  };
+
+  const MEDIEVAL = /(?:^|[?&])mode=medieval(?:&|$)/.test((typeof location !== 'undefined' && location.search) || '');
+  if (MEDIEVAL) {
+    CATALOG.forEach((item) => {
+      const r = MEDIEVAL_CFG.names[item.id];
+      if (!r) return;
+      item.name = r[0];
+      if (r[1]) item.blurb = r[1];
+      if (r[2]) item.ranks = r[2];
+    });
+    Object.keys(MEDIEVAL_CFG.evolutionNames).forEach((w) => {
+      const name = MEDIEVAL_CFG.evolutionNames[w];
+      if (EVOLUTIONS[w]) EVOLUTIONS[w].name = name;
+      CATALOG.forEach((item) => {
+        if (item.id === w || item.evolveOf === w) item.evolveName = name;
+      });
+    });
+  }
+
   return {
-    HERO, WEAPONS, PASSIVES, CATALOG, EVOLUTIONS, REWARDS, TUNING, VOW, WEAPON_CAP, PASSIVE_CAP,
+    MEDIEVAL, MEDIEVAL_CFG, HERO, WEAPONS, PASSIVES, CATALOG, EVOLUTIONS, REWARDS, TUNING, VOW, WEAPON_CAP, PASSIVE_CAP,
     META_KEY, loadMeta, bankGold, xpToNext, rankText, evolutionFor,
     minuteReachedEvent, deathEvent, levelReachedEvent, levelUpCountEvent, pickOffers,
   };

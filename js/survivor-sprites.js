@@ -132,9 +132,25 @@ const SurvivorSprites = (() => {
     },
   };
   LAYOUT.boss.outline = true;
+  // Dark medieval demo: 0x72 knight_m / elf_m heroes and the goblin, wogol,
+  // chort waves. Actors keep their own colours and get a bright rim so they
+  // read on the darkened floor at phone size.
+  const MEDIEVAL = /(?:^|[?&])mode=medieval(?:&|$)/.test((typeof location !== 'undefined' && location.search) || '');
+  if (MEDIEVAL) {
+    LAYOUT.hero = { mode: 'knight', idle: rects(128, 100, 16, 28, 4), run: rects(192, 100, 16, 28, 4) };
+    LAYOUT.ysolde = { mode: 'knight', idle: rects(128, 4, 16, 28, 4), run: rects(192, 4, 16, 28, 4) };
+    LAYOUT.armored = { mode: 'armor', idle: rects(368, 88, 16, 16, 4), run: rects(432, 88, 16, 16, 4) };
+    LAYOUT.skel = { mode: 'rim', idle: rects(368, 88, 16, 16, 4), run: rects(432, 88, 16, 16, 4) };
+    LAYOUT.imp = { mode: 'rim', idle: rects(368, 64, 16, 16, 4), run: rects(432, 64, 16, 16, 4) };
+    LAYOUT.goblin = { mode: 'rim', idle: rects(368, 40, 16, 16, 4), run: rects(432, 40, 16, 16, 4) };
+    LAYOUT.wogol = { mode: 'rim', idle: rects(368, 204, 16, 20, 4), run: rects(432, 204, 16, 20, 4) };
+    LAYOUT.chort = { mode: 'rim', idle: rects(368, 272, 16, 24, 4), run: rects(432, 272, 16, 24, 4) };
+    LAYOUT.charger = { mode: 'rim', idle: rects(368, 272, 16, 24, 4), run: rects(432, 272, 16, 24, 4) };
+    LAYOUT.shooter = { mode: 'rim', idle: rects(368, 64, 16, 16, 4), run: rects(432, 64, 16, 16, 4) };
+  }
 
   function paintSheetFrame(img, rect, mode, outline) {
-    const pad = (mode === 'hero' || mode === 'skel') ? 1 : 0;
+    const pad = (mode === 'hero' || mode === 'skel' || mode === 'knight' || mode === 'rim' || mode === 'armor') ? 1 : 0;
     const w = rect.w + pad * 2;
     const h = rect.h + pad * 2;
     const c = document.createElement('canvas');
@@ -160,13 +176,16 @@ const SurvivorSprites = (() => {
       else if (mode === 'moss') next = mossInk(r, gc, b);
       else if (mode === 'dusk') next = duskInk(r, gc, b);
       else if (mode === 'skel') next = skelInk(r, gc, b);
+      else if (mode === 'armor') next = [clamp(r * 0.7 + 30), clamp(gc * 0.8 + 40), clamp(b * 0.95 + 70)];
+      else if (mode === 'rim') next = [clamp(r * 1.12 + 10), clamp(gc * 1.12 + 10), clamp(b * 1.12 + 10)];
       if (next) {
         d[o] = next[0];
         d[o + 1] = next[1];
         d[o + 2] = next[2];
       }
     }
-    if (mode === 'hero') {
+    if (mode === 'hero' || mode === 'knight' || mode === 'rim' || mode === 'armor') {
+      const rim = (mode === 'rim' || mode === 'armor') ? [0xd8, 0x4a, 0x3a] : [0xf4, 0xef, 0xe0];
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const p = y * w + x;
@@ -177,9 +196,9 @@ const SurvivorSprites = (() => {
             || (y + 1 < h && srcA[p + w] > 16);
           if (!touch) continue;
           const o = p * 4;
-          d[o] = 0xf4;
-          d[o + 1] = 0xef;
-          d[o + 2] = 0xe0;
+          d[o] = rim[0];
+          d[o + 1] = rim[1];
+          d[o + 2] = rim[2];
           d[o + 3] = 255;
         }
       }
@@ -626,14 +645,14 @@ const SurvivorSprites = (() => {
   function drawHero(ctx, x, y, o) {
     if (!ready) return drawHeroFallback(ctx, x, y, o);
     const clip = o.moving ? 'run' : 'idle';
-    const fr = frameNamed('hero', clip, o.time);
+    const fr = frameNamed(o.sprite || 'hero', clip, o.time);
     if (!fr) return;
     const lunge = Math.max(0, Math.min(1, (o.lunge || 0) / 0.16));
     const face = o.facing < 0 ? -1 : 1;
     const foot = (fr.h - (fr.pad || 0)) * zoom;
     const dx = Math.round(x - (fr.w * zoom) / 2 + face * Math.round(lunge * 3 * zoom));
     const dy = Math.round(y - foot + (lunge ? zoom : 0));
-    drawEmber(ctx, x, y, o.time || 0, face, o.moving);
+    if (!MEDIEVAL) drawEmber(ctx, x, y, o.time || 0, face, o.moving);
     blit(ctx, fr, dx, dy, face > 0, o.flash, 1);
   }
 
@@ -756,6 +775,21 @@ const SurvivorSprites = (() => {
     // Vow 4 and 5 stay on the vow-3 tint (floorVow is clamped). Shift each
     // pixel toward moonlit blue but keep its brightness offset, so grout,
     // tiles and decals do not collapse into one flat colour.
+    if (MEDIEVAL) {
+      // Night castle floor: low contrast, cold and dark so actors pop.
+      const im2 = g.getImageData(0, 0, canvas.width, canvas.height);
+      const dd = im2.data;
+      const k = 0.42 - floorVow * 0.04;
+      for (let i = 0; i < dd.length; i += 4) {
+        const lum = (dd[i] + dd[i + 1] + dd[i + 2]) / 3;
+        const flat = 52 + (lum - 52) * 0.55;
+        dd[i] = clamp(flat * k * 0.92);
+        dd[i + 1] = clamp(flat * k * 0.98);
+        dd[i + 2] = clamp(flat * k * 1.18);
+      }
+      g.putImageData(im2, 0, 0);
+      return;
+    }
     if (floorVow <= 0) return;
     const img = g.getImageData(0, 0, canvas.width, canvas.height);
     const data = img.data;
@@ -796,7 +830,7 @@ const SurvivorSprites = (() => {
         g.drawImage(scaled, fr.x * zoom, fr.y * zoom, fr.w * zoom, fr.h * zoom, dx, dy, px, px);
         // About a third of the old skull/bone stamps, and those that remain
         // sit close to the floor colour so they don't read as skeletons.
-        if (h % 111 === 0) {
+        if (h % (MEDIEVAL ? 41 : 111) === 0) {
           const skull = frameAt('skull', 0);
           if (skull) stampDecal(g, skull, dx, dy, px);
         }
