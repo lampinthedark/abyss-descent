@@ -124,8 +124,8 @@
   const walkMatch = toolDebug && /(?:^|[?&])walk=(circle|kite)(?:&|$)/.exec(search);
   const walkCircle = !!(walkMatch && walkMatch[1] === 'circle');
   const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
-  // Medieval tuning: the circle walker also takes sensible picks (a human picking, a fixed walk).
-  const botPicks = walkKite || (walkCircle && /(?:^|[?&])mode=medieval(?:&|$)/.test(search));
+  // Auto-pick is test-only and behind its own flag (&autopick=1); walk=circle keeps manual picks.
+  const botPicks = walkKite || (toolDebug && /(?:^|[?&])autopick=1(?:&|$)/.test(search));
   const fpsMatch = /(?:^|[?&])fps=(\d+)(?:&|$)/.exec(search);
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
