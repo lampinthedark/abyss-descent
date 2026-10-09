@@ -124,6 +124,8 @@
   const walkMatch = toolDebug && /(?:^|[?&])walk=(circle|kite)(?:&|$)/.exec(search);
   const walkCircle = !!(walkMatch && walkMatch[1] === 'circle');
   const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
+  // Medieval tuning: the circle walker also takes sensible picks (a human picking, a fixed walk).
+  const botPicks = walkKite || (walkCircle && /(?:^|[?&])mode=medieval(?:&|$)/.test(search));
   const fpsMatch = /(?:^|[?&])fps=(\d+)(?:&|$)/.exec(search);
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
@@ -224,6 +226,7 @@
   let doubleLocked = false;
   let bankedAmount = 0;
   let goldBeforeCut = 0;
+  let toastEntry = null;
   let medGoldLine = '';
   let bestAtStart = 0;
   let prevLabel = 'Previous best: none';
@@ -1065,6 +1068,7 @@
   function presentToast(entry) {
     if (!entry) return;
     toastText = entry.text;
+    toastEntry = entry;
     const el = $('sv-toast');
     if (el) {
       el.textContent = toastText;
@@ -1454,6 +1458,14 @@
   function raiseBanner(text, pulse) {
     banner = text;
     bannerT = pulse ? 2.15 : 2;
+    // Medieval: a banner never sits under a loot pop-up; the pop-up waits its turn.
+    if (MEDIEVAL && toastT > 0 && toastEntry) {
+      toastQueue.unshift(toastEntry);
+      toastT = 0;
+      toastText = '';
+      const t = $('sv-toast');
+      if (t) t.classList.add('hidden');
+    }
     warnOn = true;
     const el = $('sv-warn');
     if (el) {
@@ -2739,6 +2751,12 @@
         if (g.shower && time < (g.showerAt || 0)) {
           /* stagger the vacuum */
         } else if (dist < pull || g.shower) g.fly = 1;
+        else if (MEDIEVAL && MCFG.gems && (g.age || 0) >= MCFG.gems.driftAfter && dist < MCFG.gems.driftRange && dist > 0) {
+          // Medieval: gems left lying for a few seconds drift to the hero.
+          const step = Math.min(dist, MCFG.gems.driftSpeed * dt);
+          g.x += (dx / dist) * step;
+          g.y += (dy / dist) * step;
+        }
         if (g.fly && dist > 0) {
           const rush = g.shower ? Math.max(18, dist / 0.55) : (14 + (owned.magnet || 0) * 4);
           const step = Math.min(dist, rush * dt);
@@ -4015,6 +4033,11 @@
       regen = Math.max(regen, 3);
       return;
     }
+    if (item.id === 'feast') {
+      player.life = Math.min(player.maxLife, player.life + player.maxLife * 0.5);
+      return;
+    }
+    if (item.maxLevel && (owned[item.id] || 0) >= item.maxLevel) return;
     owned[item.id] = (owned[item.id] || 0) + 1;
     if (item.id === 'vitality') {
       const rank = owned.vitality;
@@ -4047,10 +4070,12 @@
     const partner = partnerId ? catalogItem(partnerId) : null;
     const weaponReady = (owned[weaponId] || 0) >= (weapon ? weapon.maxLevel : 5);
     const partnerReady = !!(partnerId && (owned[partnerId] || 0) > 0);
+    if (MEDIEVAL && evoGated(weapon)) return 'Evolves after Malgrath falls';
     if (weaponReady && partnerReady) return 'Ready';
     // A card never asks for itself: the partner card points at the weapon.
     if (partner && item.id === partner.id) return weaponReady ? 'Ready' : (weapon ? 'Needs: ' + weapon.name : '');
     if (weapon && item.id === weapon.id && !partnerReady && partner) return 'Needs: ' + partner.name;
+    if (MEDIEVAL && weapon && item.id === weapon.id) return 'Evolves at rank ' + (weapon.maxLevel || 5);
     if (!partnerReady && partner) return 'Needs: ' + partner.name;
     if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
     return 'Ready';
@@ -4078,7 +4103,7 @@
     const weapons = SurvivorData.WEAPONS;
     for (let i = 0; i < weapons.length; i++) {
       const w = weapons[i];
-      if (!w.evolvesWith || evolved[w.id] || evoQueued[w.id]) continue;
+      if (!w.evolvesWith || evolved[w.id] || evoQueued[w.id] || evoGated(w)) continue;
       if ((owned[w.id] || 0) >= w.maxLevel && (owned[w.evolvesWith] || 0) > 0) evoQueued[w.id] = true;
     }
   }
@@ -4103,8 +4128,13 @@
     checkEvolutions();
   }
 
+  // Medieval: the second evolution (Cathedral of Embers) waits for Malgrath's relic.
+  function evoGated(w) {
+    return !!(MEDIEVAL && w && MCFG.evolution.relicGate && MCFG.evolution.relicGate.indexOf(w.id) >= 0 && !medRelicItem);
+  }
+
   function evoRanksReady(w) {
-    if (!w || !w.evolvesWith || evolved[w.id]) return false;
+    if (!w || !w.evolvesWith || evolved[w.id] || evoGated(w)) return false;
     const needRank = BALANCE.evoRank || w.maxLevel;
     const needPartner = BALANCE.evoPartner || 1;
     return (owned[w.id] || 0) >= needRank && (owned[w.evolvesWith] || 0) >= needPartner;
@@ -4151,7 +4181,7 @@
   }
 
   function kiteResolve() {
-    if (!walkKite) return;
+    if (!botPicks) return;
     if (state === 'hermit') {
       declineHermit();
       return;
@@ -5496,7 +5526,7 @@
     fxDrawMs = 0;
     if (bench && typeof performance !== 'undefined' && performance.memory) heapAt = performance.memory.usedJSHeapSize;
     const updateStart = nowMs();
-    if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
+    if (botPicks && (state === 'levelup' || state === 'hermit')) kiteResolve();
     if (state === 'playing') {
       const slices = MEDIEVAL ? Math.max(1, Math.ceil(dt / 0.05)) : 1;
       for (let i = 0; i < slices && state === 'playing'; i++) sim(dt / slices);
@@ -5732,7 +5762,7 @@
       return { w: canvas.width, h: canvas.height, zoom: zoom, tile: TILE, camX: camX, camY: camY };
     };
     window.__svStep = (dt) => {
-      if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
+      if (botPicks && (state === 'levelup' || state === 'hermit')) kiteResolve();
       if (state === 'playing') sim(presentDt(Math.min(0.05, dt || 0.05)));
       return snapRun();
     };

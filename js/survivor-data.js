@@ -275,15 +275,15 @@ const SurvivorData = (() => {
       if (out.some((o) => o.id === item.id)) continue;
       out.push(item);
     }
-    while (out.length < 3) {
-      out.push({
-        id: out.length % 2 === 0 ? 'purse' : 'heal',
-        name: out.length % 2 === 0 ? 'Coin purse' : 'Second wind',
-        kind: 'reward',
-        blurb: out.length % 2 === 0 ? 'Take 15 gold.' : 'Heal 30% now, and +6 life a second for a moment.',
-        maxLevel: 99,
-        evolvesWith: null,
-      });
+    // Fillers when the bag runs dry. Never two cards with the same id.
+    const fillers = [
+      { id: 'purse', name: 'Coin purse', blurb: 'Take 15 gold.' },
+      { id: 'heal', name: 'Second wind', blurb: 'Heal 30% now, and +6 life a second for a moment.' },
+      { id: 'feast', name: 'Feast', blurb: 'Heal 50% now.' },
+    ];
+    for (let f = 0; f < fillers.length && out.length < 3; f++) {
+      if (out.some((o) => o.id === fillers[f].id)) continue;
+      out.push(Object.assign({ kind: 'reward', maxLevel: 99, evolvesWith: null }, fillers[f]));
     }
     if (opts && opts.forcePartner) {
       let slot = out.length - 1;
@@ -301,6 +301,17 @@ const SurvivorData = (() => {
         if (out[i].id === 'orbit') seen = true;
       }
       if (!seen) out[0] = orbitItem;
+    }
+    // Never offer a maxed card, never the same card twice.
+    for (let i = 0; i < out.length; i++) {
+      const it = out[i];
+      const lv = owned && owned[it.id] ? owned[it.id] : 0;
+      const dup = out.findIndex((o) => o.id === it.id) !== i;
+      if (it.kind === 'reward' ? !dup : (lv < it.maxLevel && !dup)) continue;
+      const spare = CATALOG.find((c) => (owned && owned[c.id] ? owned[c.id] : 0) < c.maxLevel && !out.some((o) => o.id === c.id))
+        || [{ id: 'purse', name: 'Coin purse', blurb: 'Take 15 gold.' }, { id: 'heal', name: 'Second wind', blurb: 'Heal 30% now, and +6 life a second for a moment.' }, { id: 'feast', name: 'Feast', blurb: 'Heal 50% now.' }]
+          .filter((f) => !out.some((o) => o.id === f.id)).map((f) => Object.assign({ kind: 'reward', maxLevel: 99, evolvesWith: null }, f))[0];
+      if (spare) out[i] = spare;
     }
     return out;
   }
@@ -352,7 +363,8 @@ const SurvivorData = (() => {
     // ---- 3. Evolution: Oathblade (orbit) + Iron Gauntlet (tempo) = Dawnbreaker.
     // The Goblin Chief's chest grants it (never before evoAt); evoForce is the
     // safety net if the chief is not dead yet.
-    evolution: { evoAt: 75, evoForce: 82, chiefGrants: true },
+    evolution: { evoAt: 75, evoForce: 82, chiefGrants: true, relicGate: ['nova'] }, // relicGate: these evolutions wait for Malgrath's relic
+    gems: { driftAfter: 3, driftRange: 16, driftSpeed: 5 }, // soul gems left lying driftAfter s slide to the hero (tiles, tiles/s)
     // After Dawnbreaker the horde speeds up and thickens so it still reaches the hero.
     postEvo: { speedMul: 1.25, capMul: 1.3, rateMul: 1.3, until: 210 },
 
