@@ -1044,17 +1044,21 @@
   function showToast(item) {
     if (!item) return;
     const entry = toastLine(item);
-    if (toastT > 0) {
+    // Medieval: never cover a banner (DAWNBREAKER, boss warnings); wait for it.
+    if (toastT > 0 || (MEDIEVAL && bannerT > 0)) {
       toastQueue.push(entry);
       return;
     }
     presentToast(entry);
   }
   function tickToast(dt) {
-    if (toastT <= 0) return;
+    if (toastT <= 0) {
+      if (MEDIEVAL && toastQueue.length && bannerT <= 0) presentToast(toastQueue.shift());
+      return;
+    }
     toastT = Math.max(0, toastT - dt);
     if (toastT > 0) return;
-    if (toastQueue.length) {
+    if (toastQueue.length && !(MEDIEVAL && bannerT > 0)) {
       presentToast(toastQueue.shift());
       return;
     }
@@ -2270,7 +2274,8 @@
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
     showToast(item);
-    pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    const loud = item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary';
+    if (!MEDIEVAL || loud) pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
     if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
   }
 
@@ -3967,6 +3972,9 @@
     const weaponReady = (owned[weaponId] || 0) >= (weapon ? weapon.maxLevel : 5);
     const partnerReady = !!(partnerId && (owned[partnerId] || 0) > 0);
     if (weaponReady && partnerReady) return 'Ready';
+    // A card never asks for itself: the partner card points at the weapon.
+    if (partner && item.id === partner.id) return weaponReady ? 'Ready' : (weapon ? 'Needs: ' + weapon.name : '');
+    if (weapon && item.id === weapon.id && !partnerReady && partner) return 'Needs: ' + partner.name;
     if (!partnerReady && partner) return 'Needs: ' + partner.name;
     if (!weaponReady && weapon) return 'Needs: ' + weapon.name;
     return 'Ready';
@@ -5358,7 +5366,9 @@
 
   function frame(now) {
     const raw = last ? (now - last) / 1000 : 0.016;
-    const wall = Math.min(0.05, raw);
+    // Medieval: catch up after slow frames (sheet baking at start) so the clock
+    // keeps real time; sim still steps in slices of at most 0.05 s.
+    const wall = Math.min(MEDIEVAL ? 0.25 : 0.05, raw);
     const dt = presentDt(wall);
     last = now;
     if (dt > 0) {
@@ -5370,7 +5380,10 @@
     if (bench && typeof performance !== 'undefined' && performance.memory) heapAt = performance.memory.usedJSHeapSize;
     const updateStart = nowMs();
     if (walkKite && (state === 'levelup' || state === 'hermit')) kiteResolve();
-    if (state === 'playing') sim(dt);
+    if (state === 'playing') {
+      const slices = MEDIEVAL ? Math.max(1, Math.ceil(dt / 0.05)) : 1;
+      for (let i = 0; i < slices && state === 'playing'; i++) sim(dt / slices);
+    }
     else animT += dt;
     const updateMs = nowMs() - updateStart;
     const drawStart = nowMs();
