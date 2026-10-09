@@ -28,7 +28,11 @@
  * 'circle' (a = radius), 'cone' (a = radius, b = aim, c = arc) or 'line'
  * (a, b = end x/y, c = half width). u is windup progress 0..1. The fill is
  * #ff5a2a and grows from the origin out while its alpha ramps 0.15 -> 0.5; a
- * 2.5 CSS px warm #ffd0a0 edge with a 1px #7a1a08 outline reads in greyscale.
+ * 3.5-4.5 CSS px #fff0e0 edge pulsing at 3 Hz (steady with reduced motion)
+ * over a 1px #7a1a08 outline reads in greyscale. FX.paintMobTell takes the
+ * same args for regular monsters, 'line' (charge lane) or 'dot' (orb that
+ * grows from 30% to radius a): amber #e0a060 fill 0.06 -> 0.2 and a 1.5 CSS
+ * px #ffd0a0 edge at 0.55, no pulse, no outline. Always the quieter of the two.
  */
 const FX = (function () {
   'use strict';
@@ -223,12 +227,24 @@ const FX = (function () {
   // Telegraph windups: fixed slots, no per-frame allocation.
   const TELL_N = 8;
   const TELL_FILL = '#ff5a2a';
-  const TELL_EDGE = '#ffd0a0';
+  const TELL_EDGE = '#fff0e0';
   const TELL_DARK = '#7a1a08';
   const TELL_A0 = 0.15;
   const TELL_A1 = 0.5;
-  const TELL_EDGE_A = 0.9;
-  const TELL_EDGE_CSS = 2.5;
+  // Boss edge pulses at 3 Hz on the FX clock: 3.5 -> 4.5 CSS px, alpha 0.85 -> 1.
+  const TELL_EDGE_CSS = 3.5;
+  const TELL_PULSE_CSS = 1;
+  const TELL_EDGE_A0 = 0.85;
+  const TELL_EDGE_A1 = 1;
+  const TELL_PULSE_HZ = 3;
+  // Regular monster warnings: quiet amber, thin edge, no pulse, no outline.
+  const MOB_FILL = '#e0a060';
+  const MOB_EDGE = '#ffd0a0';
+  const MOB_A0 = 0.06;
+  const MOB_A1 = 0.2;
+  const MOB_EDGE_A = 0.55;
+  const MOB_EDGE_CSS = 1.5;
+  const MOB_DOT_MIN = 0.3;
   const tellKey = new Array(TELL_N);
   const tellAge = new Float64Array(TELL_N);
   const tellDur = new Float64Array(TELL_N);
@@ -1291,44 +1307,93 @@ const FX = (function () {
     }
   }
 
+  function tellArgsOk(ctx, shape, x, y, a, b, c) {
+    if (!ctx || !ok(x) || !ok(y) || !ok(a)) return false;
+    if (shape === 'cone') return ok(b) && ok(c);
+    if (shape === 'line') return ok(b) && ok(c) && c > 0;
+    return a > 0;
+  }
+
+  function clamp01(u) {
+    return ok(u) ? (u < 0 ? 0 : (u > 1 ? 1 : u)) : 1;
+  }
+
+  // 0..1 boss pulse; steady mid value with reduced motion.
+  function tellPulse() {
+    if (reducedNow()) return 0.5;
+    return 0.5 + 0.5 * Math.sin(clock * TAU * TELL_PULSE_HZ);
+  }
+
+  // Base zone at a0, then a fill grown from the origin that stacks to
+  // a0 + (a1 - a0) * t inside the grown area.
+  function tellFill(ctx, shape, x, y, a, b, c, t, fill, a0, a1) {
+    ctx.fillStyle = fill;
+    ctx.globalAlpha = a0;
+    tellPath(ctx, shape, x, y, a, b, c, 1);
+    ctx.fill();
+    if (t <= 0.01) return false;
+    ctx.globalAlpha = ((a1 - a0) * t) / (1 - a0);
+    tellPath(ctx, shape, x, y, a, b, c, t);
+    ctx.fill();
+    return true;
+  }
+
   function paintTell(ctx, shape, x, y, a, b, c, u) {
-    if (!ctx || !ok(x) || !ok(y) || !ok(a)) return;
-    if (shape === 'cone' && (!ok(b) || !ok(c))) return;
-    if (shape === 'line' && (!ok(b) || !ok(c) || !(c > 0))) return;
-    if (shape !== 'cone' && shape !== 'line' && !(a > 0)) return;
-    const t = ok(u) ? (u < 0 ? 0 : (u > 1 ? 1 : u)) : 1;
+    if (shape === 'dot') shape = 'circle';
+    if (!tellArgsOk(ctx, shape, x, y, a, b, c)) return;
+    const t = clamp01(u);
     const px = cssScale(ctx.canvas);
     const prevAlpha = ctx.globalAlpha;
     const prevOp = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    ctx.fillStyle = TELL_FILL;
-    // Whole danger zone at the starting alpha.
-    ctx.globalAlpha = TELL_A0;
-    tellPath(ctx, shape, x, y, a, b, c, 1);
-    ctx.fill();
-    // Inner fill grows from the origin out; stacked over the base it reaches
-    // TELL_A0 + (TELL_A1 - TELL_A0) * t inside the grown area.
-    if (t > 0.01) {
-      ctx.globalAlpha = ((TELL_A1 - TELL_A0) * t) / (1 - TELL_A0);
-      tellPath(ctx, shape, x, y, a, b, c, t);
-      ctx.fill();
+    if (tellFill(ctx, shape, x, y, a, b, c, t, TELL_FILL, TELL_A0, TELL_A1)) {
       ctx.globalAlpha = 0.55;
       ctx.strokeStyle = TELL_EDGE;
       ctx.lineWidth = px;
       ctx.stroke();
     }
-    // Outer edge: a dark outline 1 CSS px each side under a bright warm line.
-    const edge = TELL_EDGE_CSS * px;
+    // Outer edge: a dark outline 1 CSS px each side under a bright pulsing line.
+    const s = tellPulse();
+    const edge = (TELL_EDGE_CSS + TELL_PULSE_CSS * s) * px;
     tellPath(ctx, shape, x, y, a, b, c, 1);
     ctx.globalAlpha = 1;
     ctx.strokeStyle = TELL_DARK;
     ctx.lineWidth = edge + 2 * px;
     ctx.stroke();
-    ctx.globalAlpha = TELL_EDGE_A;
+    ctx.globalAlpha = TELL_EDGE_A0 + (TELL_EDGE_A1 - TELL_EDGE_A0) * s;
     ctx.strokeStyle = TELL_EDGE;
     ctx.lineWidth = edge;
+    ctx.stroke();
+    ctx.globalAlpha = prevAlpha;
+    ctx.globalCompositeOperation = prevOp;
+  }
+
+  // Quiet warning for regular monsters: 'line' (charge lane, a/b end, c half
+  // width) or 'dot' (orb whose radius grows from 30% of a to a).
+  function paintMobTell(ctx, shape, x, y, a, b, c, u) {
+    if (shape !== 'line') shape = 'dot';
+    if (!tellArgsOk(ctx, shape, x, y, a, b, c)) return;
+    const t = clamp01(u);
+    const px = cssScale(ctx.canvas);
+    const prevAlpha = ctx.globalAlpha;
+    const prevOp = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.fillStyle = MOB_FILL;
+    if (shape === 'line') {
+      tellFill(ctx, shape, x, y, a, b, c, t, MOB_FILL, MOB_A0, MOB_A1);
+      tellPath(ctx, shape, x, y, a, b, c, 1);
+    } else {
+      ctx.globalAlpha = MOB_A0 + (MOB_A1 - MOB_A0) * t;
+      tellPath(ctx, 'circle', x, y, a, 0, 0, MOB_DOT_MIN + (1 - MOB_DOT_MIN) * t);
+      ctx.fill();
+    }
+    ctx.globalAlpha = MOB_EDGE_A;
+    ctx.strokeStyle = MOB_EDGE;
+    ctx.lineWidth = MOB_EDGE_CSS * px;
     ctx.stroke();
     ctx.globalAlpha = prevAlpha;
     ctx.globalCompositeOperation = prevOp;
@@ -1703,6 +1768,10 @@ const FX = (function () {
       paintTell(ctx, shape, x, y, a, b, c, u);
     },
 
+    paintMobTell: function (ctx, shape, x, y, a, b, c, u) {
+      paintMobTell(ctx, shape, x, y, a, b, c, u);
+    },
+
     shakeOffset: function () {
       return readShake();
     },
@@ -1722,5 +1791,7 @@ const FX = (function () {
     TELL_FILL: TELL_FILL,
     TELL_EDGE: TELL_EDGE,
     TELL_DARK: TELL_DARK,
+    MOB_FILL: MOB_FILL,
+    MOB_EDGE: MOB_EDGE,
   };
 })();
