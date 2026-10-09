@@ -223,6 +223,8 @@
   let gemChainAt = -10;
   let doubleLocked = false;
   let bankedAmount = 0;
+  let goldBeforeCut = 0;
+  let medGoldLine = '';
   let bestAtStart = 0;
   let prevLabel = 'Previous best: none';
   let doubled = false;
@@ -3161,6 +3163,8 @@
     gemChainAt = -10;
     boltBossTurn = true;
     bankedAmount = 0;
+    goldBeforeCut = 0;
+    medGoldLine = '';
     doubled = false;
     doubleLocked = false;
     revived = false;
@@ -3591,7 +3595,7 @@
     if (reviveBtn) reviveBtn.classList.toggle('hidden', !adsOn || kind !== 'dead' || revived || (MEDIEVAL && bloodVow && MED.vow.noAdRevive));
     const goldBtn = $('sv-double');
     if (goldBtn) {
-      const offer = !!(adsOn && !doubled && (kind === 'dead' || kind === 'won'));
+      const offer = !!(adsOn && !doubled && (kind === 'dead' || kind === 'won') && !(MEDIEVAL && runGold <= 0));
       goldBtn.disabled = !offer;
       goldBtn.classList.toggle('hidden', !offer);
     }
@@ -3609,11 +3613,32 @@
     return name + ' broken: ' + (deathGoldLost > 0 ? deathGoldLost + ' run gold lost' : 'run gold lost');
   }
 
+  // Medieval end screen footer, pinned, top to bottom: Revive, Double gold, Play again.
+  function medEndFooter() {
+    let foot = $('sv-end-foot');
+    if (foot) return foot;
+    const panel = document.querySelector('#sv-end .sv-end-panel');
+    if (!panel) return null;
+    foot = document.createElement('div');
+    foot.id = 'sv-end-foot';
+    foot.className = 'sv-end-foot';
+    ['sv-revive', 'sv-double', 'sv-restart'].forEach((id) => {
+      const el = $(id);
+      if (el) foot.appendChild(el);
+    });
+    panel.appendChild(foot);
+    const row = document.querySelector('#sv-end .sv-ad-row');
+    if (row) row.classList.add('hidden');
+    return foot;
+  }
+
   function paintMedievalEnd(kind, earned, vowBonus) {
+    try { medEndFooter(); } catch (e) {}
     if (kind) {
       const g = $('sv-end-gold');
       let line = 'Gold earned ' + earned + ' \u00b7 banked ' + runGold;
       if (deathGoldLost > 0) line += ' \u00b7 lost ' + deathGoldLost;
+      medGoldLine = line;
       if (g) g.textContent = line;
       const shopBtn = $('sv-end-shop');
       if (shopBtn) shopBtn.textContent = 'Spend gold';
@@ -5102,7 +5127,7 @@
     doubleLocked = false;
     const btn = $('sv-double');
     if (!btn) return;
-    const offer = !!(adsOn && (state === 'dead' || state === 'won'));
+    const offer = !!(adsOn && (state === 'dead' || state === 'won') && !(MEDIEVAL && runGold <= 0));
     btn.disabled = !offer;
     btn.classList.toggle('hidden', !offer);
   }
@@ -5135,6 +5160,7 @@
     if (state !== 'dead' && state !== 'won') return false;
     doubled = true;
     doubleLocked = true;
+    const bankedBeforeDouble = runGold;
     const extra = Math.round(runGold * (SurvivorData.REWARDS.doubleMult - 1));
     runGold += extra;
     goldMilli = Math.round(goldMilli * SurvivorData.REWARDS.doubleMult);
@@ -5145,7 +5171,11 @@
     }
     syncBank();
     const goldEl = $('sv-end-gold');
-    if (goldEl) goldEl.textContent = '+' + runGold + ' gold banked';
+    if (goldEl) {
+      if (MEDIEVAL && medGoldLine) goldEl.textContent = medGoldLine + ' \u00b7 doubled +' + (runGold - bankedBeforeDouble) + ' \u2192 ' + runGold;
+      else goldEl.textContent = '+' + runGold + ' gold banked';
+    }
+    if (MEDIEVAL) { try { paintMedievalEnd(); } catch (e) {} }
     paintNextOffer();
     const btn = $('sv-double');
     if (btn) {
@@ -5156,7 +5186,7 @@
   }
 
   function doubleOffered() {
-    return !!(adsOn && !doubled && (state === 'dead' || state === 'won'));
+    return !!(adsOn && !doubled && (state === 'dead' || state === 'won') && !(MEDIEVAL && runGold <= 0));
   }
 
   function bind() {

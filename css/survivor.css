@@ -355,9 +355,25 @@ body.sv-medieval #sv-end #sv-end-title { font-size: 26px; margin: 4px 0; }
 body.sv-medieval #sv-end .sv-end-stats { margin: 4px 0 6px; }
 body.sv-medieval #sv-end .sv-end-stats div { padding: 6px 4px; }
 body.sv-medieval #sv-end .sv-end-stats b { font-size: 18px; }
+/* Pinned footer, top to bottom: Revive (main), Double gold (outlined), Play again (text). */
+body.sv-medieval #sv-end .sv-end-foot {
+  position: sticky; bottom: 0; z-index: 2; display: flex; flex-direction: column; gap: 8px;
+  margin: 8px 0 0; padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  background: #120e0c; box-shadow: 0 -12px 16px 4px #120e0c;
+}
+body.sv-medieval #sv-end .sv-end-foot .big-btn { width: 100%; max-width: none; margin: 0; box-sizing: border-box; }
+body.sv-medieval #sv-end .sv-end-foot .hidden { display: none; }
+body.sv-medieval #sv-end #sv-revive {
+  min-height: 52px; height: 52px; padding: 0 12px; font-size: 19px; font-weight: 800;
+  background: linear-gradient(180deg, #f6c75a, #d4932a); color: #1a1006; border: 2px solid #f8d98a; border-style: solid;
+}
+body.sv-medieval #sv-end #sv-double {
+  min-height: 44px; height: 44px; padding: 0 12px; font-size: 16px;
+  background: transparent; color: #f2c96b; border: 2px solid #f2c96b; border-style: solid;
+}
 body.sv-medieval #sv-end #sv-restart {
-  position: sticky; bottom: 0; z-index: 2; margin: 8px 0 0; min-height: 60px;
-  box-shadow: 0 -12px 16px 4px #120e0c;
+  min-height: 44px; height: 44px; padding: 0 12px; font-size: 17px; font-weight: 700;
+  background: transparent; color: #f4efe0; border: none; box-shadow: none; text-decoration: underline;
 }
 
 /* Medieval demo: Malgrath gets a big name plate and HP bar across the top. */
