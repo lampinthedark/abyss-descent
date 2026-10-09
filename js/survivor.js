@@ -126,6 +126,9 @@
   const walkKite = !!(walkMatch && walkMatch[1] === 'kite');
   // Auto-pick is test-only and behind its own flag (&autopick=1); walk=circle keeps manual picks.
   const botPicks = walkKite || (toolDebug && /(?:^|[?&])autopick=1(?:&|$)/.test(search));
+  // Human-like pick profile (walk=circle bots, or &picks=human): Dawnbreaker first, then
+  // damage and the extra weapons players take, then a spread of passives (Game Player runs).
+  const picksHuman = toolDebug && (walkCircle || /(?:^|[?&])picks=human(?:&|$)/.test(search)) && !/(?:^|[?&])picks=bot(?:&|$)/.test(search);
   const fpsMatch = /(?:^|[?&])fps=(\d+)(?:&|$)/.exec(search);
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
@@ -724,6 +727,7 @@
     en.kdy = 0;
     en.pop = 1;
     en.gemDue = 0;
+    en.summon = false;
     en.touchCd = 0.25;
     en.facing = x < player.x ? 1 : -1;
     en.fid = ++foeSeq;
@@ -777,7 +781,7 @@
     stillBite = BALANCE.idleBiteEvery;
     en.touchCd = 0.7;
     lastHit = 'idle';
-    hurt(BALANCE.chip, false);
+    hurt(BALANCE.chip, false, 'Standing still');
   }
 
   function tickIdleChip() {
@@ -790,7 +794,7 @@
       if (dist >= (en.radius || 0.32) + BALANCE.idleReach) continue;
       stillBite = BALANCE.idleBiteEvery;
       lastHit = 'idle';
-      hurt(BALANCE.chip, false);
+      hurt(BALANCE.chip, false, 'Standing still');
       return;
     }
   }
@@ -1259,11 +1263,18 @@
     return pxToWorld(36);
   }
 
-  function hurt(amount, heavy) {
+  // Death recap + tell audit. Every damage source names itself (src); Malgrath's attacks
+  // (and imp bolts while he lives) also pass the sim time their warning was first drawn.
+  const lastHits = [];
+  const bossHitLog = [];
+  function hurt(amount, heavy, src, tellAt) {
     if (bench || player.invuln > 0 || state !== 'playing') return;
     const incoming = curse > 0 ? amount * vowSpec().hit : amount;
     const dmg = Math.max(1, incoming - armorCut());
     player.life -= dmg;
+    lastHits.push({ src: src || 'Hit', amt: Math.round(dmg), t: time });
+    if (lastHits.length > 3) lastHits.shift();
+    if (tellAt !== undefined && bossHitLog.length < 400) bossHitLog.push({ t: time, src: src || '', tellAt: tellAt });
     quietHurtAt = time;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
@@ -1950,8 +1961,17 @@
     quietPX = player.x;
     quietPY = player.y;
     if (time < q.from || time >= q.until || boss5) return;
-    if (time - Math.max(quietHurtAt, q.from - q.after) < q.after) return;
-    if (time - quietBreakAt < (q.every || q.after)) return;
+    // Fixed windows (the old dead stretches) drop volleys on a schedule even when the
+    // hero keeps taking chip damage; elsewhere they still wait for `after` s without a hit.
+    let win = null;
+    const sched = q.schedule || [];
+    for (let i = 0; i < sched.length; i++) if (time >= sched[i].from && time < sched[i].until) { win = sched[i]; break; }
+    if (win) {
+      if (time - quietBreakAt < win.every) return;
+    } else {
+      if (time - Math.max(quietHurtAt, q.from - q.after) < q.after) return;
+      if (time - quietBreakAt < (q.every || q.after)) return;
+    }
     quietBreakAt = time;
     quietBreaks += 1;
     // Cinder falls: telegraphed fire circles, one where the hero is heading, the rest near it.
@@ -1987,7 +2007,7 @@
       spark(h.x, h.y, '#ff7a30', 8, 3);
       hazards.splice(i, 1);
     }
-    if (hit) { hazardHits += 1; hurt(q.dmg * (medWave().dmgMul || 1), true); }
+    if (hit) { hazardHits += 1; hurt(q.dmg * (medWave().dmgMul || 1), true, 'Cinder fall'); }
   }
 
   function drawHazards() {
@@ -2059,8 +2079,8 @@
     const spot = spawnBossEdge();
     const b = MED.boss;
     const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: b.name });
-    // HP grows with the hero's level so a strong build still gets a real fight.
-    demon.maxLife = Math.round(b.hp * (1 + (b.hpPerLevel || 0) * Math.max(0, player.level - (b.hpLevelFrom || 0))));
+    // Fixed HP (no hero-level scaling): sized so a median human-like build needs ~50 s.
+    demon.maxLife = Math.round(b.hp);
     demon.life = demon.maxLife;
     demon.dmgBudget = 0;
     demon.dmgBudgetAt = time;
@@ -2074,9 +2094,10 @@
     cullForBoss();
     sfx('boss');
     try { GameAudio.duck(MCFG.audio && MCFG.audio.bossDuck != null ? MCFG.audio.bossDuck : 0.3, 3); } catch (e) {}
-    for (let i = 0; i < (b.adds || 0); i++) {
-      const s2 = edgePoint((i / b.adds) * Math.PI * 2, 0.6);
-      spawnEnemy('imp', s2.x, s2.y);
+    const adds = Math.min(b.adds || 0, b.summonCap || 4);
+    for (let i = 0; i < adds; i++) {
+      const s2 = edgePoint((i / adds) * Math.PI * 2, 0.6);
+      spawnEnemy('imp', s2.x, s2.y).summon = true;
     }
     return demon;
   }
@@ -2106,10 +2127,9 @@
     return n;
   }
 
-  // Malgrath hits harder against a higher-level hero (boss.dmgPerLevel past hpLevelFrom).
+  // Malgrath's hits are fixed (no hero-level scaling).
   function medBossDmg(base) {
-    const b = MED.boss;
-    return base * (1 + (b.dmgPerLevel || 0) * Math.max(0, player.level - (b.hpLevelFrom || 0)));
+    return base;
   }
 
   // Malgrath: Hellfire Cleave (cone), Brimstone Rain (circles), and below
@@ -2137,7 +2157,7 @@
         const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
         if (dist <= b.cleave.range && off <= b.cleave.arc / 2) {
           lastHit = 'boss';
-          hurt(medBossDmg(b.cleave.dmg), true);
+          hurt(medBossDmg(b.cleave.dmg), true, 'Malgrath Cleave', ai.tellSeen);
         }
         addShake(3, 2);
         ai.mode = 'recover';
@@ -2151,7 +2171,7 @@
         }
         if (hit) {
           lastHit = 'boss';
-          hurt(medBossDmg(b.rain.dmg), true);
+          hurt(medBossDmg(b.rain.dmg), true, 'Malgrath Brimstone', ai.tellSeen);
         }
         addShake(2.5, 2);
         ai.mode = 'recover';
@@ -2170,12 +2190,13 @@
       if (!ai.hitDone && len2(player.x - en.x, player.y - en.y) < (en.radius || 1) + 0.35) {
         ai.hitDone = true;
         lastHit = 'boss';
-        hurt(medBossDmg(b.charge.dmg), true);
+        hurt(medBossDmg(b.charge.dmg), true, 'Malgrath Charge', ai.tellSeen);
       }
       if (ai.t <= 0) {
-        for (let i = 0; i < b.charge.imps; i++) {
-          const ang = (i / b.charge.imps) * Math.PI * 2;
-          spawnEnemy('imp', en.x + Math.cos(ang) * 1.4, en.y + Math.sin(ang) * 1.4);
+        const room = Math.min(b.charge.imps, Math.max(0, (b.summonCap || 4) - liveSummons()));
+        for (let i = 0; i < room; i++) {
+          const ang = (i / Math.max(1, room)) * Math.PI * 2;
+          spawnEnemy('imp', en.x + Math.cos(ang) * 1.4, en.y + Math.sin(ang) * 1.4).summon = true;
         }
         ai.mode = 'recover';
         ai.t = 0.9;
@@ -2185,12 +2206,12 @@
     if (ai.mode === 'recover') {
       ai.t -= dt;
       steer(en, dt, en.speed * 0.6);
-      touchPlayer(en, dist, en.dmg, dt);
+      medBossShove(en, dist);
       if (ai.t <= 0) { ai.mode = 'seek'; ai.t = 0; }
       return;
     }
     steer(en, dt, en.speed);
-    touchPlayer(en, dist, en.dmg, dt);
+    medBossShove(en, dist);
     ai.t += dt;
     if (ai.t < b.cycle) return;
     const low = en.life <= en.maxLife * b.charge.belowHp;
@@ -2198,6 +2219,7 @@
     ai.step = (ai.step || 0) + 1;
     ai.kind = order[ai.step % order.length];
     ai.mode = 'tell';
+    ai.tellSeen = null; // set by drawTell on the first frame the warning is on screen
     sfx('warn');
     ai.aim = Math.atan2(dy, dx);
     if (ai.kind === 'cleave') {
@@ -2220,6 +2242,37 @@
     }
     ai.tell0 = ai.t;
     telegraph(en, 0, Math.round(ai.t * 1000));
+  }
+
+  // Malgrath's body no longer deals contact damage: walking into him shoves the hero out
+  // (no damage, no surprise chunk). Every hit he lands comes from a drawn warning.
+  function medBossShove(en, dist) {
+    const reach = (en.radius || 1) + 0.48;
+    if (dist >= reach) return;
+    const d = dist || 0.01;
+    const k = (reach + 0.12 - d) / d;
+    player.x += (player.x - en.x) * k;
+    player.y += (player.y - en.y) * k;
+  }
+
+  function liveSummons() {
+    let n = 0;
+    for (let i = 0; i < enemies.length; i++) if (enemies[i].summon && enemies[i].life > 0) n++;
+    return n;
+  }
+
+  let demonAt = -1;
+  let demonLive = false;
+  function demonAlive() {
+    if (!MEDIEVAL || !boss5 || demonCleared) return false;
+    if (demonAt === time) return demonLive;
+    demonAt = time;
+    demonLive = false;
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.bossKind === 'demon' && en.life > 0) { demonLive = true; break; }
+    }
+    return demonLive;
   }
 
   function bossFightOn() {
@@ -2507,8 +2560,10 @@
     }
   }
 
-  function spawnFoeShot(x, y, vx, vy, dmg) {
+  function spawnFoeShot(x, y, vx, vy, dmg, src, tellAt) {
     const s = foeShotPool.pop() || {};
+    s.src = src || 'Bolt';
+    s.tellAt = tellAt;
     s.x = x;
     s.y = y;
     s.vx = vx;
@@ -2529,7 +2584,9 @@
       const shotR = player.moving ? 0.22 : 0.46;
       if (sweptHit(x0, y0, s.x, s.y, player.x, player.y, shotR)) {
         lastHit = 'shot';
-        hurt(s.dmg, false);
+        // While Malgrath lives, imp bolts count as boss damage (logged with their warning).
+        if (demonAlive()) hurt(s.dmg, false, s.src, s.tellAt == null ? null : s.tellAt);
+        else hurt(s.dmg, false, s.src);
         s.life = 0;
       }
       if (s.life <= 0) {
@@ -2556,7 +2613,7 @@
     if (dist < en.radius + 0.48 && en.touchCd <= 0) {
       en.touchCd = (player.moving && en.elite) ? 2.4 : 0.7;
       lastHit = en.boss ? 'boss' : (en.elite ? 'elite' : en.eid);
-      hurt(dmg == null ? en.dmg : dmg, en.boss);
+      hurt(dmg == null ? en.dmg : dmg, en.boss, (en.name || 'Foe') + ' contact');
     }
   }
 
@@ -2580,10 +2637,58 @@
     if (box && typeof box.spawn === 'function') box.spawn(x, y);
   }
 
-  function pushChat(text, color) {
+  // Medieval log: one line per kind (a repeat updates its line with a count and restarts
+  // its clock), each line goes after CHAT_LIFE s of run time, at most CHAT_MAX lines.
+  const CHAT_LIFE = 3;
+  const CHAT_MAX = 3;
+  const chatLines = [];
+  function chatDrop(i) {
+    const line = chatLines[i];
+    chatLines.splice(i, 1);
+    try { if (line.el && line.el.parentNode) line.el.parentNode.removeChild(line.el); } catch (e) {}
+  }
+  function pruneChat() {
+    for (let i = chatLines.length - 1; i >= 0; i--) {
+      if (time - chatLines[i].at >= CHAT_LIFE || time < chatLines[i].at) chatDrop(i);
+    }
+  }
+  function clearChat() {
+    while (chatLines.length) chatDrop(chatLines.length - 1);
+    const host = $('sv-chat');
+    if (host) { try { host.textContent = ''; } catch (e) {} }
+  }
+  function pushChatLine(text, color, key) {
+    const host = $('sv-chat');
+    let line = null;
+    for (let i = 0; i < chatLines.length; i++) if (chatLines[i].key === key) { line = chatLines[i]; chatLines.splice(i, 1); break; }
+    if (line) {
+      line.n += 1;
+      line.text = line.base + ' \u00d7' + line.n;
+    } else {
+      line = { key: key, base: text, text: text, n: 1, el: null };
+      if (host && typeof document !== 'undefined' && document.createElement) {
+        try { line.el = document.createElement('p'); } catch (e) { line.el = null; }
+      }
+    }
+    line.at = time;
+    chatLines.push(line);
+    if (line.el) {
+      line.el.textContent = line.text;
+      if (line.el.style) {
+        line.el.style.color = color || '#f4efe0';
+        line.el.style.animation = 'none';
+        void line.el.offsetWidth; // restart the fade
+        line.el.style.animation = '';
+      }
+      try { host.appendChild(line.el); } catch (e) {}
+    }
+    while (chatLines.length > CHAT_MAX) chatDrop(0);
+  }
+  function pushChat(text, color, key) {
     if (!text) return;
     chatLog.push({ text: text, color: color || '#f4efe0', t: time });
     if (chatLog.length > 6) chatLog.shift();
+    if (MEDIEVAL) { pushChatLine(text, color, key || text); return; }
     const host = $('sv-chat');
     if (!host) return;
     const line = document.createElement('p');
@@ -2614,7 +2719,7 @@
     lootSaidAt = time;
     showToast(item);
     const loud = item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary';
-    if (!MEDIEVAL || loud) pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
+    if (!MEDIEVAL || loud) pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0', 'find|' + (item.name || 'Item'));
     if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
   }
 
@@ -2783,7 +2888,7 @@
       if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
-        hurt(player.moving ? 4 * (MEDIEVAL ? (en.medDmgMul || 1) : 1) : en.dmg + 3, false);
+        hurt(player.moving ? 4 * (MEDIEVAL ? (en.medDmgMul || 1) : 1) : en.dmg + 3, false, (en.name || 'Fiend') + ' charge');
       }
       if (ai.t <= 0) {
         ai.mode = 'recover';
@@ -2806,8 +2911,12 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         const sp = 2.7;
-        const shot = (5 + lateT() * (BALANCE.lateShot - 5)) * (MEDIEVAL ? (en.medDmgMul || 1) : 1);
-        spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
+        let shot = (5 + lateT() * (BALANCE.lateShot - 5)) * (MEDIEVAL ? (en.medDmgMul || 1) : 1);
+        if (MEDIEVAL && demonAlive()) shot = Math.min(shot, MED.boss.impShot || 8);
+        // Medieval: the bolt flies down the lane shown during the windup.
+        const ax = MEDIEVAL && ai.ax != null ? ai.ax : dx / dist;
+        const ay = MEDIEVAL && ai.ay != null ? ai.ay : dy / dist;
+        spawnFoeShot(en.x, en.y, ax * sp, ay * sp, shot, MEDIEVAL ? 'Imp bolt' : 'Bolt', ai.tellSeen);
         ai.mode = 'recover';
         ai.t = 2.6;
       }
@@ -2824,6 +2933,9 @@
     if (dist < 8.5 && dist > 2.8) {
       ai.mode = 'tell';
       ai.t = 0.7;
+      ai.ax = dx / dist;
+      ai.ay = dy / dist;
+      ai.tellSeen = null;
       telegraph(en, index, 700);
     }
   }
@@ -2848,7 +2960,7 @@
         if (ai.kind === 'slam') {
           if (dist < (mb ? mb.slam.radius : 2.15)) {
             lastHit = 'boss';
-            hurt(en.dmg + (mb ? mb.slam.bonusDmg : 6), true);
+            hurt(en.dmg + (mb ? mb.slam.bonusDmg : 6), true, (en.name || 'Boss') + ' slam');
           }
           ai.mode = 'recover';
           ai.t = mb ? mb.slam.recover : 1.1;
@@ -3387,6 +3499,7 @@
       }
     }
     syncVowChrome();
+    if (chatLines.length) pruneChat();
     const walkX = player.x;
     const walkY = player.y;
     movePlayer(dt);
@@ -3552,6 +3665,9 @@
     minuteMark = 0;
     spawnAcc = 0;
     boss5 = false;
+    demonAt = -1;
+    lastHits.length = 0;
+    bossHitLog.length = 0;
     curse = 0;
     vowPayout = false;
     vowResume = false;
@@ -3627,6 +3743,7 @@
     toastText = '';
     toastQueue.length = 0;
     chatLog.length = 0;
+    clearChat();
     const chatHost = $('sv-chat');
     if (chatHost) chatHost.textContent = '';
     castersCleared = 0;
@@ -3981,6 +4098,7 @@
     if (endGold) endGold.textContent = '+' + runGold + ' gold banked';
     paintNextOffer(record.next);
     if (MEDIEVAL) paintMedievalEnd(kind, earned, vowBonus);
+    paintRecap(kind);
     const vowsLine = $('sv-end-vows');
     if (vowsLine) {
       if (MEDIEVAL) vowsLine.textContent = vowEndLine(kind, vowBonus);
@@ -4003,6 +4121,21 @@
     show('sv-end');
   }
 
+  // Death recap: the last 3 hits (newest first) with what dealt them, e.g.
+  // 'Malgrath Cleave 23 / Imp bolt 9 / Bone Rattler contact 7'.
+  function recapLines() {
+    const out = [];
+    for (let i = lastHits.length - 1; i >= 0 && out.length < 3; i--) out.push(lastHits[i].src + ' ' + lastHits[i].amt);
+    return out;
+  }
+  function paintRecap(kind) {
+    let el = $('sv-end-recap');
+    if (!el || !el.classList) return;
+    const lines = kind === 'dead' ? recapLines() : [];
+    el.textContent = lines.length ? 'Last hits\n' + lines.join('\n') : '';
+    el.classList.toggle('hidden', !lines.length);
+  }
+
   // Victory/death line for the pre-run vow. Gold numbers come from finish().
   function vowEndLine(kind, vowBonus) {
     const name = MED.vow.name;
@@ -4011,8 +4144,14 @@
     return name + ' broken: ' + (deathGoldLost > 0 ? deathGoldLost + ' run gold lost' : 'run gold lost');
   }
 
+  // Ads off (medieval): one free revive per run in the ad's slot ('Revive (free)'); the ad
+  // takes the slot once ads ship. Second Wind (shop) is a separate automatic revive on top.
+  // The Oath of Ruin gets neither the ad nor the free revive.
+  function freeRevive() {
+    return !!(MEDIEVAL && !adsOn);
+  }
   function reviveOpen() {
-    return !!(adsOn && !revived && !(MEDIEVAL && bloodVow && MED.vow.noAdRevive));
+    return !!((adsOn || freeRevive()) && !revived && !(MEDIEVAL && bloodVow && MED.vow.noAdRevive));
   }
 
   // Medieval footer by phase. Pending death: Revive + End run. Final death or win:
@@ -4020,7 +4159,10 @@
   function medFooterState() {
     const pend = state === 'dead' && pendingEnd;
     const rv = $('sv-revive');
-    if (rv) rv.classList.toggle('hidden', !pend);
+    if (rv) {
+      rv.classList.toggle('hidden', !pend);
+      rv.textContent = freeRevive() ? 'Revive (free)' : 'Revive';
+    }
     const er = $('sv-end-run');
     if (er) er.classList.toggle('hidden', !pend);
     const again = $('sv-restart');
@@ -4622,7 +4764,26 @@
     if (waitingClock) evoHold = true;
   }
 
+  function humanPickIndex() {
+    const ids = offers.map((item) => item.id);
+    const order = [];
+    if (player.life < player.maxLife * 0.3) order.push('heal');
+    if ((owned.orbit || 0) < 5) order.push('orbit');
+    if ((owned.orbit || 0) >= 2 && (owned.tempo || 0) < (BALANCE.evoPartner || 1)) order.push('tempo');
+    order.push('might');
+    // New weapons first (players like new toys), then levels on what they hold, then passives.
+    ['bolt', 'nova', 'pierce'].forEach((w) => { if (!(owned[w] > 0)) order.push(w); });
+    ['bolt', 'nova', 'pierce'].forEach((w) => { if ((owned[w] || 0) < 5) order.push(w); });
+    order.push('vitality', 'haste', 'area', 'armor', 'tempo', 'cinder', 'magnet');
+    for (let p = 0; p < order.length; p++) {
+      const at = ids.indexOf(order[p]);
+      if (at >= 0) return at;
+    }
+    return 0;
+  }
+
   function kitePickIndex() {
+    if (picksHuman) return humanPickIndex();
     const ids = offers.map((item) => item.id);
     const order = [];
     if ((owned.orbit || 0) < 5) order.push('orbit');
@@ -5276,7 +5437,12 @@
       tellBox.paintMobTell(ctx, 'line', x, y, x + ai.vx * lane, y + ai.vy * lane, (en.radius || 0.34) * TILE * 0.5, u);
     } else if (en.behaviour === 'shooter' && mobTell) {
       const u = Math.max(0, Math.min(1, 1 - Math.max(0, ai.t) / 0.7));
-      tellBox.paintMobTell(ctx, 'dot', x, y - 18, 0.22 * TILE, 0, 0, u);
+      if (ai.tellSeen == null) ai.tellSeen = time;
+      if (MEDIEVAL && ai.ax != null && demonAlive() && typeof tellBox.paintTell === 'function') {
+        // Boss fight: imp bolts are boss damage and get the loud boss warning (their lane).
+        const lane = 4.5 * TILE;
+        tellBox.paintTell(ctx, 'line', x, y - 12, x + ai.ax * lane, y - 12 + ai.ay * lane, 0.32 * TILE, u);
+      } else tellBox.paintMobTell(ctx, 'dot', x, y - 18, 0.22 * TILE, 0, 0, u);
     } else if (en.behaviour === 'charger') {
       ctx.strokeStyle = '#d0b4ff';
       ctx.lineWidth = 3;
@@ -5292,6 +5458,7 @@
       ctx.arc(x, y - 18, 4 + grow * 8, 0, Math.PI * 2);
       ctx.fill();
     } else if (MEDIEVAL && en.behaviour === 'boss' && en.bossKind === 'demon') {
+      if (ai.tellSeen == null) ai.tellSeen = time;
       const bc = MED.boss;
       const st = bc.tell;
       const span = ai.tell0 || 1;
@@ -5929,6 +6096,7 @@
       if (tapBlocked()) return;
       if (state !== 'dead' || revived) return;
       if (MEDIEVAL && !pendingEnd) return;
+      if (freeRevive()) { revivePlayer(); return; }
       try { Ads.offerRevive(); } catch (e) {}
     });
     $('sv-double').addEventListener('click', () => {
@@ -6102,6 +6270,10 @@
       };
       window.__svItems = () => gems.filter((g) => g.kind === 'item').map((g) => (g.item && g.item.rarity) || '');
       window.__svPan = (x, y) => { player.x = x; player.y = y; };
+      window.__svBossHits = () => bossHitLog.slice();
+      window.__svRecap = () => recapLines();
+      window.__svChatLines = () => chatLines.map((l) => l.text);
+      window.__svBossHp = () => { const d = enemies.find((e) => e.bossKind === 'demon'); return d ? { life: d.life, max: d.maxLife } : null; };
       window.__svEndVow = () => { if (vowPayout) curse = 0.02; return curse; };
       window.__svHurt = (n) => { player.invuln = 0; hurt(n || 9999, true); return state; };
       window.__svGuard = () => { uiGuardUntil = (performance.now ? performance.now() : Date.now()) + 300; return state; };
@@ -6593,6 +6765,12 @@
     window.__svPlantCasters = (n) => { casterPlant = Math.max(0, n | 0); return casterPlant; };
     window.__svSetTime = (t) => { time = t; return snapRun(); };
     window.__svDebugLine = () => debugHudText();
+    window.__svBossHits = () => bossHitLog.slice();
+    window.__svRecap = () => recapLines();
+    window.__svChatLines = () => chatLines.map((l) => l.text);
+    window.__svFind = (name, rarity) => { lootSaidAt = -99; lootSaid = Object.create(null); announceItem({ name: name || 'Iron Blade', rarity: rarity || 'rare' }, player.x, player.y); return chatLines.map((l) => l.text); };
+    window.__svSummons = () => liveSummons();
+    window.__svBossHp = () => { const d = enemies.find((e) => e.bossKind === 'demon'); return d ? { life: d.life, max: d.maxLife } : null; };
     window.__svTags = () => {
       const out = [];
       for (let i = 0; i < enemies.length; i++) {

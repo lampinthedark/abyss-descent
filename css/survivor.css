@@ -395,5 +395,7 @@ body.sv-medieval.sv-bossfight #sv-toast {
 body.sv-medieval #sv-boss-hp { background: linear-gradient(180deg, #ff6a3a, #b0140a); height: 100%; }
 .sv-end-relic { margin: 6px 0 0; color: #f2f6ff; font-weight: 700; text-shadow: 0 0 6px #c9a2ff; }
 /* Medieval: "You find" lines fade out after a few seconds. */
-body.sv-medieval #sv-chat p { animation: svChatFade 6s ease-in forwards; }
-@keyframes svChatFade { 0%, 65% { opacity: 1; } 100% { opacity: 0; } }
+body.sv-medieval #sv-chat p { animation: svChatFade 3s ease-in forwards; }
+@keyframes svChatFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.sv-end-recap { white-space: pre-line; margin: 4px 0 0; font-size: 13px; line-height: 1.35; color: #e8b8a8; }
+.sv-end-recap.hidden { display: none; }

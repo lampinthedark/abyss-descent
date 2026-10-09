@@ -345,7 +345,8 @@ const SurvivorData = (() => {
     // Cinder falls (repeat every `every` s until one lands): no hit for `after` s between from..until drops `count` telegraphed fire
     // circles (radius tiles, tell s) — one where the hero is heading (lead x tell s ahead),
     // the rest within `spread` tiles. A hit deals dmg x the wave's dmgMul. Dodgeable.
-    quietBreak: { from: 60, until: 285, after: 10, every: 4, count: 5, radius: 1.3, tell: 1.3, lead: 1.0, spread: 2.5, dmg: 5 },
+    quietBreak: { from: 60, until: 285, after: 10, every: 4, count: 5, radius: 1.3, tell: 1.3, lead: 1.0, spread: 2.5, dmg: 5,
+      schedule: [{ from: 80, until: 120, every: 6 }, { from: 190, until: 230, every: 6 }] }, // schedule: volleys every `every` s in these windows regardless of hits (fills 1:20-2:00 and 3:10-3:50)
     // dmgMul (optional) scales contact damage, imp shots and fiend dashes; speedMul scales foe speed.
     // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
     kinds: {
@@ -359,8 +360,10 @@ const SurvivorData = (() => {
     events: [
       { at: 60, type: 'ring', kind: 'goblin', count: 18 },     // goblin ring around the hero
       { at: 60, type: 'elite', kind: 'goblin', name: 'Goblin Chief', hp: 260, chest: true, evolve: true },
+      { at: 100, type: 'ring', kind: 'skel', count: 16 },       // 1:40 ring closing in (dead-stretch filler)
       { at: 135, type: 'elite', kind: 'armored', name: 'Bone Warden', hp: 340, chest: true }, // 2:15 lull breaker
       { at: 180, type: 'elite', kind: 'fiend', name: 'Elite Fiend', hp: 420, chest: true },
+      { at: 205, type: 'ring', kind: 'goblin', count: 20 },    // 3:25 ring closing in
       { at: 270, type: 'banner', text: 'The Pit stirs\u2026' },
       { at: 288, type: 'heal', pct: 0.4, text: 'The saints mend your wounds' }, // breather heal before the boss
     ],
@@ -381,8 +384,8 @@ const SurvivorData = (() => {
 
     // ---- 5. Malgrath, the Pit Sovereign.
     boss: {
-      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 1500, hpPerLevel: 0.02, dmgPerLevel: 0.004, hpLevelFrom: 20, minFight: 50, glance: 0, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 10, // hp grows hpPerLevel per hero level past hpLevelFrom; damage past maxLife/minFight per second glances (x glance). scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
-      adds: 10, winDelay: 2.0, winGold: 40, cycle: 1.6,
+      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 650, minFight: 30, glance: 0, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 0, // hp is FIXED (no hero-level scaling), sized for ~50 s against a median human-like build; minFight is only a floor: damage past maxLife/minFight per second glances (x glance). touchDmg 0: his body shoves instead of hurting, so every hit comes from a drawn warning. scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
+      adds: 4, summonCap: 4, impShot: 8, winDelay: 2.0, winGold: 40, cycle: 1.6, // adds/summons: imps alive from his entrance + charges, capped at summonCap; impShot: imp bolt damage cap while he lives
       spawnMul: 0.2, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
