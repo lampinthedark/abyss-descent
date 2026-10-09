@@ -2999,3 +2999,588 @@ const FX = (function () {
     // ---- end game feel batch 2 API ----
   };
 })();
+
+// ---- polish layer ----
+// Visual polish on today's 16px art (graphics report, path (c)). Everything
+// here lives in FX.polish and is only drawn when js/survivor.js calls it:
+//
+//   FX.polish.floor(ctx, camX, camY, viewW, viewH, zoom, vow)
+//       Textured dark stone floor with sparse props (cracks, rubble, bones,
+//       skulls, small graves, candles, stains, moss). Baked once per zoom/vow
+//       into FLOOR_VARIANTS offscreen chunks (8x8 tiles each) from a fixed
+//       seed, so a frame is ~15-20 drawImage calls. Returns false when it
+//       cannot draw (no canvas, e.g. in node), so the caller falls back.
+//   FX.polish.shadows(ctx, list, n, camX, camY, zoom, heroX, heroY)
+//       Flat #000 @0.35 ellipses under every live unit (list[0..n) in world
+//       tiles) plus the hero (feet in screen px), one path and one fill(),
+//       scaled to each sprite's width. Call before any sprite is drawn.
+//   FX.polish.glow(ctx, shots, camX, camY, zoom)
+//       Fake glow (additive, pre-rendered soft sprites) under the Oathblade /
+//       Dawnbreaker blades (positions come from FX.cast('blade')) and on bolts
+//       and axes from `shots` ({kind, x, y, vx, vy} in tiles). Screen space.
+//   FX.polish.light(ctx, heroX, heroY, viewW, viewH, zoom)
+//       Warm additive light pool around the hero, then a gentle dark edge
+//       vignette (gradient cached per ctx and size). Screen space, after the
+//       world and FX.draw and before FX.drawLowHp.
+// No shadowBlur, no per-frame allocation, no per-unit save/restore.
+(function () {
+  if (typeof FX === 'undefined' || !FX) return;
+  const TAU2 = 6.283185307179586;
+  const ART_TILE = 16;
+  const CHUNK_TILES = 8;
+  const FLOOR_VARIANTS = 6;
+  const FLOOR_SEED = 0x5eed71;
+  const SHADOW_FILL = 'rgba(0, 0, 0, 0.35)';
+  const SHADOW_W = 0.72; // of the sprite's art width
+  const SHADOW_H = 0.3; // of the shadow's width
+  const LIGHT_TILES = 5.2; // light pool radius in tiles
+  const LIGHT_ALPHA = 0.26;
+  const VIG_EDGE = 0.5;
+  const GLOW_BLADE_ALPHA = 0.55;
+  const GLOW_SHOT_ALPHA = 0.6;
+  const BLADE_CAP = 8;
+
+  let floorZoom = 0;
+  let floorVow = -1;
+  const floorChunks = new Array(FLOOR_VARIANTS);
+  let floorOk = true;
+  let lightImg = null;
+  let lightBig = null;
+  let lightBigR = 0;
+  let glowSteel = null;
+  let glowLime = null;
+  let glowAxe = null;
+  let vigTop = null;
+  let vigSide = null;
+  let vigWP = 0;
+  let vigHP = 0;
+  const VIG_BAND = 0.24; // edge band per side; the gradient is clear inside it
+  const shadowArt = {};
+  let heroShadowArt = 0;
+  const bladeX = new Float64Array(BLADE_CAP);
+  const bladeY = new Float64Array(BLADE_CAP);
+  const bladeA = new Float64Array(BLADE_CAP);
+  let bladeCount = 0;
+
+  function num(n) {
+    return typeof n === 'number' && n === n;
+  }
+
+  function makeCanvas(w, h) {
+    if (typeof document === 'undefined' || !document || typeof document.createElement !== 'function') return null;
+    try {
+      const c = document.createElement('canvas');
+      if (!c || typeof c.getContext !== 'function') return null;
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      if (!g || typeof g.putImageData !== 'function' || typeof g.drawImage !== 'function') return null;
+      return c;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ---- floor bake (art pixels, 16 per tile) ----
+  function bakeVariant(variant, vow) {
+    const size = CHUNK_TILES * ART_TILE;
+    const c = makeCanvas(size, size);
+    if (!c) return null;
+    const g = c.getContext('2d');
+    const im = g.createImageData(size, size);
+    const d = im.data;
+    let seed = (FLOOR_SEED ^ Math.imul(variant + 1, 0x9e3779b1)) >>> 0;
+    const rnd = () => {
+      seed = (seed + 0x6d2b79f5) >>> 0;
+      let t = seed;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const cool = 1 + vow * 0.05;
+    const dim = 1 - vow * 0.06;
+    const put = (x, y, r, gg, b, a) => {
+      if (x < 0 || y < 0 || x >= size || y >= size) return;
+      const o = (y * size + x) * 4;
+      const k = a == null ? 1 : a;
+      d[o] = Math.round(d[o] * (1 - k) + r * dim * k);
+      d[o + 1] = Math.round(d[o + 1] * (1 - k) + gg * dim * k);
+      d[o + 2] = Math.round(d[o + 2] * (1 - k) + b * dim * cool * k);
+      d[o + 3] = 255;
+    };
+    const add = (x, y, dl) => {
+      if (x < 0 || y < 0 || x >= size || y >= size) return;
+      const o = (y * size + x) * 4;
+      d[o] = Math.max(0, Math.min(255, d[o] + dl));
+      d[o + 1] = Math.max(0, Math.min(255, d[o + 1] + dl));
+      d[o + 2] = Math.max(0, Math.min(255, d[o + 2] + dl));
+    };
+    // Slabs: each tile is one slab, two half slabs or four quarters, 1px grout
+    // on the top and left edge so chunks tile seamlessly.
+    for (let ty = 0; ty < CHUNK_TILES; ty++) {
+      for (let tx = 0; tx < CHUNK_TILES; tx++) {
+        const ox = tx * ART_TILE;
+        const oy = ty * ART_TILE;
+        const cut = rnd();
+        const split = cut < 0.62 ? 1 : (cut < 0.86 ? 2 : 4);
+        for (let s = 0; s < split; s++) {
+          const sw = split === 4 ? 8 : 16;
+          const sh = split === 1 ? 16 : 8;
+          const sx0 = ox + (split === 4 ? (s & 1) * 8 : 0);
+          const sy0 = oy + (split === 1 ? 0 : (split === 2 ? s * 8 : (s >> 1) * 8));
+          const base = 25 + Math.round((rnd() - 0.5) * 7);
+          const hue = rnd();
+          const tr = hue < 0.55 ? 0 : (hue < 0.85 ? 1 : 0);
+          const tg = hue < 0.55 ? 0 : (hue < 0.85 ? 0 : 1);
+          const tb = hue < 0.55 ? 3 : (hue < 0.85 ? 0 : 1);
+          for (let y = 0; y < sh; y++) {
+            for (let x = 0; x < sw; x++) {
+              const px = sx0 + x;
+              const py = sy0 + y;
+              if (x === 0 || y === 0) {
+                put(px, py, 13, 12, 16);
+                continue;
+              }
+              let l = base + Math.round((rnd() - 0.5) * 4);
+              if (y === 1) l += 4;
+              else if (x === 1) l += 2;
+              else if (y === sh - 1) l -= 3;
+              if (rnd() < 0.035) l -= 6;
+              put(px, py, l + tr, l + tg, l + tb);
+            }
+          }
+        }
+      }
+    }
+    // Details, at most one prop per tile, decided per tile from the seed.
+    for (let ty = 0; ty < CHUNK_TILES; ty++) {
+      for (let tx = 0; tx < CHUNK_TILES; tx++) {
+        const ox = tx * ART_TILE;
+        const oy = ty * ART_TILE;
+        const roll = rnd();
+        const jx = 3 + Math.floor(rnd() * 6);
+        const jy = 3 + Math.floor(rnd() * 6);
+        const x = ox + jx;
+        const y = oy + jy;
+        if (roll < 0.17) {
+          // crack: short jagged dark line with a lighter lip
+          let cx = ox + 2 + Math.floor(rnd() * 10);
+          let cy = oy + 2 + Math.floor(rnd() * 10);
+          const n = 4 + Math.floor(rnd() * 6);
+          const dx = rnd() < 0.5 ? 1 : -1;
+          for (let i = 0; i < n; i++) {
+            put(cx, cy, 11, 10, 13);
+            add(cx, cy + 1, 3);
+            if (rnd() < 0.6) cx += dx;
+            else cy += 1;
+            if (cx <= ox || cx >= ox + 15 || cy >= oy + 15) break;
+          }
+        } else if (roll < 0.26) {
+          // rubble: a few pebbles with a dark underside
+          const n = 2 + Math.floor(rnd() * 3);
+          for (let i = 0; i < n; i++) {
+            const px = ox + 2 + Math.floor(rnd() * 12);
+            const py = oy + 2 + Math.floor(rnd() * 12);
+            put(px, py, 40, 38, 42);
+            put(px + 1, py, 34, 32, 36);
+            put(px, py + 1, 12, 11, 14);
+            put(px + 1, py + 1, 12, 11, 14);
+          }
+        } else if (roll < 0.29) {
+          // a loose bone: a shallow shaft with knobbed ends and a dark underside
+          const len = 4 + Math.floor(rnd() * 3);
+          const up = rnd() < 0.5;
+          for (let i = 0; i < len; i++) {
+            const by = y + (up ? -((i / 2) | 0) : ((i / 2) | 0));
+            put(x + i, by, 46, 44, 39);
+            put(x + i, by + 1, 12, 11, 13);
+          }
+          const ey = y + (up ? -(((len - 1) / 2) | 0) : (((len - 1) / 2) | 0));
+          put(x - 1, y - 1, 52, 50, 44);
+          put(x - 1, y + 1, 50, 48, 42);
+          put(x + len, ey - 1, 52, 50, 44);
+          put(x + len, ey + 1, 50, 48, 42);
+        } else if (roll < 0.335) {
+          // skull
+          for (let yy = 0; yy < 4; yy++) {
+            for (let xx = 0; xx < 5; xx++) {
+              if (yy === 3 && (xx === 0 || xx === 4)) continue;
+              put(x + xx, y + yy, 50 - yy * 3, 47 - yy * 3, 43 - yy * 3);
+            }
+          }
+          put(x + 1, y + 1, 12, 10, 12);
+          put(x + 3, y + 1, 12, 10, 12);
+          for (let xx = 0; xx < 5; xx++) put(x + xx, y + 4, 11, 10, 12);
+        } else if (roll < 0.36) {
+          // small grave: rounded headstone with a carved cross and a mound
+          const gx = ox + 5 + Math.floor(rnd() * 4);
+          const gy = oy + 3;
+          for (let yy = 0; yy < 8; yy++) {
+            for (let xx = 0; xx < 6; xx++) {
+              if (yy === 0 && (xx === 0 || xx === 5)) continue;
+              const edge = xx === 0 || xx === 5 || yy === 0;
+              const l = edge ? 30 : 44 - (xx > 3 ? 6 : 0);
+              put(gx + xx, gy + yy, l, l, l + 5);
+            }
+          }
+          put(gx + 2, gy + 2, 26, 26, 30);
+          put(gx + 3, gy + 2, 26, 26, 30);
+          put(gx + 2, gy + 1, 26, 26, 30);
+          put(gx + 2, gy + 3, 26, 26, 30);
+          put(gx + 2, gy + 4, 26, 26, 30);
+          for (let xx = -1; xx < 7; xx++) {
+            put(gx + xx, gy + 8, 30, 25, 22);
+            put(gx + xx, gy + 9, 12, 10, 11);
+          }
+          put(gx + 1, gy + 1, 52, 52, 57);
+        } else if (roll < 0.38) {
+          // candle: dim warm halo, wax stub, ember flame (kept under 60 luminance)
+          for (let yy = -4; yy <= 4; yy++) {
+            for (let xx = -4; xx <= 4; xx++) {
+              const r2 = xx * xx + yy * yy;
+              if (r2 > 16) continue;
+              const k = 0.22 * (1 - r2 / 17);
+              put(x + xx, y + yy + 2, 70, 42, 20, k);
+            }
+          }
+          put(x, y + 1, 52, 49, 42);
+          put(x + 1, y + 1, 44, 41, 35);
+          put(x, y + 2, 52, 49, 42);
+          put(x + 1, y + 2, 44, 41, 35);
+          put(x, y + 3, 50, 47, 40);
+          put(x + 1, y + 3, 42, 39, 33);
+          put(x - 1, y + 4, 12, 11, 12);
+          put(x, y + 4, 12, 11, 12);
+          put(x + 1, y + 4, 12, 11, 12);
+          put(x, y, 92, 50, 14);
+          put(x, y - 1, 70, 36, 10);
+        } else if (roll < 0.41) {
+          // old stain
+          for (let yy = -2; yy <= 2; yy++) {
+            for (let xx = -3; xx <= 3; xx++) {
+              if (xx * xx * 0.5 + yy * yy > 4.2 || rnd() < 0.2) continue;
+              put(x + xx, y + yy, 34, 12, 12, 0.55);
+            }
+          }
+        } else if (roll < 0.47) {
+          // moss in the grout corner
+          const n = 3 + Math.floor(rnd() * 4);
+          for (let i = 0; i < n; i++) put(ox + 1 + Math.floor(rnd() * 4), oy + 1 + Math.floor(rnd() * 3), 22, 33, 22, 0.8);
+        }
+      }
+    }
+    g.putImageData(im, 0, 0);
+    return c;
+  }
+
+  function ensureFloor(zoom, vow) {
+    if (!floorOk) return false;
+    if (floorZoom === zoom && floorVow === vow && floorChunks[0]) return true;
+    const px = CHUNK_TILES * ART_TILE * zoom;
+    for (let v = 0; v < FLOOR_VARIANTS; v++) {
+      const art = bakeVariant(v, vow);
+      if (!art) {
+        floorOk = false;
+        return false;
+      }
+      const big = (floorChunks[v] && floorChunks[v].width === px) ? floorChunks[v] : makeCanvas(px, px);
+      if (!big) {
+        floorOk = false;
+        return false;
+      }
+      const g = big.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.clearRect(0, 0, px, px);
+      g.drawImage(art, 0, 0, px, px);
+      floorChunks[v] = big;
+    }
+    floorZoom = zoom;
+    floorVow = vow;
+    return true;
+  }
+
+  function chunkVariant(cx, cy) {
+    let h = Math.imul(cx | 0, 73856093) ^ Math.imul(cy | 0, 19349663);
+    h = Math.imul(h ^ (h >>> 13), 0x5bd1e995);
+    h ^= h >>> 15;
+    return (h >>> 0) % FLOOR_VARIANTS;
+  }
+
+  function floor(ctx, camX, camY, viewW, viewH, zoom, vow) {
+    if (!ctx || typeof ctx.drawImage !== 'function' || !num(camX) || !num(camY)) return false;
+    const z = num(zoom) && zoom > 0 ? Math.round(zoom) : 1;
+    const v = num(vow) ? Math.max(0, Math.min(3, vow | 0)) : 0;
+    if (!ensureFloor(z, v)) return false;
+    const chunk = CHUNK_TILES * ART_TILE * z;
+    const c0 = Math.floor(-camX / chunk);
+    const r0 = Math.floor(-camY / chunk);
+    ctx.imageSmoothingEnabled = false;
+    for (let r = r0, y = r0 * chunk + camY; y < viewH; r++, y += chunk) {
+      for (let c = c0, x = c0 * chunk + camX; x < viewW; c++, x += chunk) {
+        ctx.drawImage(floorChunks[chunkVariant(c, r)], x, y);
+      }
+    }
+    return true;
+  }
+
+  // ---- blob shadows ----
+  function spriteId(en) {
+    if (en.sprite) return en.sprite;
+    if (en.boss) return 'boss';
+    const e = en.eid;
+    return (e === 'brute' || e === 'imp' || e === 'charger' || e === 'shooter') ? e : 'skel';
+  }
+
+  function artWidth(id) {
+    let w = shadowArt[id];
+    if (w > 0) return w;
+    w = 0;
+    try {
+      const s = typeof Sprites !== 'undefined' ? Sprites : null;
+      const fr = s && s.frameRect ? s.frameRect(id, 'run', 0) : null;
+      if (fr && fr.sw > 0) w = fr.sw - 2;
+    } catch (e) {}
+    if (w > 0) shadowArt[id] = w;
+    return w > 0 ? w : 14;
+  }
+
+  function shadows(ctx, list, n, camX, camY, zoom, heroX, heroY) {
+    if (!ctx || typeof ctx.ellipse !== 'function' || !num(camX) || !num(camY)) return 0;
+    const z = num(zoom) && zoom > 0 ? zoom : 1;
+    const tile = ART_TILE * z;
+    const viewW = ctx.canvas ? ctx.canvas.width : 4096;
+    const viewH = ctx.canvas ? ctx.canvas.height : 4096;
+    let drawn = 0;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = SHADOW_FILL;
+    ctx.beginPath();
+    const count = list && n > 0 ? Math.min(n, list.length) : 0;
+    for (let i = 0; i < count; i++) {
+      const en = list[i];
+      if (!en || !(en.life > 0) || en.dying > 0) continue;
+      const sx = en.x * tile + camX;
+      const sy = en.y * tile + camY;
+      if (sx < -96 || sy < -40 || sx > viewW + 96 || sy > viewH + 60) continue;
+      const k = num(en.scale) && en.scale > 0 ? en.scale : 1;
+      const rx = artWidth(spriteId(en)) * z * k * SHADOW_W * 0.5;
+      const ry = rx * SHADOW_H;
+      ctx.moveTo(sx + rx, sy);
+      ctx.ellipse(sx, sy, rx, ry, 0, 0, TAU2);
+      drawn++;
+    }
+    if (num(heroX) && num(heroY)) {
+      if (!(heroShadowArt > 0)) heroShadowArt = artWidth('hero');
+      const rx = heroShadowArt * z * SHADOW_W * 0.5;
+      ctx.moveTo(heroX + rx, heroY);
+      ctx.ellipse(heroX, heroY, rx, rx * SHADOW_H, 0, 0, TAU2);
+      drawn++;
+    }
+    if (drawn) ctx.fill();
+    return drawn;
+  }
+
+  // ---- glow sprites ----
+  function softSprite(r, g, b, stretch) {
+    const w = 64;
+    const h = stretch ? 32 : 64;
+    const c = makeCanvas(w, h);
+    if (!c) return null;
+    const x = c.getContext('2d');
+    if (typeof x.createRadialGradient !== 'function') return null;
+    x.setTransform(1, 0, 0, h / w, 0, 0);
+    const grad = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    grad.addColorStop(0, 'rgba(' + r + ',' + g + ',' + b + ',1)');
+    grad.addColorStop(0.35, 'rgba(' + r + ',' + g + ',' + b + ',0.45)');
+    grad.addColorStop(0.7, 'rgba(' + r + ',' + g + ',' + b + ',0.12)');
+    grad.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)');
+    x.fillStyle = grad;
+    x.fillRect(0, 0, w, w);
+    return c;
+  }
+
+  function ensureGlow() {
+    if (glowSteel) return true;
+    glowSteel = softSprite(255, 236, 190, true);
+    glowLime = softSprite(220, 255, 120, true);
+    glowAxe = softSprite(255, 190, 110, true);
+    return !!glowSteel;
+  }
+
+  function noteBlades(info) {
+    const pos = info && info.positions;
+    const n = pos && pos.length ? Math.min(BLADE_CAP, pos.length) : 0;
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const p = pos[i];
+      if (!p || !num(p.x) || !num(p.y)) continue;
+      bladeX[k] = p.x;
+      bladeY[k] = p.y;
+      bladeA[k] = num(p.angle) ? p.angle : 0;
+      k++;
+    }
+    bladeCount = k;
+  }
+
+  // Draws img centred at (x, y), long axis along angle a, len x wide px.
+  function glowAt(ctx, img, x, y, a, len, wide) {
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    ctx.setTransform(c * len, s * len, -s * wide, c * wide, x, y);
+    ctx.drawImage(img, -0.5, -0.5, 1, 1);
+  }
+
+  function glow(ctx, shots, camX, camY, zoom) {
+    if (!ctx || typeof ctx.setTransform !== 'function' || !num(camX) || !num(camY)) return 0;
+    if (!ensureGlow()) return 0;
+    const z = num(zoom) && zoom > 0 ? zoom : 1;
+    const tile = ART_TILE * z;
+    let drawn = 0;
+    const smooth = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalCompositeOperation = 'lighter';
+    if (bladeCount) {
+      ctx.globalAlpha = GLOW_BLADE_ALPHA;
+      for (let i = 0; i < bladeCount; i++) {
+        // FX blades are drawn rotated by angle + 90deg, 35 art px long.
+        glowAt(ctx, glowSteel, bladeX[i] * tile + camX, bladeY[i] * tile + camY, bladeA[i] + 1.5707963267948966, 44 * z, 20 * z);
+        drawn++;
+      }
+    }
+    const n = shots && shots.length ? shots.length : 0;
+    for (let i = 0; i < n; i++) {
+      const s = shots[i];
+      if (!s || (s.kind !== 'bolt' && s.kind !== 'pierce')) continue;
+      const x = s.x * tile + camX;
+      const y = s.y * tile + camY;
+      if (x < -60 || y < -60 || x > ctx.canvas.width + 60 || y > ctx.canvas.height + 60) continue;
+      const a = Math.atan2(s.vy || 0, s.vx || 1);
+      ctx.globalAlpha = GLOW_SHOT_ALPHA;
+      if (s.kind === 'pierce') glowAt(ctx, glowAxe, x, y, a, 30 * z, 18 * z);
+      else glowAt(ctx, glowLime, x, y, a, 30 * z, 14 * z);
+      drawn++;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = smooth;
+    return drawn;
+  }
+
+  // ---- light pool + vignette ----
+  function ensureLight() {
+    if (lightImg) return lightImg;
+    const c = makeCanvas(128, 128);
+    if (!c) return null;
+    const x = c.getContext('2d');
+    if (typeof x.createRadialGradient !== 'function') return null;
+    const grad = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255, 196, 128, 1)');
+    grad.addColorStop(0.3, 'rgba(255, 176, 104, 0.62)');
+    grad.addColorStop(0.62, 'rgba(240, 140, 70, 0.2)');
+    grad.addColorStop(1, 'rgba(240, 140, 70, 0)');
+    x.fillStyle = grad;
+    x.fillRect(0, 0, 128, 128);
+    lightImg = c;
+    return c;
+  }
+
+  // The vignette is baked once per view size into a top band and a left band
+  // (the gradient is fully clear inside the middle 52%), then blitted 1:1 as
+  // four strips (bottom and right mirrored), which is far cheaper per frame
+  // than a full-screen gradient fill and keeps the cache small.
+  function bakeVignette(w, h) {
+    const bh = Math.ceil(h * VIG_BAND);
+    const bw = Math.ceil(w * VIG_BAND);
+    const top = makeCanvas(w, bh);
+    const side = makeCanvas(bw, Math.max(1, h - 2 * bh));
+    if (!top || !side) return false;
+    const paint = (c, offY) => {
+      const g = c.getContext('2d');
+      if (typeof g.createRadialGradient !== 'function') return false;
+      const grad = g.createRadialGradient(0, 0, 0, 0, 0, 1.4142);
+      grad.addColorStop(0, 'rgba(2, 1, 4, 0)');
+      grad.addColorStop(0.55, 'rgba(2, 1, 4, 0)');
+      grad.addColorStop(0.85, 'rgba(2, 1, 4, ' + (VIG_EDGE * 0.45) + ')');
+      grad.addColorStop(1.0, 'rgba(2, 1, 4, ' + VIG_EDGE + ')');
+      g.setTransform(w / 2, 0, 0, h / 2, w / 2, h / 2 - offY);
+      g.fillStyle = grad;
+      g.fillRect(-1, -1, 2, 2);
+      return true;
+    };
+    if (!paint(top, 0) || !paint(side, bh)) return false;
+    vigTop = top;
+    vigSide = side;
+    vigWP = w;
+    vigHP = h;
+    return true;
+  }
+
+  function vignette(ctx, w, h) {
+    if (!(vigTop && vigWP === w && vigHP === h) && !bakeVignette(w, h)) return;
+    const bh = vigTop.height;
+    const bw = vigSide.width;
+    ctx.drawImage(vigTop, 0, 0);
+    ctx.drawImage(vigSide, 0, bh);
+    ctx.setTransform(1, 0, 0, -1, 0, h);
+    ctx.drawImage(vigTop, 0, 0);
+    ctx.setTransform(-1, 0, 0, 1, w, 0);
+    ctx.drawImage(vigSide, 0, bh);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  // Light pool sprite pre-scaled to its on-screen size (rebuilt on zoom change).
+  function lightSprite(r) {
+    if (lightBig && lightBigR === r) return lightBig;
+    const src = ensureLight();
+    const size = Math.max(2, Math.round(r * 2));
+    const c = src ? makeCanvas(size, size) : null;
+    if (!c) return null;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    g.drawImage(src, 0, 0, size, size);
+    lightBig = c;
+    lightBigR = r;
+    return c;
+  }
+
+  function light(ctx, heroX, heroY, viewW, viewH, zoom) {
+    if (!ctx || typeof ctx.drawImage !== 'function' || !(viewW > 0) || !(viewH > 0)) return 0;
+    const z = num(zoom) && zoom > 0 ? zoom : 1;
+    const r = Math.round(LIGHT_TILES * ART_TILE * z);
+    const img = lightSprite(r);
+    if (img && num(heroX) && num(heroY)) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = LIGHT_ALPHA;
+      ctx.drawImage(img, Math.round(heroX - r), Math.round(heroY - r));
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    if (typeof ctx.setTransform === 'function') vignette(ctx, viewW | 0, viewH | 0);
+    return 1;
+  }
+
+  // Blade positions ride on the existing FX.cast('blade') call; a new run
+  // (FX.reset) clears them.
+  const baseCast = FX.cast;
+  const baseReset = FX.reset;
+  FX.cast = function (kind, x, y, info) {
+    if (kind === 'blade') noteBlades(info);
+    return baseCast.apply(FX, arguments);
+  };
+  FX.reset = function () {
+    bladeCount = 0;
+    return baseReset.apply(FX, arguments);
+  };
+
+  FX.polish = {
+    floor: floor,
+    shadows: shadows,
+    glow: glow,
+    light: light,
+    stats: function () {
+      return { floorZoom: floorZoom, floorVow: floorVow, variants: FLOOR_VARIANTS, blades: bladeCount };
+    },
+    SHADOW_FILL: SHADOW_FILL,
+  };
+})();

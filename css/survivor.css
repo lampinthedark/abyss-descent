@@ -399,3 +399,131 @@ body.sv-medieval #sv-chat p { animation: svChatFade 3s ease-in forwards; }
 @keyframes svChatFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 .sv-end-recap { white-space: pre-line; margin: 4px 0 0; font-size: 13px; line-height: 1.35; color: #e8b8a8; }
 .sv-end-recap.hidden { display: none; }
+
+/* ---- UI polish: bundled CC0 Kenney fonts + framed pixel HUD bars ----
+   Android has no Segoe UI / Georgia, so the HUD, menus and canvas text use
+   Kenney Mini (body) and Kenney Future (titles, buttons). CC0, see
+   assets/CREDITS.md and assets/fonts/KENNEY-FONTS-LICENSE.txt. */
+@font-face {
+  font-family: "Kenney Mini";
+  src: url("../assets/fonts/kenney-mini.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Kenney Future";
+  src: url("../assets/fonts/kenney-future.woff2") format("woff2");
+  font-display: swap;
+}
+body.survivor {
+  font-family: "Kenney Mini", "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-font-smoothing: none;
+}
+/* Kenney Future (wide display face) only on short titles; long labels stay in Kenney Mini. */
+body.survivor h1,
+body.survivor h2,
+body.survivor .sv-warn,
+body.survivor .sv-best,
+body.survivor #sv-boss span,
+body.survivor .sv-tag {
+  font-family: "Kenney Future", "Kenney Mini", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-weight: 400;
+}
+body.survivor h2 { letter-spacing: 0.04em; }
+body.sv-medieval #sv-end #sv-end-title { font-size: 22px; letter-spacing: 0.04em; }
+body.survivor .big-btn { font-weight: 400; }
+
+/* HUD: framed bars (dark inner, bronze pixel frame, near-black outer line). */
+body.survivor .sv-top { padding: 12px 16px; }
+body.survivor .sv-vitals .bar-wrap {
+  height: 18px;
+  margin: 0 0 10px;
+  background: #120c0e;
+  border: 2px solid #0b0709;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 2px #8a7458,
+    0 0 0 4px #140e0c,
+    inset 0 3px 0 rgba(0, 0, 0, 0.55);
+}
+body.survivor .sv-vitals .bar-wrap .bar {
+  border-right: 2px solid rgba(0, 0, 0, 0.55);
+}
+body.survivor .sv-vitals .hp-wrap .bar {
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0 10px, rgba(0, 0, 0, 0.22) 10px 12px),
+    linear-gradient(180deg, #ff8a72 0, #ff8a72 2px, #e0402e 2px, #c0241c 55%, #7e0e0c 100%);
+}
+body.survivor .sv-vitals .xp-wrap .bar {
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0) 0 10px, rgba(0, 0, 0, 0.22) 10px 12px),
+    linear-gradient(180deg, #a6dcff 0, #a6dcff 2px, #3f86e8 2px, #2a5cc4 55%, #16337a 100%);
+}
+body.survivor .sv-vitals .xp-wrap { height: 14px; }
+body.survivor .sv-stats,
+body.survivor .sv-vitals .bar-wrap span {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 2px 0 #0b0709,
+    2px 0 0 #0b0709,
+    -2px 0 0 #0b0709,
+    0 -2px 0 #0b0709,
+    1px 1px 0 #0b0709,
+    -1px -1px 0 #0b0709,
+    1px -1px 0 #0b0709,
+    -1px 1px 0 #0b0709;
+}
+@media (max-width: 760px) {
+  body.survivor .sv-vitals .bar-wrap { height: 20px; }
+  body.survivor .sv-vitals .xp-wrap { height: 16px; }
+  body.survivor .sv-vitals .bar-wrap span { font-size: 16px; }
+  body.survivor .sv-stats { font-size: 18px; }
+}
+body.survivor .sv-stats { gap: 10px; }
+body.survivor #sv-gold { color: #f2c96b; }
+body.sv-medieval #sv-boss .bar-wrap {
+  height: 16px;
+  border: 2px solid #0b0709;
+  border-radius: 0;
+  background: #1a0806;
+  box-shadow: 0 0 0 2px #ffd27a, 0 0 0 4px #140e0c, inset 0 3px 0 rgba(0, 0, 0, 0.5);
+}
+body.sv-medieval #sv-boss span { font-size: 13px; text-shadow: 0 2px 0 #000, 0 0 6px #ff3a1a; }
+body.survivor #sv-pause-btn {
+  border: 2px solid #0b0709;
+  border-radius: 0;
+  box-shadow: 0 0 0 2px #8a7458, 0 0 0 4px #140e0c;
+  background: linear-gradient(180deg, #3a2622 0, #3a2622 3px, #24161a 3px, #160e10 100%);
+}
+body.survivor #sv-toast {
+  border-radius: 0;
+  box-shadow: 0 0 0 2px #140e0c;
+  font-weight: 400;
+}
+
+/* Menus: pixel frames on the level-up, death, pause and shop panels. */
+body.survivor .panel {
+  border: 2px solid #0b0709;
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 2px #8a7458,
+    0 0 0 4px #140e0c,
+    0 10px 30px rgba(0, 0, 0, 0.6),
+    inset 0 0 40px rgba(0, 0, 0, 0.45);
+}
+body.survivor .big-btn {
+  border-radius: 2px;
+  border: 2px solid #0b0709;
+  box-shadow: 0 0 0 2px #c06040, inset 0 3px 0 rgba(255, 220, 180, 0.18), inset 0 -3px 0 rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.04em;
+}
+body.survivor .big-btn.secondary { box-shadow: 0 0 0 2px #685848, inset 0 3px 0 rgba(255, 240, 220, 0.1), inset 0 -3px 0 rgba(0, 0, 0, 0.35); }
+body.survivor .sv-card {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #0b0709, inset 0 3px 0 rgba(255, 240, 220, 0.06);
+}
+body.survivor .sv-card-ico,
+body.survivor .sv-ico { border-radius: 2px; }
+body.survivor .sv-end-stats div,
+body.survivor .sv-shop-buy { border-radius: 2px; box-shadow: 0 0 0 2px #0b0709; }

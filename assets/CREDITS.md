@@ -41,3 +41,16 @@ All clips are mono, re-encoded to `.ogg` (Vorbis) and `.m4a` (AAC) by `scripts/b
 | music | the_march_of_devils_dome_loop.wav ("Epic March Loop"), 0.5 s tail-to-head crossfade for a seamless loop | https://opengameart.org/content/epic-march-loop | Eldritch Grim | CC0 1.0 (page: "Attribution is appreciated but not required") |
 
 Music: "Epic March Loop" by Eldritch Grim, from the full track "The March of Devils Dome" (https://opengameart.org/content/the-march-of-devils-dome). Credited here with thanks; CC0 does not require it.
+
+## Kenney Fonts (UI text)
+
+- Files: `assets/fonts/kenney-mini.woff2`, `assets/fonts/kenney-future.woff2` (converted from the pack's `Kenney Mini.ttf` and `Kenney Future.ttf` with fontTools, no glyph changes)
+- Author: Kenney (www.kenney.nl)
+- Source: https://kenney.nl/assets/kenney-fonts (pack v1.0, downloaded 9 Oct 2026)
+- License: Creative Commons CC0 1.0 (public domain), checked on the asset page and in the pack's `License.txt` on 9 Oct 2026. Credit not required; given anyway.
+- License note: `assets/fonts/KENNEY-FONTS-LICENSE.txt`
+- Used for the survivor HUD, menus (level-up, death, pause, shop) and canvas text (damage numbers, boss plate). Replaces Segoe UI / Georgia, which Android does not ship.
+
+## Polish layer (drawn in code)
+
+The survivor floor (stone slabs, cracks, rubble, bones, skulls, small graves, candles, stains, moss), unit blob shadows, the hero light pool, the screen vignette and the weapon glow sprites are generated in code in `js/survivor-fx.js` (`FX.polish`). No outside image files.
