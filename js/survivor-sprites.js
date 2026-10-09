@@ -537,16 +537,33 @@ const SurvivorSprites = (() => {
     rebuildScaled();
   }
 
+  // The sheet is embedded as a data URL (js/survivor-sheet.js) so pixel reads
+  // never hit a cross-origin taint, whatever host or redirect serves the game.
+  // The file path stays as a fallback when the embed is missing.
   function load(src) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        build(img);
-        resolve(true);
-      };
-      img.onerror = () => resolve(false);
-      img.src = src;
-    });
+    const embedded = (typeof SURVIVOR_SHEET_DATA === 'string' && SURVIVOR_SHEET_DATA.indexOf('data:image/') === 0) ? SURVIVOR_SHEET_DATA : '';
+    function attempt(url, next) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            build(img);
+            resolve(true);
+          } catch (e) {
+            ready = false;
+            if (typeof console !== 'undefined') console.warn('survivor sheet build failed for ' + url.slice(0, 40) + ': ' + e);
+            if (next) attempt(next, '').then(resolve);
+            else resolve(false);
+          }
+        };
+        img.onerror = () => {
+          if (next) attempt(next, '').then(resolve);
+          else resolve(false);
+        };
+        img.src = url;
+      });
+    }
+    return embedded ? attempt(embedded, src) : attempt(src, '');
   }
 
   function setZoom(z) {
