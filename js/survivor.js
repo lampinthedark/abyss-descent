@@ -2748,11 +2748,13 @@
       const dy = player.y - g.y;
       const dist = len2(dx, dy);
       if (!walked) {
+        g.drift = 0;
         if (g.shower && time < (g.showerAt || 0)) {
           /* stagger the vacuum */
         } else if (dist < pull || g.shower) g.fly = 1;
         else if (MEDIEVAL && MCFG.gems && (g.age || 0) >= MCFG.gems.driftAfter && dist < MCFG.gems.driftRange && dist > 0) {
           // Medieval: gems left lying for a few seconds drift to the hero.
+          g.drift = 1;
           const step = Math.min(dist, MCFG.gems.driftSpeed * dt);
           g.x += (dx / dist) * step;
           g.y += (dy / dist) * step;
@@ -4507,6 +4509,7 @@
   }
 
   let hudHp = -1;
+  let hudHpFlash = 0;
   let hudMax = -1;
   let hudLv = -1;
   let hudXpPct = -1;
@@ -4534,6 +4537,15 @@
       hudMax = maxHp;
       if (hp) hp.style.width = (100 * curHp / maxHp) + '%';
       if (hpText) hpText.textContent = curHp + '/' + maxHp;
+    }
+    const flashBox = fxBox();
+    if (hp && flashBox && typeof flashBox.lowHpFlash === 'function') {
+      const live = state !== 'title' && state !== 'dead' && state !== 'won';
+      const q = live ? Math.round(flashBox.lowHpFlash(curHp / maxHp, time * 1000) * 8) : 0;
+      if (q !== hudHpFlash) {
+        hudHpFlash = q;
+        hp.style.filter = q > 0 ? 'brightness(' + (1 + q * 0.1).toFixed(1) + ')' : '';
+      }
     }
     const need = SurvivorData.xpToNext(player.level);
     const xpPct = Math.round(100 * Math.min(1, player.xp / need));
@@ -4839,6 +4851,16 @@
     if (sx < -40 || sy < -40 || sx > canvas.width + 40 || sy > canvas.height + 40) return;
     const kind = g.kind || 'gem';
     if (kind === 'gem') {
+      if (g.fly || g.drift) {
+        const trailBox = fxBox();
+        const dx = player.x - g.x;
+        const dy = player.y - g.y;
+        const d = len2(dx, dy);
+        if (trailBox && typeof trailBox.gemTrail === 'function' && d > 0.05) {
+          const rush = (!g.fly ? MCFG.gems.driftSpeed : g.shower ? Math.max(18, d / 0.55) : 14 + (owned.magnet || 0) * 4) * TILE;
+          trailBox.gemTrail(ctx, sx, sy, (dx / d) * rush, (dy / d) * rush);
+        }
+      }
       SurvivorSprites.drawGem(ctx, sx, sy, g.big ? 1.85 : 1);
       return;
     }
@@ -5161,6 +5183,10 @@
     camInfo.y = camY;
     camInfo.zoom = zoom;
     fxCall('draw', ctx, camInfo);
+    const lowBox = fxBox();
+    if (lowBox && typeof lowBox.drawLowHp === 'function' && state !== 'title' && state !== 'dead' && state !== 'won') {
+      lowBox.drawLowHp(ctx, canvas.width, canvas.height, player.life / Math.max(1, player.maxLife), time * 1000);
+    }
     drawChestArrows();
     ctx.restore();
     drawJoy();
