@@ -470,6 +470,17 @@ const SurvivorSave = (() => {
     };
   }
 
+  // Finished runs (any death or win) on this profile; the first-run gold floor needs 0.
+  function runsFinished() {
+    return Math.max(0, Number(loadProgress().runsFinished) || 0);
+  }
+  function markRunFinished() {
+    const p = loadProgress();
+    p.runsFinished = Math.max(0, Number(p.runsFinished) || 0) + 1;
+    saveProgress(p);
+    return p.runsFinished;
+  }
+
   function rarityName(id) {
     return (RARITY[id] && RARITY[id].name) || 'Common';
   }
@@ -479,5 +490,6 @@ const SurvivorSave = (() => {
     loadProfile, saveProfile, loadInventory, saveInventory, loadProgress, saveProgress,
     rank, gold, bestTime, bankGold, shopList, nextUpgrade, buy, roman, reload,
     createItem, rollRarity, mintDrop, addItem, items, equipped, effects, itemBonus, recordRun, rarityName,
+    runsFinished, markRunFinished,
   };
 })();

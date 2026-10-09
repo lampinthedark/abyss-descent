@@ -109,7 +109,7 @@ function boot(seed0, search, storage) {
   files.forEach((name) => {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
   });
-  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof FX !== "undefined") this.FX = FX;', context);
+  vm.runInContext('if (typeof SurvivorSprites !== "undefined") this.SurvivorSprites = SurvivorSprites; if (typeof SurvivorSave !== "undefined") this.SurvivorSave = SurvivorSave; if (typeof FX !== "undefined") this.FX = FX; if (typeof SurvivorData !== "undefined") this.SurvivorData = SurvivorData;', context);
   if (typeof context.__svStart !== 'function') fail('headless survivor did not boot');
   return context;
 }
@@ -151,6 +151,42 @@ function medievalRun(seed, walk) {
   if (bossAt != null && bossEnd == null) bossEnd = s.time;
   if (s.time >= 300) gap = Math.max(gap, 300 - lastUp);
   return { walk, seed, state: s.state, time: s.time, evoAt, evo2At, bossAt, fight: bossAt != null ? bossEnd - bossAt : null, gap, minHp, gold: s.gold };
+}
+
+// First-run gold floor (UAT exploit): only a profile's first finished run, only after
+// firstRunMinTime s, banks at least firstRunFloor. Every death/win counts as finished.
+function floorRun(storage, secs, dbl) {
+  const g = boot(7, '?headless=1&debug=1&walk=kite&mode=medieval&autopick=1', storage);
+  const before = g.SurvivorSave.gold();
+  g.__svStart();
+  let s = g.__svSnap();
+  for (let i = 0; i < secs * 60 && s.state !== 'dead'; i++) {
+    s = g.__svStep(1 / 60);
+    if (s.state === 'hermit') s = g.__svDismiss();
+  }
+  for (let k = 0; k < 20 && g.__svSnap().state !== 'dead'; k++) { g.__svHurt(9999); g.__svStep(1 / 60); }
+  if (g.__svSnap().state !== 'dead') fail('floor test: hero did not die at ' + secs + 's');
+  if (dbl) g.__svDouble();
+  return { banked: g.SurvivorSave.gold() - before, finished: g.SurvivorSave.runsFinished(), gold: g.__svSnap().gold };
+}
+{
+  const floor = SurvivorDataFloor();
+  const quick = floorRun(memoryStorage(), 0);
+  if (quick.banked >= floor) fail('first run quit at 0:00 banked ' + quick.banked + ' (floor needs ' + floor + ')');
+  if (quick.finished !== 1) fail('quick death not counted as finished: ' + quick.finished);
+  const shared = memoryStorage();
+  const first = floorRun(shared, 25, true);
+  if (first.banked < floor * 2) fail('first 25 s run with Double banked ' + first.banked + ', want >= ' + floor * 2);
+  const second = floorRun(shared, 25, true);
+  if (second.banked >= floor) fail('second run got the floor again: banked ' + second.banked);
+  const third = floorRun(shared, 0, true);
+  if (third.banked > 0) fail('0:00 death on a used profile banked ' + third.banked);
+  if (third.finished !== 3) fail('runsFinished ' + third.finished + ', want 3');
+  console.log('first-run floor ok: 0:00 quit ' + quick.banked + 'g; run 1 @25s ' + first.banked + 'g with Double; run 2 ' + second.banked + 'g; 0:00 on used profile ' + third.banked + 'g; runsFinished ' + third.finished);
+}
+function SurvivorDataFloor() {
+  const g = boot(1, '?headless=1&mode=medieval');
+  return g.SurvivorData.MEDIEVAL_CFG.gold.firstRunFloor;
 }
 
 const results = [];

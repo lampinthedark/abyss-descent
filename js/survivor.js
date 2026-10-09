@@ -3798,6 +3798,12 @@
     sfx(kind === 'won' ? 'clear' : 'defeat');
     let earned = runGold;
     let vowBonus = 0;
+    // Count the run as finished on any death or win (also a pending death, so closing the
+    // tab on the Revive screen can't replay the first-run floor). Read the count first.
+    let finishedBefore = 1;
+    if (MEDIEVAL) {
+      try { finishedBefore = SurvivorSave.runsFinished(); SurvivorSave.markRunFinished(); } catch (e) { finishedBefore = 1; }
+    }
     if (MEDIEVAL) {
       // Death keeps part of the run's gold (none under the Oath of Ruin); a vowed win doubles it.
       if (kind === 'won' && bloodVow) {
@@ -3805,8 +3811,11 @@
         runGold += vowBonus;
       } else if (kind !== 'won') {
         let kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * deathKeep()));
-        // First-ever run: bank at least firstRunFloor so the shop opens (not under the Oath).
-        if (!bloodVow && !(bestAtStart > 0) && MED.gold.firstRunFloor) kept = Math.max(kept, MED.gold.firstRunFloor);
+        // First-ever run only: bank at least firstRunFloor so the shop opens (not under the
+        // Oath, and only after firstRunMinTime s, so a 0:00 quit never pays).
+        if (!bloodVow && MED.gold.firstRunFloor && finishedBefore === 0 && time >= (MED.gold.firstRunMinTime || 0)) {
+          kept = Math.max(kept, MED.gold.firstRunFloor);
+        }
         goldBeforeCut = runGold;
         deathGoldLost = runGold - kept;
         runGold = kept;
