@@ -127,6 +127,8 @@
   const lockFps = fpsMatch ? Math.max(1, Math.min(120, Number(fpsMatch[1]) || 0)) : 0;
   const demonHpMatch = toolDebug && /(?:^|[?&])demonhp=(\d*\.?\d+)(?:&|$)/.exec(search);
   const demonHpFrac = demonHpMatch ? Math.max(0, Math.min(1, Number(demonHpMatch[1]))) : -1;
+  // Medieval demo: the type-count debug line needs &debughud=1 on top of &debug=1.
+  const debugHud = /(?:^|[?&])debughud=1(?:&|$)/.test(search);
   const forceVow = toolDebug && /(?:^|[?&])vow=1(?:&|$)/.test(search);
   if (seedMatch) {
     let seedState = Number(seedMatch[1]) >>> 0;
@@ -4464,7 +4466,7 @@
       }
     }
     const fps = $('sv-fps');
-    if (fps && debug) {
+    if (fps && debug && (!MEDIEVAL || debugHud)) {
       const text = bench
         ? (Math.round(fpsSmooth) + ' fps · ' + enemies.length + ' foes')
         : debugHudText();
