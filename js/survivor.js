@@ -4529,8 +4529,23 @@
     foeDraw.crowd = crowd;
     foeDraw.time = animT;
     SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
+    if (MEDIEVAL && en.bossKind === 'demon' && en.life > 0 && !(en.dying > 0)) drawBossPlate(en, x, y);
     drawTell(en, x, y);
     drawTypeLabel(en, x, y);
+  }
+
+  function drawBossPlate(en, x, y) {
+    const top = y - 36 * zoom * (en.scale || 1) - 8;
+    ctx.save();
+    ctx.font = '800 ' + Math.max(12, Math.round(6 * zoom)) + 'px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#140604';
+    ctx.strokeText(MED.boss.plate || en.name, x, top);
+    ctx.fillStyle = '#ffd27a';
+    ctx.fillText(MED.boss.plate || en.name, x, top);
+    ctx.restore();
   }
 
   function foeTypeTag(en) {
@@ -4607,47 +4622,59 @@
       ctx.fill();
     } else if (MEDIEVAL && en.behaviour === 'boss' && en.bossKind === 'demon') {
       const bc = MED.boss;
+      const st = bc.tell;
       const span = ai.tell0 || 1;
       const u = Math.max(0, Math.min(1, 1 - ai.t / span));
-      ctx.fillStyle = 'rgba(230, 40, 25, ' + (0.18 + 0.3 * u) + ')';
-      ctx.strokeStyle = '#ff5a3c';
-      ctx.lineWidth = 3;
+      const fill = st.fill.replace('A', String(st.fillFrom + (st.fillTo - st.fillFrom) * u));
+      const edge = (shape) => {
+        ctx.lineWidth = st.edgeWidth + 3;
+        ctx.strokeStyle = '#2a0400';
+        shape();
+        ctx.stroke();
+        ctx.lineWidth = st.edgeWidth;
+        ctx.strokeStyle = st.edge;
+        shape();
+        ctx.stroke();
+      };
       if (ai.kind === 'cleave') {
         const r = bc.cleave.range * TILE;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.arc(x, y, r, ai.aim - bc.cleave.arc / 2, ai.aim + bc.cleave.arc / 2);
-        ctx.closePath();
+        const a0 = ai.aim - bc.cleave.arc / 2;
+        const a1 = ai.aim + bc.cleave.arc / 2;
+        const wedge = (rr) => () => { ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, rr, a0, a1); ctx.closePath(); };
+        ctx.fillStyle = fill;
+        wedge(r)();
         ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(255, 140, 60, 0.35)';
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.arc(x, y, r * u, ai.aim - bc.cleave.arc / 2, ai.aim + bc.cleave.arc / 2);
-        ctx.closePath();
+        ctx.fillStyle = st.grow;
+        wedge(r * u)();
         ctx.fill();
+        edge(wedge(r));
       } else if (ai.kind === 'rain' && ai.circles) {
         const r = bc.rain.radius * TILE;
         for (let i = 0; i < ai.circles.length; i++) {
           const cx = sxOf(ai.circles[i].x);
           const cy = syOf(ai.circles[i].y);
-          ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          const disc = (rr) => () => { ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); };
+          ctx.fillStyle = fill;
+          disc(r)();
           ctx.fill();
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(cx, cy, r * u, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.fillStyle = st.grow;
+          disc(r * u)();
+          ctx.fill();
+          edge(disc(r));
         }
       } else if (ai.kind === 'charge') {
         const len = bc.charge.speed * bc.charge.time * TILE;
-        ctx.strokeStyle = 'rgba(255, 60, 40, ' + (0.45 + 0.5 * u) + ')';
-        ctx.lineWidth = 6 + 10 * u;
+        const ex = x + Math.cos(ai.aim) * len;
+        const ey = y - 20 + Math.sin(ai.aim) * len;
+        const w = (en.radius || 1) * TILE * 1.4;
         ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(x, y - 20);
-        ctx.lineTo(x + Math.cos(ai.aim) * len, y - 20 + Math.sin(ai.aim) * len);
-        ctx.stroke();
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = w;
+        ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.strokeStyle = st.grow;
+        ctx.lineWidth = w * u;
+        ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(x + (ex - x) * u, y - 20 + (ey - y + 20) * u); ctx.stroke();
+        edge(() => { ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(ex, ey); });
       }
     } else if (en.behaviour === 'boss' && ai.kind === 'slam') {
       ctx.strokeStyle = '#d0b4ff';
