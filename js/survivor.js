@@ -4676,23 +4676,6 @@
       const st = bc.tell;
       const span = ai.tell0 || 1;
       const u = Math.max(0, Math.min(1, 1 - ai.t / span));
-      // UI owns the telegraph look: use FX.paintTell when present (survivor-fx.js).
-      const box = fxBox();
-      if (box && typeof box.paintTell === 'function') {
-        if (ai.kind === 'cleave') {
-          box.paintTell(ctx, 'cone', x, y, bc.cleave.range * TILE, ai.aim, bc.cleave.arc, u);
-        } else if (ai.kind === 'rain' && ai.circles) {
-          for (let i = 0; i < ai.circles.length; i++) {
-            box.paintTell(ctx, 'circle', sxOf(ai.circles[i].x), syOf(ai.circles[i].y), bc.rain.radius * TILE, 0, 0, u);
-          }
-        } else if (ai.kind === 'charge') {
-          const len = bc.charge.speed * bc.charge.time * TILE;
-          const half = ((en.radius || 1) + 0.35) * TILE * 0.5;
-          box.paintTell(ctx, 'line', x, y - 20, x + Math.cos(ai.aim) * len, y - 20 + Math.sin(ai.aim) * len, half, u);
-        }
-        ctx.restore();
-        return;
-      }
       const fill = st.fill.replace('A', String(st.fillFrom + (st.fillTo - st.fillFrom) * u));
       const edge = (shape) => {
         ctx.lineWidth = st.edgeWidth + 3;
