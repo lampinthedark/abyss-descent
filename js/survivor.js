@@ -72,6 +72,7 @@
   let chiefDown = false;
   let medPicks = 0;
   let deathGoldLost = 0;
+  let medRelicItem = null;
   if (MEDIEVAL) {
     try {
       if (typeof SurvivorSave !== 'undefined' && SurvivorSave.SHOP) {
@@ -794,6 +795,7 @@
 
   function maybeDropItem(en) {
     let kind = '';
+    if (MEDIEVAL && en.bossKind === 'demon') { medRelic(en); return; }
     if (en.bossKind === 'demon') kind = 'demon';
     else if (en.boss) kind = 'boss';
     else if (en.elite) kind = (!rareSeen && time >= 40) ? 'rare' : 'elite';
@@ -819,6 +821,32 @@
     dropPickup(en, 'item', item);
   }
 
+  // Malgrath's guaranteed relic and gold shower (MEDIEVAL_CFG.boss.relic/shower).
+  function medRelic(en) {
+    const cfg = MED.boss.relic || {};
+    let item = null;
+    try { item = SurvivorSave.mintDrop(cfg.rarity === 'legendary' ? 'demon' : 'boss'); } catch (e) {}
+    if (item && cfg.rarity && item.rarity !== cfg.rarity) {
+      try { item = SurvivorSave.createItem(item.base || 'iron-blade', cfg.rarity); } catch (e) {}
+    }
+    if (item) {
+      try { SurvivorSave.addItem(item); } catch (e) {}
+      medRelicItem = item;
+      itemDrops += 1;
+      rareSeen = true;
+      epicSeen = true;
+      demonLegend = item.rarity === 'legendary';
+      const g = placePickup(en.x + 0.45, en.y, 'item', item);
+      if (g) g.banked = true;
+    }
+    const shower = MED.boss.shower || {};
+    if (shower.gold) grantGold(shower.gold / (MEDIEVAL ? MED.gold.mul : 1));
+    for (let i = 0; i < (shower.coins || 0); i++) {
+      const ang = (i / shower.coins) * Math.PI * 2;
+      spark(en.x + Math.cos(ang) * 1.2, en.y + Math.sin(ang) * 1.2, '#f2c96b', 3, 2.6);
+    }
+  }
+
   function placePickup(x, y, kind, item) {
     const g = gemPool.pop() || {};
     g.x = x;
@@ -833,6 +861,7 @@
     g.big = false;
     g.shower = 0;
     g.medEvolve = false;
+    g.banked = false;
     gems.push(g);
     if (kind === 'item' && item) {
       if (item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary') rareSeen = true;
@@ -2728,7 +2757,7 @@
           const box = fxBox();
           if (box && typeof box.pickup === 'function') box.pickup(player.x, player.y, 'gem', { chain: 0 });
         } else if (kind === 'item' && g.item) {
-          try { SurvivorSave.addItem(g.item); } catch (e) {}
+          if (!g.banked) { try { SurvivorSave.addItem(g.item); } catch (e) {} }
           showToast(g.item);
           requestEvolution();
           const info = chainInfo;
@@ -3159,6 +3188,7 @@
       medEventIx = 0;
       chiefDown = false;
       deathGoldLost = 0;
+      medRelicItem = null;
     }
     orbitAngle = 0;
     hermit.on = false;
@@ -3597,6 +3627,18 @@
     }
     const loot = $('sv-end-loot');
     if (loot) loot.textContent = itemDrops + ' items · ' + runGold + 'g';
+    let relicLine = $('sv-end-relic');
+    if (!relicLine && stats && stats.parentNode) {
+      relicLine = document.createElement('p');
+      relicLine.id = 'sv-end-relic';
+      relicLine.className = 'sv-end-relic';
+      stats.parentNode.insertBefore(relicLine, stats.nextSibling);
+    }
+    if (relicLine) {
+      const it = medRelicItem;
+      relicLine.textContent = it ? ((MED.boss.relic.title || 'Relic') + ': ' + (SurvivorSave.rarityName ? SurvivorSave.rarityName(it.rarity) + ' ' : '') + it.name) : '';
+      relicLine.classList.toggle('hidden', !it);
+    }
     let box = $('sv-med-spend');
     if (!box) {
       box = document.createElement('div');

@@ -368,6 +368,10 @@ const SurvivorData = (() => {
       adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
+      // Loot shower on the kill: one guaranteed relic (banked straight into the
+      // inventory so walking to it is optional) plus a ring of gold.
+      relic: { rarity: 'legendary', title: 'Relic' },
+      shower: { gold: 20, coins: 10 },
       cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 14 },
       rain: { tell: 1.5, circles: 7, radius: 0.85, spread: 3.6, dmg: 10 },
       charge: { tell: 0.8, belowHp: 0.5, speed: 11, time: 0.6, dmg: 12, imps: 4 },
@@ -388,7 +392,7 @@ const SurvivorData = (() => {
       blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
     },
     // Gold per run target 150-250 (100 or less on an early death).
-    gold: { mul: 0.25, keepOnDeath: 0.5 },
+    gold: { mul: 0.22, keepOnDeath: 0.5 },
 
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
