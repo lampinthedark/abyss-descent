@@ -377,6 +377,10 @@ const SurvivorData = (() => {
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
 
+    // ---- Art readability. The hero must be the brightest actor on the dark floor.
+    // Multipliers apply to sprite pixels; rims are the 1px outlines.
+    art: { heroBright: 1.12, heroRim: [255, 255, 255], skelDim: 0.8, foeBright: 1.12, foeRim: [216, 74, 58] },
+
     // ---- Level-up names. [name, blurb, optional rank lines]. Ids stay the same.
     names: {
       orbit: ['Oathblade', 'Sworn steel circles you and cuts whatever it touches.', ['One blade.', 'The blade swings faster.', 'A second blade joins.', 'The arc widens.', 'Three blades. Ready for the Gauntlet.']],

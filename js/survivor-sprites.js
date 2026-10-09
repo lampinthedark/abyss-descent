@@ -136,11 +136,13 @@ const SurvivorSprites = (() => {
   // chort waves. Actors keep their own colours and get a bright rim so they
   // read on the darkened floor at phone size.
   const MEDIEVAL = /(?:^|[?&])mode=medieval(?:&|$)/.test((typeof location !== 'undefined' && location.search) || '');
+  const ART = (MEDIEVAL && typeof SurvivorData !== 'undefined' && SurvivorData.MEDIEVAL_CFG && SurvivorData.MEDIEVAL_CFG.art)
+    || { heroBright: 1, heroRim: [0xf4, 0xef, 0xe0], skelDim: 1, foeBright: 1.12, foeRim: [0xd8, 0x4a, 0x3a] };
   if (MEDIEVAL) {
     LAYOUT.hero = { mode: 'knight', idle: rects(128, 100, 16, 28, 4), run: rects(192, 100, 16, 28, 4) };
     LAYOUT.ysolde = { mode: 'knight', idle: rects(128, 4, 16, 28, 4), run: rects(192, 4, 16, 28, 4) };
     LAYOUT.armored = { mode: 'armor', idle: rects(368, 88, 16, 16, 4), run: rects(432, 88, 16, 16, 4) };
-    LAYOUT.skel = { mode: 'rim', idle: rects(368, 88, 16, 16, 4), run: rects(432, 88, 16, 16, 4) };
+    LAYOUT.skel = { mode: 'bone', idle: rects(368, 88, 16, 16, 4), run: rects(432, 88, 16, 16, 4) };
     LAYOUT.imp = { mode: 'rim', idle: rects(368, 64, 16, 16, 4), run: rects(432, 64, 16, 16, 4) };
     LAYOUT.goblin = { mode: 'rim', idle: rects(368, 40, 16, 16, 4), run: rects(432, 40, 16, 16, 4) };
     LAYOUT.wogol = { mode: 'rim', idle: rects(368, 204, 16, 20, 4), run: rects(432, 204, 16, 20, 4) };
@@ -150,7 +152,7 @@ const SurvivorSprites = (() => {
   }
 
   function paintSheetFrame(img, rect, mode, outline) {
-    const pad = (mode === 'hero' || mode === 'skel' || mode === 'knight' || mode === 'rim' || mode === 'armor') ? 1 : 0;
+    const pad = (mode === 'hero' || mode === 'skel' || mode === 'knight' || mode === 'rim' || mode === 'armor' || mode === 'bone') ? 1 : 0;
     const w = rect.w + pad * 2;
     const h = rect.h + pad * 2;
     const c = document.createElement('canvas');
@@ -177,15 +179,17 @@ const SurvivorSprites = (() => {
       else if (mode === 'dusk') next = duskInk(r, gc, b);
       else if (mode === 'skel') next = skelInk(r, gc, b);
       else if (mode === 'armor') next = [clamp(r * 0.7 + 30), clamp(gc * 0.8 + 40), clamp(b * 0.95 + 70)];
-      else if (mode === 'rim') next = [clamp(r * 1.12 + 10), clamp(gc * 1.12 + 10), clamp(b * 1.12 + 10)];
+      else if (mode === 'rim') next = [clamp(r * ART.foeBright + 10), clamp(gc * ART.foeBright + 10), clamp(b * ART.foeBright + 10)];
+      else if (mode === 'bone') next = [clamp(r * ART.skelDim), clamp(gc * ART.skelDim), clamp(b * ART.skelDim)];
+      else if (mode === 'knight') next = [clamp(r * ART.heroBright + 8), clamp(gc * ART.heroBright + 8), clamp(b * ART.heroBright + 8)];
       if (next) {
         d[o] = next[0];
         d[o + 1] = next[1];
         d[o + 2] = next[2];
       }
     }
-    if (mode === 'hero' || mode === 'knight' || mode === 'rim' || mode === 'armor') {
-      const rim = (mode === 'rim' || mode === 'armor') ? [0xd8, 0x4a, 0x3a] : [0xf4, 0xef, 0xe0];
+    if (mode === 'hero' || mode === 'knight' || mode === 'rim' || mode === 'armor' || mode === 'bone') {
+      const rim = (mode === 'rim' || mode === 'armor' || mode === 'bone') ? ART.foeRim : (mode === 'knight' ? ART.heroRim : [0xf4, 0xef, 0xe0]);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const p = y * w + x;
