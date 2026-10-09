@@ -4126,7 +4126,7 @@
     pendingEnd = false;
     // Medieval: the death cut only sticks on a final death; a revive keeps the full run gold.
     // The kept half is already banked, so the rest banks later through syncBank.
-    if (MEDIEVAL && goldBeforeCut > runGold) runGold = goldBeforeCut;
+    if (MEDIEVAL && goldBeforeCut > 0) runGold = goldBeforeCut;
     goldBeforeCut = 0;
     deathGoldLost = 0;
     player.life = Math.round(player.maxLife * 0.55);
@@ -6090,6 +6090,8 @@
       bossLife: boss ? boss.life : 0,
       bossMax: boss ? boss.maxLife : 0,
       chest: chest,
+      bossTell: (() => { const d = enemies.find((e) => e.bossKind === 'demon'); return d && d.ai && d.ai.mode === 'tell' ? d.ai.kind : ''; })(),
+      hazards: hazards.length,
       quietBreaks: quietBreaks,
       hazardHits: hazardHits,
       quietHurtAt: quietHurtAt,
