@@ -140,6 +140,11 @@ const SurvivorData = (() => {
 
   function xpToNext(level) {
     const lv = Math.max(1, level | 0);
+    if (MEDIEVAL) {
+      const curve = MEDIEVAL_CFG.xpCurve;
+      if (lv < curve.length) return curve[lv];
+      return curve[curve.length - 1] + (lv - curve.length + 1) * MEDIEVAL_CFG.xpStep;
+    }
     // Five level-ups in the first minute, then a steeper climb.
     if (lv <= 1) return 8;
     if (lv === 2) return 10;
@@ -309,6 +314,7 @@ const SurvivorData = (() => {
     // Source: /workspace/design/medieval-survivor.md (v1).
     // ---- 1. Wave timeline (run seconds). A row holds until the next row's
     // `at`. kinds: spawn kind -> weight. cap: foes on screen. rate: spawns/s.
+    // xpMul (optional) scales soul-gem XP for foes spawned in that row.
     // Kinds: skel (Bone Rattler), goblin (Gutter Goblin), armored (Armoured
     // Rattler, 3x HP), imp (Cinder Imp, ranged), fiend (Horned Fiend, charges).
     densityMul: 1.4,          // multiplies every cap (phone screens read fuller)
@@ -317,12 +323,12 @@ const SurvivorData = (() => {
       { at: 30, kinds: { skel: 2, goblin: 1 }, cap: 25, rate: 5 },
       { at: 60, kinds: { goblin: 2, skel: 1 }, cap: 40, rate: 8 },
       { at: 90, kinds: { skel: 1 }, cap: 60, rate: 16 },
-      { at: 120, kinds: { imp: 1, skel: 1 }, cap: 45, rate: 10 },
-      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 55, rate: 12 },
-      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 50, rate: 12 },
-      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 80, rate: 22 },
-      { at: 240, kinds: { fiend: 1, imp: 1, skel: 1 }, cap: 70, rate: 18, walls: true },
-      { at: 270, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true },
+      { at: 120, kinds: { imp: 1, skel: 2 }, cap: 55, rate: 12, xpMul: 2.4 },
+      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 55, rate: 12, xpMul: 1.8 },
+      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 50, rate: 12, xpMul: 1.8 },
+      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 80, rate: 22, xpMul: 1.3 },
+      { at: 240, kinds: { fiend: 1, imp: 1, skel: 2 }, cap: 55, rate: 16, walls: true, xpMul: 1.8 },
+      { at: 270, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
       { at: 300, kinds: {}, cap: 0, rate: 0 },               // boss: spawns stop
     ],
     // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
@@ -337,6 +343,7 @@ const SurvivorData = (() => {
     events: [
       { at: 60, type: 'ring', kind: 'goblin', count: 18 },     // goblin ring around the hero
       { at: 60, type: 'elite', kind: 'goblin', name: 'Goblin Chief', hp: 260, chest: true, evolve: true },
+      { at: 135, type: 'elite', kind: 'armored', name: 'Bone Warden', hp: 340, chest: true }, // 2:15 lull breaker
       { at: 180, type: 'elite', kind: 'fiend', name: 'Elite Fiend', hp: 420, chest: true },
       { at: 270, type: 'banner', text: 'The Pit stirs\u2026' },
       { at: 285, type: 'heal', pct: 0.4, text: 'The saints mend your wounds' }, // breather heal before the boss
@@ -346,6 +353,13 @@ const SurvivorData = (() => {
     // The Goblin Chief's chest grants it (never before evoAt); evoForce is the
     // safety net if the chief is not dead yet.
     evolution: { evoAt: 75, evoForce: 82, chiefGrants: true },
+    // After Dawnbreaker the horde speeds up and thickens so it still reaches the hero.
+    postEvo: { speedMul: 1.25, capMul: 1.3, rateMul: 1.3, until: 210 },
+
+    // XP to the next level, indexed by current level (1-based). Past the end
+    // each level adds xpStep. Tuned for a level-up every ~10-20 s after Lv10.
+    xpCurve: [0, 8, 10, 12, 16, 20, 28, 34, 40, 44, 48, 52, 56, 60, 64],
+    xpStep: 4,
     startWeapons: { knight: { bolt: 1, orbit: 1 }, ysolde: { bolt: 1, nova: 1 } },
 
     // ---- 5. Malgrath, the Pit Sovereign.
@@ -372,7 +386,7 @@ const SurvivorData = (() => {
       blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
     },
     // Gold per run target 150-250 (100 or less on an early death).
-    gold: { mul: 0.3, keepOnDeath: 0.5 },
+    gold: { mul: 0.25, keepOnDeath: 0.5 },
 
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },

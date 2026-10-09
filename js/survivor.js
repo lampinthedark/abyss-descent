@@ -499,6 +499,12 @@
     return MEDIEVAL && heroPick === MED.hero2.id && shopRank(MED.hero2.id) > 0;
   }
 
+  // After Dawnbreaker the horde speeds up and thickens until postEvo.until.
+  function postEvoOn() {
+    const pe = MCFG.postEvo;
+    return !!(MEDIEVAL && pe && evolved.orbit && time < (pe.until || 1e9));
+  }
+
   function medWave() {
     const rows = MCFG.waves || [];
     let row = rows[0];
@@ -631,6 +637,7 @@
       en.sprite = k ? k.sprite : '';
       if (k && !(opts && opts.name)) en.name = k.name;
       if (k) en.speed *= k.speedMul || 1;
+      if (postEvoOn()) en.speed *= MCFG.postEvo.speedMul || 1;
     }
     if (bossFlag) en.scale = (MEDIEVAL && en.bossKind === 'demon') ? MED.boss.scale : BOSS_SCALE;
     else if (en.elite) en.scale = 1.65;
@@ -671,6 +678,7 @@
     if (!(en.elite && en.gold > baseGold)) en.gold = baseGold * greed;
     else en.gold *= greed;
     if (!en.elite) en.xp = bossFlag ? 14 : type.id === 'brute' ? 5 : T.gemXp;
+    if (MEDIEVAL && !bossFlag && !en.elite) en.xp *= medWave().xpMul || 1;
     if (MEDIEVAL && mk && mk.hpMul && mk.hpMul !== 1 && !bossFlag) {
       en.maxLife = Math.max(1, Math.round(en.maxLife * mk.hpMul));
       en.life = en.maxLife;
@@ -1555,7 +1563,7 @@
   }
 
   function spawnRate() {
-    if (MEDIEVAL) return medWave().rate;
+    if (MEDIEVAL) return medWave().rate * (postEvoOn() ? (MCFG.postEvo.rateMul || 1) : 1);
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     let rate = 2.2;
     if (time < 12) rate = 4;
@@ -1575,7 +1583,8 @@
   function spawnCap() {
     if (MEDIEVAL) {
       if (boss5) return 0;
-      return Math.min(LIVE_CAP, Math.round(medWave().cap * (MCFG.densityMul || 1)));
+      const evoCap = postEvoOn() ? (MCFG.postEvo.capMul || 1) : 1;
+      return Math.min(LIVE_CAP, Math.round(medWave().cap * (MCFG.densityMul || 1) * evoCap));
     }
     let cap = 340;
     if (time < 12) cap = 14;
