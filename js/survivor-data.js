@@ -337,8 +337,8 @@ const SurvivorData = (() => {
       { at: 120, kinds: { imp: 0.5, skel: 2, goblin: 1 }, cap: 55, rate: 12, xpMul: 1.9, dmgMul: 1.2, speedMul: 1.15 },
       { at: 150, kinds: { imp: 0.5, armored: 1, skel: 1 }, cap: 60, rate: 14, xpMul: 1.8, dmgMul: 1.3, speedMul: 1.15 },
       { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1, imp: 0.5 }, cap: 70, rate: 16, xpMul: 1.2, dmgMul: 1.4, speedMul: 1.2 },
-      { at: 210, kinds: { skel: 2, goblin: 2, imp: 0.8, fiend: 1, armored: 1 }, cap: 90, rate: 24, xpMul: 1.2, dmgMul: 1.5, speedMul: 1.2 },
-      { at: 240, kinds: { fiend: 1, imp: 0.8, skel: 2 }, cap: 80, rate: 20, walls: true, xpMul: 2.0, dmgMul: 1.6, speedMul: 1.25 },
+      { at: 210, kinds: { skel: 2, goblin: 2, imp: 0.8, fiend: 1, armored: 1 }, cap: 90, rate: 24, xpMul: 1.6, dmgMul: 1.4, speedMul: 1.2 },
+      { at: 240, kinds: { fiend: 1, imp: 0.8, skel: 2 }, cap: 80, rate: 20, walls: true, xpMul: 2.0, dmgMul: 1.45, speedMul: 1.25 },
       { at: 285, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
       { at: 300, kinds: { skel: 2, imp: 1 }, cap: 40, rate: 12, dmgMul: 2.4 }, // boss phase, scaled by boss.spawnMul
     ],
