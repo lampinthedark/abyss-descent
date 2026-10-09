@@ -20,6 +20,15 @@
  * front edge in art px, or -1 when no sweep is running.
  * Time moves only in FX.update. FX.reset() clears a run. FX.setReducedMotion
  * overrides the matchMedia check. Second Chance never flashes the screen.
+ *
+ * Attack telegraphs: FX.telegraph(id, x, y, tellMs) starts a windup clock for
+ * `id` (tellMs defaults to 1000) and FX.telegraphOff(id) ends it;
+ * FX.tellProgress(id) reads 0..1 (-1 when idle). FX.paintTell(ctx, shape, x,
+ * y, a, b, c, u) draws one warning in screen px, normal blending, no blur:
+ * 'circle' (a = radius), 'cone' (a = radius, b = aim, c = arc) or 'line'
+ * (a, b = end x/y, c = half width). u is windup progress 0..1. The fill is
+ * #ff5a2a and grows from the origin out while its alpha ramps 0.15 -> 0.5; a
+ * 2.5 CSS px warm #ffd0a0 edge with a 1px #7a1a08 outline reads in greyscale.
  */
 const FX = (function () {
   'use strict';
@@ -210,6 +219,22 @@ const FX = (function () {
   let reduceQuery = null;
   let reduceQueryRead = false;
   const emptyCam = { x: 0, y: 0, zoom: 0 };
+
+  // Telegraph windups: fixed slots, no per-frame allocation.
+  const TELL_N = 8;
+  const TELL_FILL = '#ff5a2a';
+  const TELL_EDGE = '#ffd0a0';
+  const TELL_DARK = '#7a1a08';
+  const TELL_A0 = 0.15;
+  const TELL_A1 = 0.5;
+  const TELL_EDGE_A = 0.9;
+  const TELL_EDGE_CSS = 2.5;
+  const tellKey = new Array(TELL_N);
+  const tellAge = new Float64Array(TELL_N);
+  const tellDur = new Float64Array(TELL_N);
+  const tellX = new Float64Array(TELL_N);
+  const tellY = new Float64Array(TELL_N);
+  for (let i = 0; i < TELL_N; i++) tellKey[i] = null;
   let heroHalf = 0;
   let whiteAtlas = null;
   let bladeImg = null;
@@ -930,6 +955,9 @@ const FX = (function () {
     for (let i = 0; i < BEAM_N; i++) {
       if (beams[i].on) beams[i].age += dt;
     }
+    for (let i = 0; i < TELL_N; i++) {
+      if (tellKey[i] !== null) tellAge[i] += dt;
+    }
   }
 
   function diamondPx(ctx, x, y, r, color) {
@@ -1191,6 +1219,119 @@ const FX = (function () {
       paintOneArrow(ctx, ax, ay, dir, cell);
     }
     ctx.globalAlpha = 1;
+  }
+
+  function tellSlot(id, make) {
+    const key = id == null ? 0 : id;
+    let free = -1;
+    let oldest = 0;
+    for (let i = 0; i < TELL_N; i++) {
+      if (tellKey[i] === key) return i;
+      if (tellKey[i] === null) { if (free < 0) free = i; }
+      else if (tellAge[i] > tellAge[oldest]) oldest = i;
+    }
+    if (!make) return -1;
+    return free >= 0 ? free : oldest;
+  }
+
+  function tellOn(id, x, y, tellMs) {
+    const i = tellSlot(id, true);
+    tellKey[i] = id == null ? 0 : id;
+    tellAge[i] = 0;
+    tellDur[i] = ok(tellMs) && tellMs > 0 ? tellMs / 1000 : 1;
+    tellX[i] = ok(x) ? x : 0;
+    tellY[i] = ok(y) ? y : 0;
+  }
+
+  function tellOff(id) {
+    const i = tellSlot(id, false);
+    if (i >= 0) tellKey[i] = null;
+  }
+
+  function tellProgress(id) {
+    const i = tellSlot(id, false);
+    if (i < 0) return -1;
+    const u = tellAge[i] / (tellDur[i] || 1);
+    return u < 0 ? 0 : (u > 1 ? 1 : u);
+  }
+
+  // Device px per CSS px for this canvas (falls back to 1 off-DOM).
+  function cssScale(canvas) {
+    const cw = canvas && canvas.clientWidth;
+    if (!(cw > 0) || !(canvas.width > 0)) return 1;
+    const k = canvas.width / cw;
+    return k > 0.5 && k < 8 ? k : 1;
+  }
+
+  function tellPath(ctx, shape, x, y, a, b, c, k) {
+    ctx.beginPath();
+    if (shape === 'cone') {
+      const r = a * k;
+      ctx.moveTo(x, y);
+      ctx.arc(x, y, r > 0 ? r : 0, b - c / 2, b + c / 2);
+      ctx.closePath();
+    } else if (shape === 'line') {
+      const ex = x + (a - x) * k;
+      const ey = y + (b - y) * k;
+      const dx = a - x;
+      const dy = b - y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const nx = (-dy / d) * c;
+      const ny = (dx / d) * c;
+      const ang = Math.atan2(dy, dx);
+      ctx.moveTo(x + nx, y + ny);
+      ctx.lineTo(ex + nx, ey + ny);
+      ctx.arc(ex, ey, c, ang + Math.PI / 2, ang - Math.PI / 2, true);
+      ctx.lineTo(x - nx, y - ny);
+      ctx.arc(x, y, c, ang - Math.PI / 2, ang + Math.PI / 2, true);
+      ctx.closePath();
+    } else {
+      const r = a * k;
+      ctx.arc(x, y, r > 0 ? r : 0, 0, TAU);
+    }
+  }
+
+  function paintTell(ctx, shape, x, y, a, b, c, u) {
+    if (!ctx || !ok(x) || !ok(y) || !ok(a)) return;
+    if (shape === 'cone' && (!ok(b) || !ok(c))) return;
+    if (shape === 'line' && (!ok(b) || !ok(c) || !(c > 0))) return;
+    if (shape !== 'cone' && shape !== 'line' && !(a > 0)) return;
+    const t = ok(u) ? (u < 0 ? 0 : (u > 1 ? 1 : u)) : 1;
+    const px = cssScale(ctx.canvas);
+    const prevAlpha = ctx.globalAlpha;
+    const prevOp = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.fillStyle = TELL_FILL;
+    // Whole danger zone at the starting alpha.
+    ctx.globalAlpha = TELL_A0;
+    tellPath(ctx, shape, x, y, a, b, c, 1);
+    ctx.fill();
+    // Inner fill grows from the origin out; stacked over the base it reaches
+    // TELL_A0 + (TELL_A1 - TELL_A0) * t inside the grown area.
+    if (t > 0.01) {
+      ctx.globalAlpha = ((TELL_A1 - TELL_A0) * t) / (1 - TELL_A0);
+      tellPath(ctx, shape, x, y, a, b, c, t);
+      ctx.fill();
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = TELL_EDGE;
+      ctx.lineWidth = px;
+      ctx.stroke();
+    }
+    // Outer edge: a dark outline 1 CSS px each side under a bright warm line.
+    const edge = TELL_EDGE_CSS * px;
+    tellPath(ctx, shape, x, y, a, b, c, 1);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = TELL_DARK;
+    ctx.lineWidth = edge + 2 * px;
+    ctx.stroke();
+    ctx.globalAlpha = TELL_EDGE_A;
+    ctx.strokeStyle = TELL_EDGE;
+    ctx.lineWidth = edge;
+    ctx.stroke();
+    ctx.globalAlpha = prevAlpha;
+    ctx.globalCompositeOperation = prevOp;
   }
 
   function paint(ctx, cam) {
@@ -1465,6 +1606,7 @@ const FX = (function () {
       for (let i = 0; i < BEAM_N; i++) beams[i].on = 0;
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
+      for (let i = 0; i < TELL_N; i++) tellKey[i] = null;
       shakeAmp = 0;
       shakeLife = 0;
       shakeMax = 1;
@@ -1545,6 +1687,22 @@ const FX = (function () {
       beamClear(id);
     },
 
+    telegraph: function (id, x, y, tellMs) {
+      tellOn(id, x, y, tellMs);
+    },
+
+    telegraphOff: function (id) {
+      tellOff(id);
+    },
+
+    tellProgress: function (id) {
+      return tellProgress(id);
+    },
+
+    paintTell: function (ctx, shape, x, y, a, b, c, u) {
+      paintTell(ctx, shape, x, y, a, b, c, u);
+    },
+
     shakeOffset: function () {
       return readShake();
     },
@@ -1561,5 +1719,8 @@ const FX = (function () {
 
     LEVELUP_RADIUS: LEVELUP_RADIUS,
     EVOLVE_SWEEP_MS: EVOLVE_SWEEP_MS,
+    TELL_FILL: TELL_FILL,
+    TELL_EDGE: TELL_EDGE,
+    TELL_DARK: TELL_DARK,
   };
 })();
