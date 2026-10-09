@@ -21,6 +21,43 @@
   <link rel="stylesheet" href="css/survivor.css?v=6.1.1" />
   <link rel="preload" href="assets/fonts/kenney-mini.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="assets/fonts/kenney-future.woff2" as="font" type="font/woff2" crossorigin />
+  <!-- ---- game feel batch 3: level-up cards + XP bar (UI-owned styling, design/game-feel.md 7/8) ---- -->
+  <style id="sv-feel-b3">
+    /* XP bar fill tweens 120 ms outQuad. */
+    #sv-xp { transition: width 120ms cubic-bezier(0.5, 1, 0.89, 1); }
+    /* Cards slide up from the bottom: 220 ms outBack each, staggered 60 ms. */
+    #sv-level:not(.hidden) #sv-cards .sv-card { animation: sv-card-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+    #sv-level:not(.hidden) #sv-cards .sv-card:nth-child(2) { animation-delay: 60ms; }
+    #sv-level:not(.hidden) #sv-cards .sv-card:nth-child(3) { animation-delay: 120ms; }
+    #sv-level:not(.hidden) #sv-cards .sv-card:nth-child(4) { animation-delay: 180ms; }
+    #sv-level:not(.hidden) #sv-cards .sv-card:nth-child(5) { animation-delay: 240ms; }
+    @keyframes sv-card-in { from { transform: translateY(100vh); } to { transform: none; } }
+    /* Picked card: scale to 1.1 and a 120 ms white flash (60% cap) before the game resumes. */
+    #sv-level:not(.hidden) #sv-cards .sv-card.sv-picked { animation: sv-card-pick 120ms cubic-bezier(0.5, 1, 0.89, 1) both; z-index: 1; }
+    #sv-cards .sv-card.sv-picked::after {
+      content: ''; position: absolute; inset: 0; border-radius: inherit; background: #ffffff;
+      pointer-events: none; animation: sv-card-flash 120ms linear both;
+    }
+    @keyframes sv-card-pick { from { transform: none; } to { transform: scale(1.1); } }
+    @keyframes sv-card-flash { from { opacity: 0.6; } to { opacity: 0; } }
+    /* Hover / keyboard focus (desktop): brighten only, so it never fights the entrance transform. */
+    @media (hover: hover) { #sv-cards .sv-card:hover { filter: brightness(1.12); } }
+    #sv-cards .sv-card:focus-visible { outline: 2px solid #f0c888; outline-offset: 2px; }
+    /* Reduced motion (OS setting or the in-game toggle via FX): 120 ms fade, no slide, no scale, 50% flash. */
+    @keyframes sv-card-fade { from { opacity: 0; } to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+      #sv-level:not(.hidden) #sv-cards .sv-card,
+      #sv-level:not(.hidden) #sv-cards .sv-card:nth-child(n) { animation: sv-card-fade 120ms linear both; animation-delay: 0ms; }
+      #sv-level:not(.hidden) #sv-cards .sv-card.sv-picked { animation: none; }
+      #sv-cards .sv-card.sv-picked::after { animation-name: sv-card-flash-calm; }
+    }
+    #sv-level.sv-rm:not(.hidden) #sv-cards .sv-card,
+    #sv-level.sv-rm:not(.hidden) #sv-cards .sv-card:nth-child(n) { animation: sv-card-fade 120ms linear both; animation-delay: 0ms; }
+    #sv-level.sv-rm:not(.hidden) #sv-cards .sv-card.sv-picked { animation: none; }
+    #sv-level.sv-rm #sv-cards .sv-card.sv-picked::after { animation-name: sv-card-flash-calm; }
+    @keyframes sv-card-flash-calm { from { opacity: 0.3; } to { opacity: 0; } }
+  </style>
+  <!-- ---- end game feel batch 3 ---- -->
 </head>
 <body class="survivor">
   <div id="game-wrap">
@@ -165,5 +202,54 @@
   <script src="js/survivor-sprites.js?v=6.1.1"></script>
   <script src="js/survivor-fx.js?v=6.1.1"></script>
   <script src="js/survivor.js?v=6.1.1"></script>
+  <!-- ---- game feel batch 3: card pick pulse (presentation only; the game's handlers still choose) ---- -->
+  <script>
+    (function () {
+      var box = document.getElementById('sv-cards');
+      var panel = document.getElementById('sv-level');
+      if (!box || !panel || !window.MutationObserver) return;
+      var PICK_MS = 120;
+      var busy = null;
+      var passing = false;
+      var quietUntil = 0;
+      function now() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
+      function calm() {
+        try { return !!(window.FX && FX.reducedMotion && FX.reducedMotion()); } catch (e) { return false; }
+      }
+      // New cards (openLevel rebuilds them): reset, and follow the in-game reduced-motion toggle.
+      new MutationObserver(function () {
+        busy = null;
+        panel.classList.toggle('sv-rm', calm());
+      }).observe(box, { childList: true });
+      function intercept(e) {
+        if (passing || now() < quietUntil) return; // ours, or a trailing tap: the game's guards decide
+        if (e.type === 'pointerdown' && e.button != null && e.button !== 0) return;
+        var btn = e.target && e.target.closest ? e.target.closest('[data-choice]') : null;
+        if (!btn || !box.contains(btn) || panel.classList.contains('hidden')) return;
+        e.stopImmediatePropagation();
+        if (busy) return; // swallow the click that follows the pointerdown, and double taps
+        busy = btn;
+        btn.classList.add('sv-picked');
+        setTimeout(function () {
+          if (busy !== btn || !btn.isConnected) return;
+          passing = true;
+          try {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          } finally {
+            passing = false;
+          }
+          quietUntil = now() + 350;
+          // Refused (e.g. the game's 300 ms open guard): let the player tap again.
+          if (btn.isConnected && !panel.classList.contains('hidden')) {
+            btn.classList.remove('sv-picked');
+            busy = null;
+          }
+        }, PICK_MS);
+      }
+      box.addEventListener('pointerdown', intercept, true);
+      box.addEventListener('click', intercept, true);
+    })();
+  </script>
+  <!-- ---- end game feel batch 3 ---- -->
 </body>
 </html>

@@ -56,6 +56,10 @@
  * "---- game feel batch 2 ----": FX.evoCinematic / evoHold / evoTitleScale
  * (Dawnbreaker 1.6 s moment, sim held to 1.2 s) and FX.heroWalk / heroPose.
  *
+ * Game feel batch 3 (design/game-feel.md 7 and 8), section "---- game feel
+ * batch 3 ----": level-up pillar (in FX.levelUp, drawn in FX.drawUnder),
+ * FX.gemChainStep() pitch multiplier for audio, FX.gemBob().
+ *
  * Game feel batch 1 (design/game-feel.md 1, 2 and the shake rules):
  * FX.shake(level 1..4) = S1 2px/120ms, S2 4/200, S3 6/300, S4 8/400 (art px,
  * outQuad decay, value noise, no rotation). Never stacks: a shake replaces
@@ -1290,6 +1294,7 @@ const FX = (function () {
     if (dt > 0.05) dt = 0.05;
     clock += dt;
     evoStep(dt); // batch 2
+    pillarStep(dt); // batch 3
     if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
     if (popOn) {
       popT += dt;
@@ -2475,6 +2480,136 @@ const FX = (function () {
   }
   // ---- end game feel batch 2 ----
 
+  // ---- game feel batch 3: level-up pillar + gem chain ----
+  // design/game-feel.md section 7 (level-up light pillar, the 0.3 s slow-mo
+  // constants the game reads) and section 8 (gem idle bob, rising-pitch
+  // chain). Cards are HTML (survivor.html, "game feel batch 3" style/script).
+  // Touches elsewhere: one-line calls marked "batch 3" (step, levelUp,
+  // drawUnder, reset) and the "batch 3" API block. No per-frame allocations.
+
+  // Pillar: 16 art px wide, grows to 64 art px over 200 ms (outCubic), then
+  // fades over 250 ms. Drawn in FX.drawUnder so the hero stays on top.
+  const PILLAR_W = 16;
+  const PILLAR_H = 64;
+  const PILLAR_GROW = 0.2;
+  const PILLAR_FADE = 0.25;
+  const PILLAR_EDGE = '#fff0b0';
+  const PILLAR_MID = '#ffe070';
+  const PILLAR_CORE = '#ffffff';
+  // Level-up slow-mo for the game: 0.3 s at 30% (none with reduced motion).
+  const LEVEL_SLOW_S = 0.3;
+  const LEVEL_SLOW_SCALE = 0.3;
+  let pillarOn = 0;
+  let pillarAge = 0;
+  let pillarX = 0;
+  let pillarY = 0;
+  let pillarCalm = 0;
+
+  function pillarStart(x, y) {
+    if (!ok(x) || !ok(y)) return false;
+    pillarOn = 1;
+    pillarAge = 0;
+    pillarX = x;
+    pillarY = y;
+    pillarCalm = reducedNow() ? 1 : 0;
+    return true;
+  }
+
+  function pillarStep(dt) {
+    if (!pillarOn) return;
+    pillarAge += dt;
+    if (pillarAge >= PILLAR_GROW + PILLAR_FADE) pillarOn = 0;
+  }
+
+  // {h: 0..1 of full height, a: 0..1 alpha}; shared, no allocation.
+  const pillarState = { h: 0, a: 0 };
+  function pillarRead() {
+    pillarState.h = 0;
+    pillarState.a = 0;
+    if (!pillarOn) return pillarState;
+    if (pillarCalm) {
+      // Reduced motion: no growth, full height that fades.
+      pillarState.h = 1;
+      pillarState.a = 1 - pillarAge / (PILLAR_GROW + PILLAR_FADE);
+      return pillarState;
+    }
+    if (pillarAge < PILLAR_GROW) {
+      pillarState.h = outCubic(pillarAge / PILLAR_GROW);
+      pillarState.a = 1;
+    } else {
+      pillarState.h = 1;
+      pillarState.a = 1 - (pillarAge - PILLAR_GROW) / PILLAR_FADE;
+    }
+    if (pillarState.a < 0) pillarState.a = 0;
+    return pillarState;
+  }
+
+  function paintPillar(ctx, zoom, tile, camX, camY) {
+    if (!pillarOn) return;
+    const st = pillarRead();
+    if (!(st.h > 0) || !(st.a > 0.02)) return;
+    const cell = Math.max(1, zoom | 0);
+    const x = Math.round(pillarX * tile + camX);
+    const foot = Math.round(pillarY * tile + camY);
+    const h = Math.max(cell, Math.round(PILLAR_H * st.h) * cell);
+    const top = foot - h;
+    const a = st.a;
+    // Flat layered rects: soft edge, warm mid, white core; a stepped fade at the top.
+    ctx.globalAlpha = 0.28 * a;
+    ctx.fillStyle = PILLAR_EDGE;
+    ctx.fillRect(x - 8 * cell, top + 4 * cell, 16 * cell, h - 4 * cell);
+    ctx.globalAlpha = 0.14 * a;
+    ctx.fillRect(x - 8 * cell, top, 16 * cell, 4 * cell);
+    ctx.globalAlpha = 0.45 * a;
+    ctx.fillStyle = PILLAR_MID;
+    ctx.fillRect(x - 5 * cell, top + 3 * cell, 10 * cell, h - 3 * cell);
+    ctx.globalAlpha = 0.85 * a;
+    ctx.fillStyle = PILLAR_CORE;
+    ctx.fillRect(x - 2 * cell, top + 2 * cell, 4 * cell, h - 2 * cell);
+    // Floor glow at the feet.
+    ctx.globalAlpha = 0.35 * a;
+    ctx.fillStyle = PILLAR_MID;
+    ctx.fillRect(x - 12 * cell, foot - cell, 24 * cell, 2 * cell);
+    ctx.globalAlpha = 1;
+  }
+
+  // Gem chain (section 8): each gem within 400 ms of the last climbs one
+  // semitone, up to +12. FX.gemChainStep() -> pitch multiplier 2^(n/12),
+  // n = FX.gemChainIndex() (0 for the first gem of a chain). FX clock.
+  const CHAIN_GAP = 0.4;
+  const CHAIN_MAX = 12;
+  let chainN = -1;
+  let chainAt = -10;
+
+  function gemChainStep() {
+    if (chainN < 0 || clock - chainAt > CHAIN_GAP) chainN = 0;
+    else if (chainN < CHAIN_MAX) chainN += 1;
+    chainAt = clock;
+    return Math.pow(2, chainN / 12);
+  }
+
+  function gemChainIndex() {
+    if (chainN < 0 || clock - chainAt > CHAIN_GAP) return 0;
+    return chainN;
+  }
+
+  // Idle gem bob: 1 art px over an 800 ms sine; seed staggers gems. Art px
+  // (0..1, up); the game multiplies by zoom. Reduced motion: 0.
+  const BOB_T = 0.8;
+  function gemBob(seed) {
+    if (reducedNow()) return 0;
+    const s = ok(seed) ? seed : 0;
+    return 0.5 - 0.5 * Math.cos(TAU * (clock / BOB_T + s * 0.37));
+  }
+
+  function resetB3() {
+    pillarOn = 0;
+    pillarAge = 0;
+    chainN = -1;
+    chainAt = -10;
+  }
+  // ---- end game feel batch 3 ----
+
   function paint(ctx, cam) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
@@ -2718,6 +2853,7 @@ const FX = (function () {
       addRing(space, px, py, 0, rad, 2, 0.22, 0, 0);
       addRing(space, px, py, 1, rad + 1, 1, 0.22, 0, 2);
       if (!reducedNow()) spawnStreaks(px, py, placed ? 0 : 1);
+      if (placed) pillarStart(px, py); // batch 3
     },
 
     evolve: function (weapon, opts) {
@@ -2768,6 +2904,7 @@ const FX = (function () {
 
     reset: function () {
       resetB2(); // batch 2
+      resetB3(); // batch 3
       clock = 0;
       vows = 0;
       vowAng = 0;
@@ -2868,6 +3005,7 @@ const FX = (function () {
       const camY = view && ok(view.y) ? view.y : 0;
       ctx.imageSmoothingEnabled = false;
       paintBeams(ctx, zoom, tile, camX, camY, ctx.canvas.width, ctx.canvas.height);
+      paintPillar(ctx, zoom, tile, camX, camY); // batch 3
     },
 
     drawBeamArrows: function (ctx, cam, w, h) {
@@ -2997,6 +3135,24 @@ const FX = (function () {
     EVO_SHORT_MS: EVO_SHORT.end * 1000,
     WALK_FPS: WALK_FPS,
     // ---- end game feel batch 2 API ----
+
+    // ---- game feel batch 3 API ----
+    // Pillar starts inside FX.levelUp(x, y). The game slows its sim for
+    // FX.LEVEL_SLOW_S at FX.LEVEL_SLOW_SCALE before opening the cards (skip it
+    // when FX.reducedMotion()). Audio (GD): const rate = FX.gemChainStep() on
+    // every gem pickup -> playback-rate multiplier 1 .. 2 (+0..+12 semitones,
+    // +1 per gem within 400 ms of the last); FX.gemChainIndex() is the
+    // semitone count. FX.gemBob(seed) -> idle bob in art px (0..1, up).
+    pillar: function () { return pillarRead(); },
+    gemChainStep: gemChainStep,
+    gemChainIndex: gemChainIndex,
+    gemBob: gemBob,
+    reducedMotion: function () { return reducedNow(); },
+    LEVEL_SLOW_S: LEVEL_SLOW_S,
+    LEVEL_SLOW_SCALE: LEVEL_SLOW_SCALE,
+    PILLAR_MS: (PILLAR_GROW + PILLAR_FADE) * 1000,
+    GEM_CHAIN_MAX: CHAIN_MAX,
+    // ---- end game feel batch 3 API ----
   };
 })();
 
