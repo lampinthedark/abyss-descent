@@ -52,6 +52,10 @@
  * Reduced motion: no growth, 120 ms fade. FX.guardNumberStyle is the grey
  * {color, scale} for glanced damage numbers.
  *
+ * Game feel batch 2 (design/game-feel.md 6 and 4) lives in its own section,
+ * "---- game feel batch 2 ----": FX.evoCinematic / evoHold / evoTitleScale
+ * (Dawnbreaker 1.6 s moment, sim held to 1.2 s) and FX.heroWalk / heroPose.
+ *
  * Game feel batch 1 (design/game-feel.md 1, 2 and the shake rules):
  * FX.shake(level 1..4) = S1 2px/120ms, S2 4/200, S3 6/300, S4 8/400 (art px,
  * outQuad decay, value noise, no rotation). Never stacks: a shake replaces
@@ -806,6 +810,7 @@ const FX = (function () {
   // FX.consumeHitstop(dt), which the game calls with its sim dt.
   function hitstopFor(vis) {
     if (!vis || reducedNow()) return 0;
+    if (evoBusy()) return 0; // batch 2: never during / right after the evolution cinematic
     const elite = !!vis.elite && !vis.boss;
     const boss = !!vis.boss;
     if (!elite && !boss) return 0;
@@ -1284,6 +1289,7 @@ const FX = (function () {
     if (!(dt > 0)) return;
     if (dt > 0.05) dt = 0.05;
     clock += dt;
+    evoStep(dt); // batch 2
     if (flashLeft > 0) flashLeft = Math.max(0, flashLeft - dt);
     if (popOn) {
       popT += dt;
@@ -2027,6 +2033,448 @@ const FX = (function () {
     }
   }
 
+  // ---- game feel batch 2: Dawnbreaker evolution cinematic + hero walk ----
+  // design/game-feel.md section 6 (evolution moment) and section 4 (hero walk).
+  // Self-contained: state, helpers and paint for batch 2 live here; the only
+  // touches elsewhere are one-line calls marked "batch 2" (step, paint,
+  // evolve, hitstopFor, reset) and the "batch 2" API block. Everything rides
+  // the FX clock (FX.update dt). Preallocated; nothing allocates per frame.
+
+  // Evolution cinematic timings in seconds. Full: 1.6 s. Reduced motion: a
+  // 0.8 s cut (no icon flight, no ring growth, no title overshoot, 50% flash).
+  const EVO_FULL = { dimIn: 0.3, flyA: 0.3, flyB: 0.9, flash: 0.08, ringA: 0.9, ringB: 1.2, title: 0.25, fire: 1.2, end: 1.6 };
+  const EVO_SHORT = { dimIn: 0.15, flyA: 0.15, flyB: 0.45, flash: 0.08, ringA: 0.45, ringB: 0.6, title: 0, fire: 0.6, end: 0.8 };
+  const EVO_DIM = 0.6;          // 60% black
+  const EVO_GOLD = '#ffd24a';
+  const EVO_GOLD_DEEP = '#b07a12';
+  const EVO_FLASH_A = 0.6;      // shares the 60% white photosensitivity cap
+  const EVO_QUIET = 0.15;       // hitstop stays off this long after the cinematic
+  let evoOn = 0;
+  let evoAge = 0;
+  let evoT = EVO_FULL;
+  let evoShort = 0;
+  let evoX = 0;
+  let evoY = 0;
+  let evoFace = 1;
+  let evoSprite = 'hero';
+  let evoShook = 0;
+  let evoFlashed = 0;
+  let evoFlashLeft = 0;
+  let evoQuiet = 0;
+  let goldAtlas = null;
+  let goldSrc = null;
+  let gauntletImg = null;
+
+  function evoBusy() {
+    return evoOn === 1 || evoQuiet > 0;
+  }
+
+  function evoStart(id, opts) {
+    if (evoOn) return 0;
+    evoOn = 1;
+    evoAge = 0;
+    evoShort = reducedNow() ? 1 : 0;
+    evoT = evoShort ? EVO_SHORT : EVO_FULL;
+    evoX = opts && ok(opts.x) ? opts.x : 0;
+    evoY = opts && ok(opts.y) ? opts.y : 0;
+    evoFace = opts && opts.facing < 0 ? -1 : 1;
+    evoSprite = opts && opts.sprite ? opts.sprite : 'hero';
+    evoShook = 0;
+    evoFlashed = 0;
+    evoFlashLeft = 0;
+    // Never stacks with hitstop: a running stop is dropped, new ones refused.
+    stopLeft = 0;
+    return evoT.end;
+  }
+
+  function evoStep(dt) {
+    if (evoFlashLeft > 0) evoFlashLeft = Math.max(0, evoFlashLeft - dt);
+    if (evoQuiet > 0) evoQuiet = Math.max(0, evoQuiet - dt);
+    if (!evoOn) return;
+    evoAge += dt;
+    const t = evoT;
+    if (!evoFlashed && evoAge >= t.flyB) {
+      evoFlashed = 1;
+      // Merge flash, 80 ms, inside the shared 3-per-second flash budget.
+      if (tryConsumeFlash()) evoFlashLeft = t.flash;
+    }
+    if (!evoShook && evoAge >= t.ringA) {
+      evoShook = 1;
+      shakeLevel(3); // S3; reduced motion halves it (shake rules)
+    }
+    if (evoAge >= t.end) {
+      evoOn = 0;
+      evoQuiet = EVO_QUIET;
+    }
+  }
+
+  // Sim stays paused while this is true (0 .. fire).
+  function evoHold() {
+    return evoOn === 1 && evoAge < evoT.fire;
+  }
+
+  // Title scale for the game's banner: -1 before it shows, then 0.6 -> 1.0
+  // outBack over 250 ms and hold (reduced motion: 1, no overshoot).
+  function evoTitleScale() {
+    if (!evoOn || evoAge < evoT.ringA) return -1;
+    if (evoShort || !(evoT.title > 0)) return 1;
+    const u = (evoAge - evoT.ringA) / evoT.title;
+    if (u >= 1) return 1;
+    return 0.6 + 0.4 * outBack(u);
+  }
+
+  function evoDimAlpha() {
+    if (!evoOn) return 0;
+    const t = evoT;
+    if (evoAge < t.dimIn) return EVO_DIM * outQuad(evoAge / t.dimIn);
+    if (evoAge < t.fire) return EVO_DIM;
+    const u = (evoAge - t.fire) / (t.end - t.fire);
+    return u >= 1 ? 0 : EVO_DIM * (1 - outQuad(u));
+  }
+
+  // 0..1 strength of the gold hero glow (and hero/icon visibility).
+  function evoGlow() {
+    if (!evoOn) return 0;
+    const t = evoT;
+    if (evoAge < t.dimIn) return outQuad(evoAge / t.dimIn);
+    if (evoAge < t.fire) return 1;
+    const u = (evoAge - t.fire) / (t.end - t.fire);
+    return u >= 1 ? 0 : 1 - u;
+  }
+
+  function ensureGold() {
+    let atlas = null;
+    try {
+      const s = typeof Sprites !== 'undefined' ? Sprites : null;
+      atlas = s ? s.atlas : null;
+    } catch (e) {
+      return goldAtlas;
+    }
+    if (goldAtlas && (goldSrc === atlas || !atlas)) return goldAtlas;
+    if (!atlas || !atlas.width || typeof document === 'undefined' || !document.createElement) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = atlas.width;
+      c.height = atlas.height;
+      const g = c.getContext('2d');
+      if (!g || typeof g.drawImage !== 'function' || typeof g.fillRect !== 'function') return null;
+      g.imageSmoothingEnabled = false;
+      g.drawImage(atlas, 0, 0);
+      g.globalCompositeOperation = 'source-in';
+      g.fillStyle = EVO_GOLD;
+      g.fillRect(0, 0, c.width, c.height);
+      g.globalCompositeOperation = 'source-over';
+      goldAtlas = c;
+      goldSrc = atlas;
+      return c;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // 12x12 pixel Iron Gauntlet icon, painted once.
+  function ensureGauntlet() {
+    if (gauntletImg) return gauntletImg;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = 12;
+      c.height = 12;
+      const g = c.getContext('2d');
+      if (!g || typeof g.fillRect !== 'function') return null;
+      g.fillStyle = '#14120f';
+      g.fillRect(1, 0, 10, 12);
+      g.fillStyle = '#8c939e';
+      g.fillRect(2, 1, 2, 4);
+      g.fillRect(4, 1, 2, 4);
+      g.fillRect(6, 1, 2, 4);
+      g.fillRect(8, 2, 2, 3);
+      g.fillRect(2, 5, 8, 4);
+      g.fillStyle = '#d6dbe2';
+      g.fillRect(2, 1, 1, 3);
+      g.fillRect(4, 1, 1, 3);
+      g.fillRect(6, 1, 1, 3);
+      g.fillRect(2, 5, 7, 1);
+      g.fillStyle = '#6a4a2a';
+      g.fillRect(3, 9, 6, 2);
+      gauntletImg = c;
+      return c;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function heroFrame() {
+    try {
+      const s = typeof Sprites !== 'undefined' ? Sprites : null;
+      return s && s.frameRect ? s.frameRect(evoSprite, 'idle', 0) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // One atlas blit, feet-anchored at (x, y), optionally scaled about the body centre.
+  function blitFrame(ctx, img, fr, x, y, zoom, k, flip) {
+    const dw = Math.max(1, Math.round(fr.sw * zoom * k));
+    const dh = Math.max(1, Math.round(fr.sh * zoom * k));
+    const foot = (fr.sh - framePad(fr)) * zoom;
+    const cy = y - foot + (fr.sh * zoom) / 2;
+    const dx = Math.round(x - dw / 2);
+    const dy = Math.round(cy - dh / 2);
+    if (flip) ctx.drawImage(img, fr.sx, fr.sy, fr.sw, fr.sh, dx + dw, dy, -dw, dh);
+    else ctx.drawImage(img, fr.sx, fr.sy, fr.sw, fr.sh, dx, dy, dw, dh);
+  }
+
+  function paintEvo(ctx, zoom, tile, camX, camY, viewW, viewH) {
+    if (!evoOn) {
+      if (evoFlashLeft > 0) paintEvoFlash(ctx, viewW, viewH);
+      return;
+    }
+    const t = evoT;
+    const cell = Math.max(1, zoom | 0);
+    const dim = evoDimAlpha();
+    if (dim > 0.01) {
+      ctx.globalAlpha = dim;
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, viewW, viewH);
+    }
+    const hx = evoX * tile + camX;
+    const hy = evoY * tile + camY;
+    const fr = heroFrame();
+    const half = fr ? (fr.sh - framePad(fr)) * zoom * 0.5 : 8 * zoom;
+    const by = hy - half; // body centre
+    const glow = evoGlow();
+    ctx.imageSmoothingEnabled = false;
+    if (fr && glow > 0.01) {
+      const gold = ensureGold();
+      let atlas = null;
+      try { atlas = typeof Sprites !== 'undefined' ? Sprites.atlas : null; } catch (e) { atlas = null; }
+      const flip = evoFace > 0;
+      if (gold) {
+        ctx.globalAlpha = 0.45 * glow;
+        blitFrame(ctx, gold, fr, hx, hy, zoom, 1.22, flip);
+      }
+      if (atlas && dim > 0.01) {
+        // The hero sits above the dim.
+        ctx.globalAlpha = 1;
+        blitFrame(ctx, atlas, fr, hx, hy, zoom, 1, flip);
+      }
+      if (gold) {
+        ctx.globalAlpha = 0.5 * glow;
+        blitFrame(ctx, gold, fr, hx, hy, zoom, 1, flip);
+      }
+    }
+    // Oathblade + Iron Gauntlet fly into the hero (inQuad) and merge.
+    if (evoAge >= t.flyA && evoAge < t.flyB) {
+      const u = (evoAge - t.flyA) / (t.flyB - t.flyA);
+      const blade = ensureBlade();
+      const gaunt = ensureGauntlet();
+      let bx;
+      let bY;
+      let gx;
+      let gy;
+      let a = 1;
+      if (evoShort) {
+        a = u;
+        bx = hx - 10 * cell;
+        gx = hx + 10 * cell;
+        bY = by;
+        gy = by;
+      } else {
+        const p = inQuad(u);
+        const sx = 0.36 * viewW;
+        const sy = 0.22 * viewH;
+        bx = hx - sx * (1 - p);
+        gx = hx + sx * (1 - p);
+        bY = by - sy * (1 - p);
+        gy = bY;
+      }
+      ctx.globalAlpha = a;
+      if (blade) {
+        const w = BLADE_W * cell;
+        const h = BLADE_H * cell;
+        // FX.draw runs at the identity transform: rotate -45 deg in place, no save/restore.
+        ctx.setTransform(0.7071, -0.7071, 0.7071, 0.7071, Math.round(bx), Math.round(bY));
+        ctx.drawImage(blade, Math.round(-w / 2), Math.round(-h / 2), Math.round(w), Math.round(h));
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      if (gaunt) {
+        const s = 18 * cell;
+        ctx.drawImage(gaunt, Math.round(gx - s / 2), Math.round(gy - s / 2), s, s);
+      }
+    }
+    // Gold ring from 0 to the far screen corner (outCubic), then fades with the dim.
+    if (evoAge >= t.ringA) {
+      const u = Math.min(1, (evoAge - t.ringA) / (t.ringB - t.ringA));
+      const fx0 = hx > viewW - hx ? hx : viewW - hx;
+      const fy0 = by > viewH - by ? by : viewH - by;
+      const far = Math.sqrt(fx0 * fx0 + fy0 * fy0) + 4 * cell;
+      let r;
+      let a;
+      if (evoShort) {
+        r = 0.36 * (viewW < viewH ? viewW : viewH);
+        a = u < 1 ? u : 1;
+      } else {
+        r = far * outCubic(u);
+        a = 1;
+      }
+      if (evoAge > t.fire) a *= Math.max(0, 1 - (evoAge - t.fire) / (t.end - t.fire));
+      if (r > 1 && a > 0.02) {
+        ctx.globalAlpha = a;
+        ctx.lineWidth = 3 * cell;
+        ctx.strokeStyle = EVO_GOLD_DEEP;
+        ctx.beginPath();
+        ctx.arc(hx, by, r + cell, 0, TAU);
+        ctx.stroke();
+        ctx.lineWidth = 2 * cell;
+        ctx.strokeStyle = EVO_GOLD;
+        ctx.beginPath();
+        ctx.arc(hx, by, r, 0, TAU);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (evoFlashLeft > 0) paintEvoFlash(ctx, viewW, viewH);
+  }
+
+  function paintEvoFlash(ctx, viewW, viewH) {
+    let a = EVO_FLASH_A * (evoFlashLeft / evoT.flash) * (evoShort ? 0.5 : 1);
+    if (a > EVO_FLASH_A) a = EVO_FLASH_A;
+    if (a <= 0.02) return;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.globalAlpha = 1;
+  }
+
+  // Hero walk (section 4). The game calls FX.heroWalk once per sim step and
+  // reads FX.heroPose() when drawing the hero (feet-anchored transform).
+  const WALK_FPS = 10;
+  const WALK_FPS_FAST = 12;
+  const LEAN_RAD = (4 * Math.PI) / 180;
+  const LEAN_T = 0.08;
+  const BOB_ART = 1;
+  const DUST_GAP = 0.18;
+  const DUST_LIFE = 0.3;
+  const DUST_COLOR = '#a8987a';
+  const STOP_T = 0.1;
+  const STOP_SX = 1.08;
+  const STOP_SY = 0.92;
+  const BREATH_T = 1.2;
+  const BREATH_Y = 0.03;
+  let walkOn = 0;
+  let walkPhase = 0;
+  let leanFrom = 0;
+  let leanTo = 0;
+  let leanAge = 1;
+  let stopAge = 9;
+  let breathT = 0;
+  let dustT = 0;
+  const walkPose = { rot: 0, sx: 1, sy: 1, bob: 0, animT: 0 };
+
+  function leanNow() {
+    const u = leanAge >= LEAN_T ? 1 : leanAge / LEAN_T;
+    return leanFrom + (leanTo - leanFrom) * outQuad(u);
+  }
+
+  function spawnDust(x, y, dx) {
+    const tone = colorTone(DUST_COLOR);
+    const back = dx > 0 ? -1 : dx < 0 ? 1 : 0;
+    for (let k = 0; k < 2; k++) {
+      const p = takePart();
+      p.life = DUST_LIFE;
+      p.max = DUST_LIFE;
+      p.x = x + (k ? 0.12 : -0.12) * (back || 1) * 0.5;
+      p.y = y - 0.03;
+      p.vx = back * (0.5 + rand() * 0.4) + (rand() - 0.5) * 0.3;
+      p.vy = -0.45 - rand() * 0.35;
+      p.w = 1;
+      p.h = 1;
+      p.tone = tone;
+      p.peak = 0.75;
+      p.art = 1;
+      p.grav = 2.2;
+      p.screen = 0;
+    }
+  }
+
+  function heroWalk(dt, dx, dy, moving, x, y, speedRatio) {
+    if (!(dt > 0)) return;
+    if (dt > 0.05) dt = 0.05;
+    const calm = reducedNow();
+    const on = moving ? 1 : 0;
+    // Ages count from the frame an event happens (that frame draws age 0).
+    if (stopAge < 9) stopAge += on ? 9 : dt;
+    let target = 0;
+    if (on && !calm) {
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const hx = len > 1e-9 ? dx / len : 0;
+      if (hx >= 0.3) target = LEAN_RAD;
+      else if (hx <= -0.3) target = -LEAN_RAD;
+    }
+    if (target !== leanTo) {
+      leanFrom = leanNow();
+      leanTo = target;
+      leanAge = 0;
+    } else if (leanAge < 1) {
+      leanAge += dt;
+    }
+    if (on) {
+      let fps = WALK_FPS;
+      if (speedRatio > 1) fps = Math.min(WALK_FPS_FAST, WALK_FPS * speedRatio);
+      if (!walkOn) dustT = DUST_GAP * 0.5;
+      walkPhase += dt * fps;
+      if (walkPhase > 1e6) walkPhase -= 1e6;
+      dustT -= dt;
+      if (dustT <= 0) {
+        dustT += DUST_GAP;
+        if (ok(x) && ok(y)) spawnDust(x, y, dx);
+      }
+      breathT = 0;
+    } else {
+      if (walkOn && !calm) stopAge = 0;
+      breathT += dt;
+      if (breathT >= BREATH_T) breathT -= BREATH_T;
+    }
+    walkOn = on;
+  }
+
+  function heroPose() {
+    const calm = reducedNow();
+    walkPose.rot = leanNow();
+    walkPose.sx = 1;
+    walkPose.sy = 1;
+    walkPose.bob = 0;
+    walkPose.animT = walkPhase / 8; // sprites play frame floor(time * 8)
+    if (walkOn && !calm && (Math.floor(walkPhase) & 1)) walkPose.bob = -BOB_ART;
+    if (stopAge < STOP_T && !calm) {
+      const e = outBack(stopAge / STOP_T);
+      walkPose.sx = STOP_SX + (1 - STOP_SX) * e;
+      walkPose.sy = STOP_SY + (1 - STOP_SY) * e;
+    } else if (!walkOn && !calm) {
+      walkPose.sy = 1 + BREATH_Y * (0.5 - 0.5 * Math.cos((TAU * breathT) / BREATH_T));
+    }
+    return walkPose;
+  }
+
+  function resetB2() {
+    evoOn = 0;
+    evoAge = 0;
+    evoShook = 0;
+    evoFlashed = 0;
+    evoFlashLeft = 0;
+    evoQuiet = 0;
+    walkOn = 0;
+    walkPhase = 0;
+    leanFrom = 0;
+    leanTo = 0;
+    leanAge = 1;
+    stopAge = 9;
+    breathT = 0;
+    dustT = 0;
+  }
+  // ---- end game feel batch 2 ----
+
   function paint(ctx, cam) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
@@ -2166,6 +2614,8 @@ const FX = (function () {
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+    paintEvo(ctx, zoom, tile, camX, camY, viewW, viewH); // batch 2
+    ctx.globalAlpha = 1;
     trailCount = 0;
   }
 
@@ -2278,6 +2728,12 @@ const FX = (function () {
         popOn = 1;
         popT = 0;
       }
+      if (evoOn) {
+        // batch 2: the cinematic already flashed; fire the 360 sweep straight away.
+        evolveFlashAt = clock;
+        beginSweep(opts, !reducedNow());
+        return;
+      }
       if (clock - evolveFlashAt < 1) {
         addRing(1, 0, 0, 12, 28, 2, 0.24, 0, 0);
         return;
@@ -2311,6 +2767,7 @@ const FX = (function () {
     },
 
     reset: function () {
+      resetB2(); // batch 2
       clock = 0;
       vows = 0;
       vowAng = 0;
@@ -2518,5 +2975,27 @@ const FX = (function () {
     GUARD_GAP_MS: GUARD_GAP * 1000,
     LOWHP_FLASH_AT: FLASH_AT,
     GEM_TRAIL_CAP: TRAIL_CAP,
+
+    // ---- game feel batch 2 API ----
+    // FX.evoCinematic(id, {x, y, facing, sprite}) starts the Dawnbreaker moment
+    // (world tiles; returns its length in s, 0 if one is already running).
+    // While FX.evoHold() is true the game pauses its sim (FX keeps updating);
+    // when it turns false (1.2 s; 0.6 s reduced) the game commits the
+    // evolution and the 360 sweep fires. FX.evoTitleScale() drives the banner.
+    evoCinematic: function (id, opts) { return evoStart(id, opts); },
+    evoHold: function () { return evoHold(); },
+    evoActive: function () { return evoOn === 1; },
+    evoTime: function () { return evoOn ? evoAge : -1; },
+    evoTitleScale: function () { return evoTitleScale(); },
+    evoDim: function () { return evoDimAlpha(); },
+    // FX.heroWalk(dt, dx, dy, moving, x, y, speedRatio) once per sim step;
+    // FX.heroPose() -> shared {rot (rad), sx, sy, bob (art px), animT}.
+    heroWalk: heroWalk,
+    heroPose: heroPose,
+    EVO_MS: EVO_FULL.end * 1000,
+    EVO_FIRE_MS: EVO_FULL.fire * 1000,
+    EVO_SHORT_MS: EVO_SHORT.end * 1000,
+    WALK_FPS: WALK_FPS,
+    // ---- end game feel batch 2 API ----
   };
 })();
