@@ -1596,7 +1596,7 @@
   }
 
   function spawnRate() {
-    if (MEDIEVAL) return medWave().rate * (postEvoOn() ? (MCFG.postEvo.rateMul || 1) : 1);
+    if (MEDIEVAL) return medWave().rate * (postEvoOn() ? (MCFG.postEvo.rateMul || 1) : 1) * (boss5 ? (MED.boss.spawnMul || 0) : 1);
     const swarm = time > 18 && (Math.floor(time / 15) % 2 === 1);
     let rate = 2.2;
     if (time < 12) rate = 4;
@@ -1615,9 +1615,10 @@
 
   function spawnCap() {
     if (MEDIEVAL) {
-      if (boss5) return 0;
+      const bossMul = boss5 ? (liveBoss() ? (MED.boss.spawnMul || 0) : 0) : 1;
+      if (bossMul <= 0) return 0;
       const evoCap = postEvoOn() ? (MCFG.postEvo.capMul || 1) : 1;
-      return Math.min(LIVE_CAP, Math.round(medWave().cap * (MCFG.densityMul || 1) * evoCap));
+      return Math.min(LIVE_CAP, Math.round(medWave().cap * (MCFG.densityMul || 1) * evoCap * bossMul));
     }
     let cap = 340;
     if (time < 12) cap = 14;

@@ -329,7 +329,7 @@ const SurvivorData = (() => {
       { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 80, rate: 22, xpMul: 1.3 },
       { at: 240, kinds: { fiend: 1, imp: 1, skel: 2 }, cap: 55, rate: 16, walls: true, xpMul: 1.8 },
       { at: 270, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
-      { at: 300, kinds: {}, cap: 0, rate: 0 },               // boss: spawns stop
+      { at: 300, kinds: { skel: 2, imp: 1 }, cap: 40, rate: 12 }, // boss phase, scaled by boss.spawnMul
     ],
     // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
     kinds: {
@@ -366,6 +366,7 @@ const SurvivorData = (() => {
     boss: {
       at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.45, speedMul: 0.7, touchDmg: 10, // scale 1.45: ~3x a 16px mob
       adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
+      spawnMul: 0.2, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
       // Loot shower on the kill: one guaranteed relic (banked straight into the
