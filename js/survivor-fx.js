@@ -33,6 +33,17 @@
  * same args for regular monsters, 'line' (charge lane) or 'dot' (orb that
  * grows from 30% to radius a): amber #e0a060 fill 0.06 -> 0.2 and a 1.5 CSS
  * px #ffd0a0 edge at 0.55, no pulse, no outline. Always the quieter of the two.
+ *
+ * Low HP: FX.drawLowHp(ctx, w, h, hpFrac, nowMs), once per frame after the
+ * world in screen space, draws nothing at 35% HP or more. Below that a dark
+ * red (#5a0a06 -> #a0140a) edge vignette, centre clear, beats lub-dub from 60
+ * bpm at 35% to 140 bpm at 5%, edge alpha up to 0.55. The gradient is built
+ * once per ctx and size. FX.lowHpFlash(hpFrac, nowMs) gives a 0..1 HP-bar
+ * flash below 15% (lub only, at most 2.33 Hz); FX.drawHpBarFlash paints it on
+ * a canvas rect. Reduced motion: steady vignette, flash held at 0.5.
+ * FX.gemTrail(ctx, x, y, vx, vy, colour) draws a 4-segment fading streak and
+ * a sparkle behind a moving gem (screen px, px/s), at most 64 per frame
+ * (the count resets in FX.draw).
  */
 const FX = (function () {
   'use strict';
@@ -251,6 +262,31 @@ const FX = (function () {
   const tellX = new Float64Array(TELL_N);
   const tellY = new Float64Array(TELL_N);
   for (let i = 0; i < TELL_N; i++) tellKey[i] = null;
+
+  // Low-HP heartbeat: elliptical edge vignette, gradient cached per ctx/size.
+  const LOWHP_AT = 0.35;
+  const LOWHP_FLOOR = 0.05;
+  const FLASH_AT = 0.15;
+  const BPM_SLOW = 60;
+  const BPM_FAST = 140;
+  const LOWHP_ALPHA = 0.55;
+  const DUB_AT = 0.3;
+  let heartPhase = 0;
+  let heartNow = -1;
+  let heartBpm = 0;
+  let vigCtx = null;
+  let vigW = 0;
+  let vigH = 0;
+  let vigGrad = null;
+  let vigBuilds = 0;
+
+  // Gem glint streaks: stateless per call, capped per frame.
+  const TRAIL_CAP = 64;
+  const TRAIL_SEG = 4;
+  const TRAIL_SEC = 0.07;
+  const TRAIL_MAX_CSS = 22;
+  const GEM_GLINT = '#5fd8ff';
+  let trailCount = 0;
   let heroHalf = 0;
   let whiteAtlas = null;
   let bladeImg = null;
@@ -1399,6 +1435,147 @@ const FX = (function () {
     ctx.globalCompositeOperation = prevOp;
   }
 
+  function heartRate(hp) {
+    if (!ok(hp) || hp >= LOWHP_AT) return 0;
+    const k = hp <= LOWHP_FLOOR ? 1 : (LOWHP_AT - hp) / (LOWHP_AT - LOWHP_FLOOR);
+    return BPM_SLOW + (BPM_FAST - BPM_SLOW) * k;
+  }
+
+  // Advances the beat phase once per distinct nowMs (gaps capped at 0.1s),
+  // so drawLowHp and lowHpFlash can share a frame without double counting.
+  function heartTick(hp, nowMs) {
+    heartBpm = heartRate(hp);
+    if (!ok(nowMs)) return;
+    if (heartNow >= 0 && nowMs > heartNow && heartBpm > 0) {
+      let dt = (nowMs - heartNow) / 1000;
+      if (dt > 0.1) dt = 0.1;
+      heartPhase += dt * heartBpm / 60;
+      heartPhase -= Math.floor(heartPhase);
+    }
+    if (nowMs !== heartNow) heartNow = nowMs;
+  }
+
+  function lubEnv(ph) {
+    return Math.exp(-ph / 0.6);
+  }
+
+  // Lub then a softer dub 0.3 beat later. The dub rides on the lub's tail,
+  // so brightness drops once per beat (<= 2.33 Hz at 140 bpm).
+  function heartPulse(ph) {
+    let v = lubEnv(ph);
+    if (ph >= DUB_AT) v += 0.35 * Math.exp(-(ph - DUB_AT) / 0.25);
+    return v > 1 ? 1 : v;
+  }
+
+  function lowHpSeverity(hp) {
+    if (hp <= LOWHP_FLOOR) return 1;
+    return (LOWHP_AT - hp) / (LOWHP_AT - LOWHP_FLOOR);
+  }
+
+  function lowHpAlpha(hp) {
+    if (!ok(hp) || hp >= LOWHP_AT) return 0;
+    const p = reducedNow() ? 0.5 : heartPulse(heartPhase);
+    return LOWHP_ALPHA * (0.55 + 0.45 * p) * (0.5 + 0.5 * lowHpSeverity(hp));
+  }
+
+  function vignette(ctx, w, h) {
+    if (vigGrad && vigCtx === ctx && vigW === w && vigH === h) return vigGrad;
+    // Unit-space ellipse (scaled to the view at draw time): clear inside 0.62,
+    // #5a0a06 at the screen edge midpoints, #a0140a in the corners.
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1.4142);
+    g.addColorStop(0, 'rgba(90, 10, 6, 0)');
+    g.addColorStop(0.44, 'rgba(90, 10, 6, 0)');
+    g.addColorStop(0.6, 'rgba(90, 10, 6, 0.45)');
+    g.addColorStop(0.71, 'rgba(110, 14, 8, 0.85)');
+    g.addColorStop(1, 'rgba(160, 20, 10, 1)');
+    vigGrad = g;
+    vigCtx = ctx;
+    vigW = w;
+    vigH = h;
+    vigBuilds++;
+    return g;
+  }
+
+  function drawLowHp(ctx, w, h, hp, nowMs) {
+    heartTick(hp, nowMs);
+    if (!ctx || !(w > 0) || !(h > 0)) return 0;
+    const a = lowHpAlpha(hp);
+    if (a <= 0.005) return 0;
+    const g = vignette(ctx, w, h);
+    ctx.save();
+    ctx.setTransform(w / 2, 0, 0, h / 2, w / 2, h / 2);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = a;
+    ctx.fillStyle = g;
+    ctx.fillRect(-1, -1, 2, 2);
+    ctx.restore();
+    return a;
+  }
+
+  // 0..1 HP-bar flash below 15%: lub only (one flash per beat, <= 2.33 Hz),
+  // stronger as HP falls. Steady 0.5 with reduced motion.
+  function lowHpFlash(hp, nowMs) {
+    heartTick(hp, nowMs);
+    if (!ok(hp) || hp >= FLASH_AT) return 0;
+    if (reducedNow()) return 0.5;
+    const sev = hp <= LOWHP_FLOOR ? 1 : (FLASH_AT - hp) / (FLASH_AT - LOWHP_FLOOR);
+    return lubEnv(heartPhase) * (0.6 + 0.4 * sev);
+  }
+
+  function drawHpBarFlash(ctx, x, y, w, h, hp, nowMs) {
+    const f = lowHpFlash(hp, nowMs);
+    if (!ctx || !(f > 0.02) || !ok(x) || !ok(y) || !(w > 0) || !(h > 0)) return f;
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = 0.55 * f;
+    ctx.fillStyle = '#ffd8c8';
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = prev;
+    return f;
+  }
+
+  // Short fading streak behind a moving gem plus a tiny blinking sparkle.
+  // x, y: screen px; vx, vy: screen px per second.
+  function gemTrail(ctx, x, y, vx, vy, colour) {
+    if (!ctx || !ok(x) || !ok(y) || !ok(vx) || !ok(vy)) return false;
+    if (trailCount >= TRAIL_CAP) return false;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    if (speed < 20) return false;
+    trailCount++;
+    const px = cssScale(ctx.canvas);
+    let len = speed * TRAIL_SEC;
+    const max = TRAIL_MAX_CSS * px;
+    if (len > max) len = max;
+    const ux = -vx / speed;
+    const uy = -vy / speed;
+    const seg = len / TRAIL_SEG;
+    const prevAlpha = ctx.globalAlpha;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = typeof colour === 'string' && colour ? colour : GEM_GLINT;
+    for (let i = 0; i < TRAIL_SEG; i++) {
+      const f = 1 - i / TRAIL_SEG;
+      ctx.globalAlpha = 0.7 * f;
+      ctx.lineWidth = (0.8 + 2.2 * f) * px;
+      ctx.beginPath();
+      ctx.moveTo(x + ux * seg * i, y + uy * seg * i);
+      ctx.lineTo(x + ux * seg * (i + 1), y + uy * seg * (i + 1));
+      ctx.stroke();
+    }
+    // Sparkle: phase per trail slot so neighbours do not blink together.
+    const tw = Math.sin(clock * 18 + trailCount * 2.3);
+    if (tw > 0.2) {
+      const r = (1 + 1.5 * tw) * px;
+      const t = px;
+      const sx = x - ux * 2 * px + uy * 3 * px;
+      const sy = y - uy * 2 * px - ux * 3 * px;
+      ctx.globalAlpha = 0.9 * tw;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - r, sy - t / 2, r * 2, t);
+      ctx.fillRect(sx - t / 2, sy - r, t, r * 2);
+    }
+    ctx.globalAlpha = prevAlpha;
+    return true;
+  }
+
   function paint(ctx, cam) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
@@ -1536,6 +1713,7 @@ const FX = (function () {
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+    trailCount = 0;
   }
 
   return {
@@ -1672,6 +1850,9 @@ const FX = (function () {
       for (let i = 0; i < KILL_N; i++) killStamp[i] = -10;
       killSlot = 0;
       for (let i = 0; i < TELL_N; i++) tellKey[i] = null;
+      heartPhase = 0;
+      heartNow = -1;
+      trailCount = 0;
       shakeAmp = 0;
       shakeLife = 0;
       shakeMax = 1;
@@ -1768,6 +1949,30 @@ const FX = (function () {
       paintTell(ctx, shape, x, y, a, b, c, u);
     },
 
+    drawLowHp: function (ctx, w, h, hpFrac, nowMs) {
+      return drawLowHp(ctx, w, h, hpFrac, nowMs);
+    },
+
+    lowHpFlash: function (hpFrac, nowMs) {
+      return lowHpFlash(hpFrac, nowMs);
+    },
+
+    drawHpBarFlash: function (ctx, x, y, w, h, hpFrac, nowMs) {
+      return drawHpBarFlash(ctx, x, y, w, h, hpFrac, nowMs);
+    },
+
+    heartRate: function (hpFrac) {
+      return heartRate(hpFrac);
+    },
+
+    lowHpStats: function () {
+      return { bpm: heartBpm, phase: heartPhase, builds: vigBuilds, trails: trailCount };
+    },
+
+    gemTrail: function (ctx, x, y, vx, vy, colour) {
+      return gemTrail(ctx, x, y, vx, vy, colour);
+    },
+
     paintMobTell: function (ctx, shape, x, y, a, b, c, u) {
       paintMobTell(ctx, shape, x, y, a, b, c, u);
     },
@@ -1793,5 +1998,8 @@ const FX = (function () {
     TELL_DARK: TELL_DARK,
     MOB_FILL: MOB_FILL,
     MOB_EDGE: MOB_EDGE,
+    LOWHP_AT: LOWHP_AT,
+    LOWHP_FLASH_AT: FLASH_AT,
+    GEM_TRAIL_CAP: TRAIL_CAP,
   };
 })();
