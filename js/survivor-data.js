@@ -332,16 +332,20 @@ const SurvivorData = (() => {
     waves: [
       { at: 0, kinds: { skel: 1 }, cap: 15, rate: 3 },
       { at: 30, kinds: { skel: 2, goblin: 1 }, cap: 25, rate: 5 },
-      { at: 60, kinds: { goblin: 2, skel: 1 }, cap: 40, rate: 8 },
-      { at: 90, kinds: { skel: 1 }, cap: 60, rate: 16, xpMul: 1.2 },
-      { at: 120, kinds: { imp: 1, skel: 2 }, cap: 55, rate: 12, xpMul: 1.9 },
-      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 60, rate: 14, xpMul: 1.8, dmgMul: 1.2 },
-      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 70, rate: 16, xpMul: 1, dmgMul: 1.5, speedMul: 1.15 },
-      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 90, rate: 24, xpMul: 1, dmgMul: 2.0, speedMul: 1.2 },
-      { at: 240, kinds: { fiend: 1, imp: 1, skel: 2 }, cap: 80, rate: 20, walls: true, xpMul: 2.0, dmgMul: 2.3, speedMul: 1.25 },
-      { at: 275, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
+      { at: 60, kinds: { goblin: 2, skel: 1, imp: 0.4 }, cap: 40, rate: 8, speedMul: 1.1 },
+      { at: 90, kinds: { skel: 2, imp: 0.6 }, cap: 60, rate: 16, xpMul: 1.2, dmgMul: 1.1, speedMul: 1.15 },
+      { at: 120, kinds: { imp: 0.5, skel: 2, goblin: 1 }, cap: 55, rate: 12, xpMul: 1.9, dmgMul: 1.2, speedMul: 1.15 },
+      { at: 150, kinds: { imp: 0.5, armored: 1, skel: 1 }, cap: 60, rate: 14, xpMul: 1.8, dmgMul: 1.3, speedMul: 1.15 },
+      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1, imp: 0.5 }, cap: 70, rate: 16, xpMul: 1.2, dmgMul: 1.4, speedMul: 1.2 },
+      { at: 210, kinds: { skel: 2, goblin: 2, imp: 0.8, fiend: 1, armored: 1 }, cap: 90, rate: 24, xpMul: 1.2, dmgMul: 1.5, speedMul: 1.2 },
+      { at: 240, kinds: { fiend: 1, imp: 0.8, skel: 2 }, cap: 80, rate: 20, walls: true, xpMul: 2.0, dmgMul: 1.6, speedMul: 1.25 },
+      { at: 285, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
       { at: 300, kinds: { skel: 2, imp: 1 }, cap: 40, rate: 12, dmgMul: 2.4 }, // boss phase, scaled by boss.spawnMul
     ],
+    // Cinder falls (repeat every `every` s until one lands): no hit for `after` s between from..until drops `count` telegraphed fire
+    // circles (radius tiles, tell s) — one where the hero is heading (lead x tell s ahead),
+    // the rest within `spread` tiles. A hit deals dmg x the wave's dmgMul. Dodgeable.
+    quietBreak: { from: 60, until: 285, after: 10, every: 4, count: 5, radius: 1.3, tell: 1.3, lead: 1.0, spread: 2.5, dmg: 5 },
     // dmgMul (optional) scales contact damage, imp shots and fiend dashes; speedMul scales foe speed.
     // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
     kinds: {
@@ -358,7 +362,7 @@ const SurvivorData = (() => {
       { at: 135, type: 'elite', kind: 'armored', name: 'Bone Warden', hp: 340, chest: true }, // 2:15 lull breaker
       { at: 180, type: 'elite', kind: 'fiend', name: 'Elite Fiend', hp: 420, chest: true },
       { at: 270, type: 'banner', text: 'The Pit stirs\u2026' },
-      { at: 285, type: 'heal', pct: 0.4, text: 'The saints mend your wounds' }, // breather heal before the boss
+      { at: 288, type: 'heal', pct: 0.4, text: 'The saints mend your wounds' }, // breather heal before the boss
     ],
 
     // ---- 3. Evolution: Oathblade (orbit) + Iron Gauntlet (tempo) = Dawnbreaker.
@@ -377,24 +381,25 @@ const SurvivorData = (() => {
 
     // ---- 5. Malgrath, the Pit Sovereign.
     boss: {
-      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 1500, hpPerLevel: 0.04, dmgPerLevel: 0.012, hpLevelFrom: 20, minFight: 52, glance: 0, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 16, // hp grows hpPerLevel per hero level past hpLevelFrom; damage past maxLife/minFight per second glances (x glance). scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
+      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 1500, hpPerLevel: 0.02, dmgPerLevel: 0.004, hpLevelFrom: 20, minFight: 50, glance: 0, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 10, // hp grows hpPerLevel per hero level past hpLevelFrom; damage past maxLife/minFight per second glances (x glance). scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
       adds: 10, winDelay: 2.0, winGold: 40, cycle: 1.6,
-      spawnMul: 0.35, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
+      spawnMul: 0.2, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
       // Loot shower on the kill: one guaranteed relic (banked straight into the
       // inventory so walking to it is optional) plus a ring of gold.
       relic: { rarity: 'legendary', title: 'Relic' },
       shower: { gold: 20, coins: 10 },
-      cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 28 },
-      rain: { tell: 1.5, circles: 9, radius: 1.2, spread: 3.0, dmg: 31, lead: 1.0 }, // lead: aims at the hero's position this share of the windup ahead,
+      cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 18 },
+      rain: { tell: 1.5, circles: 9, radius: 1.2, spread: 3.0, dmg: 18, lead: 1.0 }, // lead: aims at the hero's position this share of the windup ahead,
       charge: { tell: 0.8, belowHp: 0.5, speed: 11, time: 0.6, dmg: 12, imps: 4 },
     },
 
-    // ---- 6. Meta shop, paid from the SurvivorSave purse. prices[rank].
+    // ---- 6. Meta shop, paid from the SurvivorSave purse. prices[rank]. Cheapest rank costs 50
+    // so the first run (which always banks 50+) buys something.
     shop: {
-      might: { name: 'Tempered Steel', label: '+5% damage', per: 0.05, prices: [120, 200, 300, 450, 650] },
-      vitality: { name: 'Stout Heart', label: '+10 max HP', per: 10, prices: [100, 180, 280, 400, 600] },
+      might: { name: 'Tempered Steel', label: '+5% damage', per: 0.05, prices: [80, 160, 260, 400, 600] },
+      vitality: { name: 'Stout Heart', label: '+10 max HP', per: 10, prices: [50, 120, 220, 350, 550] },
       stride: { name: 'Swift Stride', label: '+4% move speed', per: 0.04, prices: [150, 300, 500] },
       greed: { name: 'Gilded Tithe', label: '+10% gold', per: 0.1, prices: [200, 400, 700] },
       revival: { name: 'Second Wind', label: '1 free revive per run', per: 1, prices: [900] },
@@ -406,7 +411,7 @@ const SurvivorData = (() => {
       blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
     },
     // Gold per run target 150-250 (100 or less on an early death).
-    gold: { mul: 0.005, keepOnDeath: 0.5, perMinute: 18, bossBonus: 30, winHpBonus: 35, purse: 5 }, // mul: kill gold; perMinute: flat gold per minute alive; bossBonus: on Malgrath's death; winHpBonus: x life fraction left at the win (+ boss.winGold); purse: filler card gold
+    gold: { mul: 0.005, keepOnDeath: 0.5, perMinute: 18, bossBonus: 30, winHpBonus: 35, purse: 5, firstRunFloor: 50 }, // mul: kill gold; perMinute: flat gold per minute alive; bossBonus: on Malgrath's death; winHpBonus: x life fraction left at the win (+ boss.winGold); purse: filler card gold; firstRunFloor: the first-ever run banks at least this much even on a loss (not under the Oath of Ruin)
 
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },

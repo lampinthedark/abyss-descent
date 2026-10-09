@@ -1208,6 +1208,7 @@
     const incoming = curse > 0 ? amount * vowSpec().hit : amount;
     const dmg = Math.max(1, incoming - armorCut());
     player.life -= dmg;
+    quietHurtAt = time;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
     addShake(heavy ? 4.2 : 2.6);
@@ -1754,7 +1755,7 @@
         }
       }
     }
-    if (MEDIEVAL) { medDirector(); tickTimeGold(dt); }
+    if (MEDIEVAL) { medDirector(); tickTimeGold(dt); tickHazards(dt); }
     if (!eliteWarned && time >= 148) {
       eliteWarned = true;
       raiseBanner('Grave Warden approaches', true);
@@ -1855,7 +1856,103 @@
   }
 
   // ---- Medieval demo director: one-shot beats from MEDIEVAL_CFG.events.
+  // Quiet breaker: when the hero has gone `after` s without a hit between `from` and
+  // `until`, a flanking pack spawns just off-screen ahead of where they are walking.
+  let quietHurtAt = 0;
+  let quietBreakAt = 0;
+  let quietBreaks = 0;
+  let quietPX = 0;
+  let quietPY = 0;
+  let quietHead = 0;
+  let quietHeadPrev = 0;
+  let quietHeadAt = 0;
+  function quietBreaker() {
+    const q = MCFG.quietBreak;
+    if (!q) return;
+    const mx = player.x - quietPX;
+    const my = player.y - quietPY;
+    if (time - quietHeadAt >= 0.5) { quietHeadPrev = quietHead; quietHeadAt = time; }
+    if (mx * mx + my * my > 1e-6) quietHead = Math.atan2(my, mx);
+    quietPX = player.x;
+    quietPY = player.y;
+    if (time < q.from || time >= q.until || boss5) return;
+    if (time - Math.max(quietHurtAt, q.from - q.after) < q.after) return;
+    if (time - quietBreakAt < (q.every || q.after)) return;
+    quietBreakAt = time;
+    quietBreaks += 1;
+    // Cinder falls: telegraphed fire circles, one where the hero is heading, the rest near it.
+    // One lands on the hero's path (lead x tell s ahead, following the turn they are
+    // making), one where they stand; the rest scatter within `spread` tiles.
+    const n = q.count || 3;
+    const step = (q.lead || 0) * q.tell * moveSpeed();
+    const turn = quietHead - quietHeadPrev;
+    const head = quietHead + Math.atan2(Math.sin(turn), Math.cos(turn)) * (q.tell / Math.max(0.05, time - quietHeadAt));
+    const tx = player.x + Math.cos(head) * step;
+    const ty = player.y + Math.sin(head) * step;
+    hazards.push({ x: tx, y: ty, t: q.tell, tell0: q.tell });
+    if (n > 1) hazards.push({ x: player.x, y: player.y, t: q.tell, tell0: q.tell });
+    for (let i = 2; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const r = 1 + Math.random() * ((q.spread || 2.5) - 1);
+      hazards.push({ x: tx + Math.cos(ang) * r, y: ty + Math.sin(ang) * r, t: q.tell, tell0: q.tell });
+    }
+  }
+
+  // Ticks the cinder falls: on landing, a hero inside takes one hit (once per volley).
+  const hazards = [];
+  let hazardHits = 0;
+  function tickHazards(dt) {
+    const q = MCFG.quietBreak;
+    if (!q || !hazards.length) return;
+    let hit = false;
+    for (let i = hazards.length - 1; i >= 0; i--) {
+      const h = hazards[i];
+      h.t -= dt;
+      if (h.t > 0) continue;
+      if (!hit && len2(player.x - h.x, player.y - h.y) <= q.radius) hit = true;
+      spark(h.x, h.y, '#ff7a30', 8, 3);
+      hazards.splice(i, 1);
+    }
+    if (hit) { hazardHits += 1; hurt(q.dmg * (medWave().dmgMul || 1), true); }
+  }
+
+  function drawHazards() {
+    const q = MCFG.quietBreak;
+    if (!q || !hazards.length) return;
+    const box = fxBox();
+    for (let i = 0; i < hazards.length; i++) {
+      const h = hazards[i];
+      const u = Math.max(0, Math.min(1, 1 - h.t / (h.tell0 || 1)));
+      const x = sxOf(h.x);
+      const y = syOf(h.y);
+      const r = q.radius * TILE;
+      if (box && typeof box.paintTell === 'function') {
+        ctx.save();
+        box.paintTell(ctx, 'circle', x, y, r, 0, 0, u);
+        ctx.restore();
+        continue;
+      }
+      const st = MED.boss.tell;
+      ctx.save();
+      ctx.fillStyle = st.fill.replace('A', String(st.fillFrom + (st.fillTo - st.fillFrom) * u));
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = st.grow;
+      ctx.beginPath();
+      ctx.arc(x, y, r * u, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = st.edgeWidth;
+      ctx.strokeStyle = st.edge;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   function medDirector() {
+    quietBreaker();
     const list = MCFG.events || [];
     while (medEventIx < list.length && time >= list[medEventIx].at) {
       const ev = list[medEventIx++];
@@ -1900,11 +1997,37 @@
     demon.ai.t = 0;
     demon.ai.step = 0;
     applyDemonFrac(demon);
+    cullForBoss();
     for (let i = 0; i < (b.adds || 0); i++) {
       const s2 = edgePoint((i / b.adds) * Math.PI * 2, 0.6);
       spawnEnemy('imp', s2.x, s2.y);
     }
     return demon;
+  }
+
+  // When Malgrath arrives the horde thins to his spawn share at once (not just new
+  // spawns): the farthest regular foes beyond spawnMul x the boss-phase cap fade out.
+  function cullForBoss() {
+    const rows = MCFG.waves || [];
+    const row = rows[rows.length - 1] || {};
+    const keep = Math.round((row.cap || 0) * (MCFG.densityMul || 1) * (MED.boss.spawnMul || 1));
+    const regs = [];
+    for (let i = 0; i < enemies.length; i++) {
+      const en = enemies[i];
+      if (en.boss || en.elite || en.bossKind) continue;
+      regs.push({ en: en, d: len2(en.x - player.x, en.y - player.y) });
+    }
+    if (regs.length <= keep) return 0;
+    regs.sort((a, b) => b.d - a.d);
+    const drop = new Set(regs.slice(0, regs.length - keep).map((r) => r.en));
+    let n = 0;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!drop.has(enemies[i])) continue;
+      spark(enemies[i].x, enemies[i].y, '#5a4a44', 3, 2);
+      releaseEnemy(i);
+      n++;
+    }
+    return n;
   }
 
   // Malgrath hits harder against a higher-level hero (boss.dmgPerLevel past hpLevelFrom).
@@ -2393,6 +2516,8 @@
     while (host.childNodes && host.childNodes.length > 6) host.removeChild(host.firstChild);
   }
 
+  let lootSaid = Object.create(null);
+  let lootSaidAt = -99;
   function announceItem(item, x, y) {
     if (!item) return;
     let rarity = 'Common';
@@ -2400,6 +2525,16 @@
       const raw = item.rarity || 'common';
       rarity = raw.charAt(0).toUpperCase() + raw.slice(1);
     }
+    // Same find again within lootRepeat s: no second toast or log line (beam still shows).
+    const lootKey = (item.rarity || '') + '|' + (item.name || '');
+    const repeat = MEDIEVAL && lootSaid[lootKey] != null && time - lootSaid[lootKey] < (MED.lootRepeat || 20);
+    const tooSoon = MEDIEVAL && time - lootSaidAt < (MED.lootGap || 1.2);
+    if (repeat || tooSoon) {
+      if (item.id != null && rareBeam(item.rarity)) beamFx(item.id, x, y, item.rarity);
+      return;
+    }
+    lootSaid[lootKey] = time;
+    lootSaidAt = time;
     showToast(item);
     const loud = item.rarity === 'rare' || item.rarity === 'epic' || item.rarity === 'legendary';
     if (!MEDIEVAL || loud) pushChat('You find: ' + rarity + ' ' + (item.name || 'Item'), RARITY_FILL[item.rarity] || '#f4efe0');
@@ -3277,6 +3412,13 @@
     bankedAmount = 0;
     goldBeforeCut = 0;
     pendingEnd = false;
+    hazards.length = 0;
+    quietHurtAt = 0;
+    quietBreakAt = 0;
+    quietBreaks = 0;
+    hazardHits = 0;
+    lootSaid = Object.create(null);
+    lootSaidAt = -99;
     timeGoldAcc = 0;
     goldSrc.kills = 0; goldSrc.time = 0; goldSrc.purse = 0; goldSrc.boss = 0; goldSrc.win = 0;
     medGoldLine = '';
@@ -3662,7 +3804,9 @@
         vowBonus = Math.round(runGold * (MED.vow.winGoldMul - 1));
         runGold += vowBonus;
       } else if (kind !== 'won') {
-        const kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * deathKeep()));
+        let kept = Math.max(Math.round(bankedAmount), Math.floor(runGold * deathKeep()));
+        // First-ever run: bank at least firstRunFloor so the shop opens (not under the Oath).
+        if (!bloodVow && !(bestAtStart > 0) && MED.gold.firstRunFloor) kept = Math.max(kept, MED.gold.firstRunFloor);
         goldBeforeCut = runGold;
         deathGoldLost = runGold - kept;
         runGold = kept;
@@ -4380,6 +4524,15 @@
     }
     // Dodge Malgrath's telegraphs (the kite bot plays like a careful human).
     if (MEDIEVAL) {
+      const qb = MCFG.quietBreak;
+      for (let n = 0; qb && n < hazards.length; n++) {
+        const h = hazards[n];
+        if (h.tell0 - h.t < 0.75) continue; // same human reaction time
+        const dx = player.x - h.x;
+        const dy = player.y - h.y;
+        const d = len2(dx, dy) || 0.01;
+        if (d < qb.radius + 0.7) { sx += (dx / d) * 6; sy += (dy / d) * 6; }
+      }
       for (let n = 0; n < enemies.length; n++) {
         const en = enemies[n];
         if (en.bossKind !== 'demon' || !en.ai || en.ai.mode !== 'tell') continue;
@@ -5213,6 +5366,7 @@
     const crowd = enemies.length > 100;
     // Malgrath's telegraphs go on the floor, under every actor (his sprite included).
     if (MEDIEVAL) {
+      drawHazards();
       for (let i = 0; i < drawCount; i++) {
         const en = drawOrder[i];
         if (en.bossKind === 'demon') drawTell(en, sxOf(en.x), syOf(en.y));
@@ -5936,7 +6090,11 @@
       bossLife: boss ? boss.life : 0,
       bossMax: boss ? boss.maxLife : 0,
       chest: chest,
+      quietBreaks: quietBreaks,
+      hazardHits: hazardHits,
+      quietHurtAt: quietHurtAt,
       enemies: enemies.length,
+      near: (() => { let n = 0; for (const en of enemies) { if (!en.boss && len2(en.x - player.x, en.y - player.y) < 36) n++; } return n; })(),
       gems: gems.length,
       bigGems: bigGems,
       evolved: Object.keys(evolved),
