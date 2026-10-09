@@ -907,7 +907,8 @@
     return s;
   }
 
-  function floatText(x, y, text, color, big, fid, amount, crit) {
+  const GUARD_GREY = '#9a958e';
+  function floatText(x, y, text, color, big, fid, amount, crit, guard) {
     if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
         const f = floats[i];
@@ -919,7 +920,7 @@
           f.stamp = time;
           f.life = FLOAT_LIFE;
           f.max = FLOAT_LIFE;
-          f.big = !!big || f.amount >= 18;
+          f.big = !f.guard && (!!big || f.amount >= 18);
           if (crit) f.crit = 1;
           if (f.crit) f.color = '#ffffff';
           return;
@@ -936,6 +937,7 @@
     f.life = FLOAT_LIFE;
     f.max = FLOAT_LIFE;
     f.big = !!big;
+    f.guard = !!guard;
     f.crit = crit ? 1 : 0;
     f.fid = fid || 0;
     f.amount = amount || 0;
@@ -1214,6 +1216,7 @@
       return;
     }
     let crit = false;
+    let glanced = false;
     if (!tick && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
@@ -1223,8 +1226,16 @@
       const rate = en.maxLife / MED.boss.minFight;
       en.dmgBudget = Math.min(rate * 1.5, (en.dmgBudget || 0) + rate * Math.max(0, time - (en.dmgBudgetAt || time)));
       en.dmgBudgetAt = time;
-      if (amount > en.dmgBudget) amount = en.dmgBudget + (amount - en.dmgBudget) * (MED.boss.glance != null ? MED.boss.glance : 0.1);
+      if (amount > en.dmgBudget) {
+        amount = en.dmgBudget + (amount - en.dmgBudget) * (MED.boss.glance != null ? MED.boss.glance : 0.1);
+        glanced = true;
+      }
       en.dmgBudget = Math.max(0, en.dmgBudget - amount);
+      // Guard flash on every glanced hit (UI's FX.bossGuard throttles itself).
+      if (glanced && !tick) {
+        const gbox = fxBox();
+        if (gbox && typeof gbox.bossGuard === 'function') gbox.bossGuard(en.x, en.y);
+      }
     }
     en.life -= amount;
     if (en.bossKind === 'demon' && !en.shieldUsed && en.life > 0 && en.life <= en.maxLife * 0.5) {
@@ -1245,7 +1256,9 @@
     if (!tick) {
       const shown = Math.max(1, Math.round(amount));
       const big = shown >= 18 || !!en.boss;
-      floatText(en.x, en.y - 0.15, ntext(shown), '#ffffff', big, en.fid, shown, crit);
+      // Glanced hits on Malgrath read as small grey numbers; full hits stay big and white.
+      if (glanced) floatText(en.x, en.y - 0.15, ntext(Math.round(amount)), GUARD_GREY, false, 'g' + en.fid, Math.round(amount), false, true);
+      else floatText(en.x, en.y - 0.15, ntext(shown), '#ffffff', big, en.fid, shown, crit);
       const sparkN = (owned.might || 0) >= 2 ? 5 : 3;
       const sparkSp = (owned.might || 0) >= 2 ? 3.4 : 2.2;
       spark(en.x, en.y, en.color || '#ffffff', sparkN, sparkSp);
@@ -5134,7 +5147,7 @@
       let scale = 1;
       if (age < 0.12) scale = 1.4 - 0.4 * (age / 0.12);
       if (f.crit) scale *= 1.5;
-      const size = Math.round((f.big ? 28 : 15) * scale);
+      const size = Math.round((f.big ? 28 : f.guard ? 12 : 15) * scale);
       let alpha = 1;
       if (f.life < 0.15) alpha = f.life > 0 ? f.life / 0.15 : 0;
       ctx.globalAlpha = alpha;
