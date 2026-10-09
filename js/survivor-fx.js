@@ -44,6 +44,13 @@
  * FX.gemTrail(ctx, x, y, vx, vy, colour) draws a 4-segment fading streak and
  * a sparkle behind a moving gem (screen px, px/s), at most 64 per frame
  * (the count resets in FX.draw).
+ *
+ * FX.bossGuard(x, y, radius) (world tiles like FX.hit; radius in CSS px,
+ * default 40) flashes a pale #e8eef8 2.5 CSS px ring with 5 sheen ticks when a
+ * hit glances off the boss: grows 15% and fades from 0.8 over 220 ms in the
+ * FX.draw pass. One new ring per 180 ms (extra calls return false), 4 pooled.
+ * Reduced motion: no growth, 120 ms fade. FX.guardNumberStyle is the grey
+ * {color, scale} for glanced damage numbers.
  */
 const FX = (function () {
   'use strict';
@@ -287,6 +294,29 @@ const FX = (function () {
   const TRAIL_MAX_CSS = 22;
   const GEM_GLINT = '#5fd8ff';
   let trailCount = 0;
+
+  // Boss guard: pale ring when a hit glances off Malgrath's hide.
+  const GUARD_N = 4;
+  const GUARD_GAP = 0.18;
+  const GUARD_DUR = 0.22;
+  const GUARD_DUR_CALM = 0.12;
+  const GUARD_GROW = 0.15;
+  const GUARD_ALPHA = 0.8;
+  const GUARD_CSS = 2.5;
+  const GUARD_R = 40;
+  const GUARD_TICKS = 5;
+  const GUARD_COLOR = '#e8eef8';
+  const guardNumberStyle = Object.freeze({ color: '#9aa0a8', scale: 0.75 });
+  const guardOn = new Uint8Array(GUARD_N);
+  const guardAge = new Float64Array(GUARD_N);
+  const guardDur = new Float64Array(GUARD_N);
+  const guardX = new Float64Array(GUARD_N);
+  const guardY = new Float64Array(GUARD_N);
+  const guardR = new Float64Array(GUARD_N);
+  const guardSpin = new Float64Array(GUARD_N);
+  const guardCalm = new Uint8Array(GUARD_N);
+  let guardAt = -10;
+  let guardSerial = 0;
   let heroHalf = 0;
   let whiteAtlas = null;
   let bladeImg = null;
@@ -1010,6 +1040,11 @@ const FX = (function () {
     for (let i = 0; i < TELL_N; i++) {
       if (tellKey[i] !== null) tellAge[i] += dt;
     }
+    for (let i = 0; i < GUARD_N; i++) {
+      if (!guardOn[i]) continue;
+      guardAge[i] += dt;
+      if (guardAge[i] >= guardDur[i]) guardOn[i] = 0;
+    }
   }
 
   function diamondPx(ctx, x, y, r, color) {
@@ -1576,6 +1611,78 @@ const FX = (function () {
     return true;
   }
 
+  // x, y in world tiles (same space as FX.hit / FX.telegraph); radius in CSS px.
+  function bossGuard(x, y, radius) {
+    if (!ok(x) || !ok(y)) return false;
+    if (clock - guardAt < GUARD_GAP - 1e-9) return false;
+    let slot = -1;
+    let oldest = 0;
+    for (let i = 0; i < GUARD_N; i++) {
+      if (!guardOn[i]) { slot = i; break; }
+      if (guardAge[i] > guardAge[oldest]) oldest = i;
+    }
+    if (slot < 0) slot = oldest;
+    const calm = reducedNow();
+    guardAt = clock;
+    guardSerial++;
+    guardOn[slot] = 1;
+    guardAge[slot] = 0;
+    guardDur[slot] = calm ? GUARD_DUR_CALM : GUARD_DUR;
+    guardX[slot] = x;
+    guardY[slot] = y;
+    guardR[slot] = ok(radius) && radius > 0 ? radius : GUARD_R;
+    guardSpin[slot] = guardSerial * 1.9;
+    guardCalm[slot] = calm ? 1 : 0;
+    return true;
+  }
+
+  function guardLive() {
+    let n = 0;
+    for (let i = 0; i < GUARD_N; i++) if (guardOn[i]) n++;
+    return n;
+  }
+
+  function paintGuards(ctx, tile, camX, camY, viewW, viewH) {
+    let any = 0;
+    for (let i = 0; i < GUARD_N; i++) any |= guardOn[i];
+    if (!any) return;
+    const px = cssScale(ctx.canvas);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = GUARD_COLOR;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < GUARD_N; i++) {
+      if (!guardOn[i]) continue;
+      const u = guardDur[i] > 0 ? guardAge[i] / guardDur[i] : 1;
+      if (u >= 1) continue;
+      const cx = guardX[i] * tile + camX;
+      const cy = guardY[i] * tile + camY;
+      const r = guardR[i] * px * (guardCalm[i] ? 1 : 1 + GUARD_GROW * u);
+      if (cx < -r - 20 || cy < -r - 20 || cx > viewW + r + 20 || cy > viewH + r + 20) continue;
+      const a = GUARD_ALPHA * (1 - u) * (1 - u * 0.35);
+      if (a <= 0.02) continue;
+      ctx.globalAlpha = a;
+      ctx.lineWidth = GUARD_CSS * px;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, TAU);
+      ctx.stroke();
+      // Shield sheen: short radial ticks just outside the ring, one stroke.
+      const r0 = r + 2.5 * px;
+      const r1 = r + 7 * px;
+      const spin = guardSpin[i];
+      ctx.lineWidth = 2 * px;
+      ctx.beginPath();
+      for (let k = 0; k < GUARD_TICKS; k++) {
+        const ang = spin + (k * TAU) / GUARD_TICKS;
+        const c = Math.cos(ang);
+        const sn = Math.sin(ang);
+        ctx.moveTo(cx + c * r0, cy + sn * r0);
+        ctx.lineTo(cx + c * r1, cy + sn * r1);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function paint(ctx, cam) {
     const zoom = (cam && ok(cam.zoom) && cam.zoom > 0) ? cam.zoom : 1;
     const tile = framePx() * zoom;
@@ -1684,6 +1791,7 @@ const FX = (function () {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    paintGuards(ctx, tile, camX, camY, viewW, viewH);
 
     if (bladeN) {
       const mul = bladeMul();
@@ -1851,6 +1959,8 @@ const FX = (function () {
       killSlot = 0;
       for (let i = 0; i < TELL_N; i++) tellKey[i] = null;
       heartPhase = 0;
+      for (let i = 0; i < GUARD_N; i++) guardOn[i] = 0;
+      guardAt = -10;
       heartNow = -1;
       trailCount = 0;
       shakeAmp = 0;
@@ -1949,6 +2059,14 @@ const FX = (function () {
       paintTell(ctx, shape, x, y, a, b, c, u);
     },
 
+    bossGuard: function (x, y, radius) {
+      return bossGuard(x, y, radius);
+    },
+
+    guardLive: function () {
+      return guardLive();
+    },
+
     drawLowHp: function (ctx, w, h, hpFrac, nowMs) {
       return drawLowHp(ctx, w, h, hpFrac, nowMs);
     },
@@ -1999,6 +2117,9 @@ const FX = (function () {
     MOB_FILL: MOB_FILL,
     MOB_EDGE: MOB_EDGE,
     LOWHP_AT: LOWHP_AT,
+    guardNumberStyle: guardNumberStyle,
+    GUARD_MS: GUARD_DUR * 1000,
+    GUARD_GAP_MS: GUARD_GAP * 1000,
     LOWHP_FLASH_AT: FLASH_AT,
     GEM_TRAIL_CAP: TRAIL_CAP,
   };
