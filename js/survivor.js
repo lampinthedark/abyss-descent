@@ -393,11 +393,13 @@
     return String(v);
   }
 
+  // UI polish: bundled CC0 Kenney Mini (survivor.css @font-face); Android has no Segoe UI.
+  const CANVAS_FONT = '"Kenney Mini", "Segoe UI", sans-serif';
   function floatFont(big, size) {
     const key = (big ? 1000 : 0) + size;
     let s = fontCache[key];
     if (!s) {
-      s = (big ? '800 ' : 'bold ') + size + 'px Segoe UI';
+      s = (big ? '800 ' : 'bold ') + size + 'px ' + CANVAS_FONT;
       fontCache[key] = s;
     }
     return s;
@@ -5272,8 +5274,16 @@
     }
   }
 
+  // UI polish layer (js/survivor-fx.js, FX.polish): floor, blob shadows, weapon glow, light + vignette.
+  function polishBox() {
+    const box = fxBox();
+    return box && box.polish ? box.polish : null;
+  }
+
   function drawArena() {
     ctx.imageSmoothingEnabled = false;
+    const pol = polishBox();
+    if (pol && pol.floor(ctx, camX, camY, canvas.width, canvas.height, zoom, vowCount)) return;
     SurvivorSprites.drawGround(ctx, camX, camY, canvas.width, canvas.height);
   }
 
@@ -5358,7 +5368,7 @@
   function drawBossPlate(en, x, y) {
     const top = y - 36 * zoom * (en.scale || 1) - 8;
     ctx.save();
-    ctx.font = '800 ' + Math.max(12, Math.round(6 * zoom)) + 'px Segoe UI';
+    ctx.font = '800 ' + Math.max(12, Math.round(6 * zoom)) + 'px ' + CANVAS_FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.lineWidth = 4;
@@ -5626,7 +5636,7 @@
     const hy = syOf(hermit.y);
     SurvivorSprites.drawHermit(ctx, hx, hy, animT);
     ctx.fillStyle = '#d8dce4';
-    ctx.font = '11px Segoe UI';
+    ctx.font = '11px ' + CANVAS_FONT;
     ctx.textAlign = 'center';
     ctx.fillText('Hermit', hx, hy + 18);
   }
@@ -5740,6 +5750,8 @@
         if (en.bossKind === 'demon') drawTell(en, sxOf(en.x), syOf(en.y));
       }
     }
+    const pol = polishBox();
+    if (pol) pol.shadows(ctx, drawOrder, drawCount, camX, camY, zoom, sxOf(player.x), syOf(player.y));
     let hermitDrawn = !hermit.on;
     for (let i = 0; i < drawCount; i++) {
       const en = drawOrder[i];
@@ -5980,7 +5992,10 @@
     camInfo.x = camX;
     camInfo.y = camY;
     camInfo.zoom = zoom;
+    const pol = polishBox();
+    if (pol) pol.glow(ctx, shots, camX, camY, zoom);
     fxCall('draw', ctx, camInfo);
+    if (pol && state !== 'title') pol.light(ctx, sxOf(player.x), syOf(player.y) - 10 * zoom, canvas.width, canvas.height, zoom);
     const lowBox = fxBox();
     if (lowBox && typeof lowBox.drawLowHp === 'function' && state !== 'title' && state !== 'dead' && state !== 'won') {
       lowBox.drawLowHp(ctx, canvas.width, canvas.height, player.life / Math.max(1, player.maxLife), time * 1000);
