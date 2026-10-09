@@ -623,8 +623,15 @@
   function sxOf(x) { return x * TILE + camX; }
   function syOf(y) { return y * TILE + camY; }
 
-  function addShake(amount) {
-    if (reduceMotion || bench || !(amount > 0)) return;
+  function addShake(amount, level) {
+    if (bench || !(amount > 0)) return;
+    const box = fxBox();
+    if (box && typeof box.shake === 'function') {
+      // UI game-feel shake levels S1..S4 (FX never stacks; reduced motion halves).
+      box.shake(level || (amount >= 4.4 ? 4 : amount >= 2.5 ? 2 : 1));
+      return;
+    }
+    if (reduceMotion) return;
     shakeMag = Math.min(5.5, shakeMag + amount);
   }
 
@@ -708,6 +715,12 @@
     en.dying = 0;
     en.kx = 0;
     en.ky = 0;
+    en.hitAge = 9;
+    en.kDist = 0;
+    en.kdx = 0;
+    en.kdy = 0;
+    en.pop = 1;
+    en.gemDue = 0;
     en.touchCd = 0.25;
     en.facing = x < player.x ? 1 : -1;
     en.fid = ++foeSeq;
@@ -781,6 +794,7 @@
 
   function releaseEnemy(i) {
     const en = enemies[i];
+    settleGem(en); // culled mid-pop: still pay the gem
     telegraphOff(en, i);
     const last = enemies.pop();
     if (i < enemies.length) enemies[i] = last;
@@ -806,7 +820,24 @@
     return false;
   }
 
+  // The XP gem lands at the end of UI's death pop (FX.DEATH_S, pop + shrink), not on the
+  // killing frame. Chests and other drops still land at once.
+  function popDelay(en) {
+    const fx = fxBox();
+    if (!MEDIEVAL || !fx || !(fx.DEATH_S > 0) || en.pop === 0) return 0;
+    return Math.min(fx.DEATH_S, (en.dyingMax || 0.22) - 0.01);
+  }
   function dropGem(en) {
+    en.gemDue = 0;
+    const wait = popDelay(en);
+    if (wait > 0) en.gemDue = wait;
+    else placeGem(en);
+    dropExtras(en);
+  }
+  function settleGem(en) {
+    if (en.gemDue > 0) { en.gemDue = 0; placeGem(en); }
+  }
+  function placeGem(en) {
     if (gemCount() >= GEM_CAP) evictOldestGem();
     const g = gemPool.pop() || {};
     g.x = en.x;
@@ -822,6 +853,8 @@
     g.shower = 0;
     gems.push(g);
     if (sweepOn) markShowerGem(g);
+  }
+  function dropExtras(en) {
     if (MEDIEVAL && en.medGrant) chiefDown = true;
     if (MEDIEVAL && en.medChest && !en.boss) {
       const chest = dropPickup(en, 'chest', null);
@@ -947,6 +980,12 @@
     const st = fx && fx.guardNumberStyle;
     return st && st.color ? st : GUARD_FALLBACK;
   }
+  // Damage numbers (medieval): normal hits small and white, crits bigger and gold with a
+  // short pop-in, glanced hits keep the grey guard style; all rise and fade over ~0.6 s.
+  // Pooled, FLOAT_CAP (40) live at most: the oldest is recycled first.
+  const CRIT_COLOR = MEDIEVAL ? '#ffcf4a' : '#ffffff';
+  const DMG_LIFE = 0.6;
+  function floatLife(dmg) { return MEDIEVAL && dmg ? DMG_LIFE : FLOAT_LIFE; }
   function floatText(x, y, text, color, big, fid, amount, crit, guard) {
     if (fid) {
       for (let i = floats.length - 1; i >= 0; i--) {
@@ -957,11 +996,10 @@
           f.x = x;
           f.y = y;
           f.stamp = time;
-          f.life = FLOAT_LIFE;
-          f.max = FLOAT_LIFE;
+          f.life = f.max = floatLife(true);
           f.big = !f.guard && (!!big || f.amount >= 18);
-          if (crit) f.crit = 1;
-          if (f.crit) f.color = '#ffffff';
+          if (crit && !f.crit) { f.crit = 1; f.born = time; }
+          if (f.crit) f.color = CRIT_COLOR;
           return;
         }
       }
@@ -972,9 +1010,10 @@
     f.x = x;
     f.y = y;
     f.text = text;
-    f.color = crit ? '#ffffff' : color;
-    f.life = FLOAT_LIFE;
-    f.max = FLOAT_LIFE;
+    f.color = crit ? CRIT_COLOR : color;
+    f.life = f.max = floatLife(!!fid);
+    f.dmg = !!fid;
+    f.born = time;
     f.big = !!big;
     f.guard = !!guard;
     f.crit = crit ? 1 : 0;
@@ -1004,10 +1043,10 @@
     else fxUpdateMs += spent;
   }
 
-  function foeVisual(en) {
+  function foeVisual(en, runClip) {
     const known = en.eid === 'brute' || en.eid === 'imp' || en.eid === 'skel' || en.eid === 'charger' || en.eid === 'shooter';
     const id = en.sprite || (en.boss ? 'boss' : (known ? en.eid : 'skel'));
-    const clip = en.dying > 0 ? 'idle' : 'run';
+    const clip = en.dying > 0 && !runClip ? 'idle' : 'run';
     let frame = null;
     try { frame = SurvivorSprites.frameRect(id, clip, animT); } catch (e) {}
     visScratch.frame = frame;
@@ -1225,7 +1264,7 @@
     quietHurtAt = time;
     player.hitFlash = 0.16;
     player.invuln = 0.45;
-    addShake(heavy ? 4.2 : 2.6);
+    addShake(heavy ? 4.2 : 2.6, 1);
       floatText(player.x, player.y - 0.4, ntext(dmg), '#ff8060', true);
     sfx('hurt');
     if (player.life <= 0) {
@@ -1284,9 +1323,11 @@
     if (!tick) {
       const heavy = !!(en.boss || en.elite);
       if (!heavy || time >= (en.flashAt || 0)) {
-        en.hitFlash = 0.08;
+        const fb = fxBox();
+        en.hitFlash = (fb && fb.HIT_FLASH) || 0.08;
         if (heavy) en.flashAt = time + 0.35;
       }
+      en.hitAge = 0;
       hits += 1;
     }
     if (!tick && time - hitSnd > (MEDIEVAL ? 0.03 : 0.08)) {
@@ -1309,16 +1350,28 @@
       vis.crit = crit;
       vis.color = en.color || '#d7dbe3';
       fxCall('hit', en.x, en.y, vis);
-      if (!en.boss && en.eid !== 'brute') {
+      const feel = fxBox();
+      if (feel && typeof feel.knockTiles === 'function') {
+        // UI game feel: eased 6 px knockback (elite 3, boss 0) and hitstop on elites / boss crits.
         const d = len2(en.x - player.x, en.y - player.y) || 1;
-        en.kx = ((en.x - player.x) / d) * 5;
-        en.ky = ((en.y - player.y) / d) * 5;
+        en.kdx = (en.x - player.x) / d;
+        en.kdy = (en.y - player.y) / d;
+        en.kDist = en.eid === 'brute' ? 0 : feel.knockTiles(vis);
+        if (typeof feel.hitstop === 'function') feel.hitstop(vis);
+      } else {
+        if (!en.boss && en.eid !== 'brute') {
+          const d = len2(en.x - player.x, en.y - player.y) || 1;
+          en.kx = ((en.x - player.x) / d) * 5;
+          en.ky = ((en.y - player.y) / d) * 5;
+        }
+        if (en.boss && amount >= 4) addShake(2.4);
       }
-      if (en.boss && amount >= 4) addShake(2.4);
     }
     if (en.life <= 0) {
       en.life = 0;
+      // Gameplay keeps the 0.22 s dying window; FX's pop/shrink (0.18 s) plays inside it.
       en.dying = 0.22;
+      en.dyingMax = en.dying;
       telegraphOff(en);
       if (en.bossKind === 'demon' && (en.shieldT > 0 || en.shieldLive)) {
         en.shieldT = 0;
@@ -1347,20 +1400,22 @@
       if (MEDIEVAL) sfx('death');
       if (sweepOn && en.sweepGen === sweepGen) sweepKills += 1;
       grantGold(en.gold);
-      dropGem(en);
       if ((owned.might || 0) >= 5) pulseAround(en.x, en.y, 1.6, 6);
       burst(en.x, en.y, en.color || '#ffffff');
       const deadVis = foeVisual(en);
       deadVis.color = en.color || '#d7dbe3';
       deadVis.crit = false;
-      if (typeof FX !== 'undefined' && typeof FX.kill === 'function') FX.kill(en.x, en.y, en.eid, deadVis);
+      deadVis.sprite = en.sprite || en.eid;
+      deadVis.crowd = enemies.length;
+      if (typeof FX !== 'undefined' && typeof FX.kill === 'function') en.pop = FX.kill(en.x, en.y, en.eid, deadVis) === 0 ? 0 : 1;
       else fxCall('death', en.x, en.y, en.eid, foeVisual(en));
+      dropGem(en); // after FX.kill so a thinned (no-pop) death drops at once
       if ((en.elite || en.boss) && !reduceMotion && slowLeft <= 0 && !sweepOn && time - hitPauseAt >= 0.5) {
         hitPause = 0.04;
         hitPauseAt = time;
       }
-      if (en.boss) addShake(4.5);
-      else if (en.elite) addShake(2.6);
+      if (en.boss) addShake(4.5, 4);
+      else if (en.elite) addShake(2.6, 2);
     }
   }
 
@@ -2081,7 +2136,7 @@
           lastHit = 'boss';
           hurt(medBossDmg(b.cleave.dmg), true);
         }
-        addShake(3);
+        addShake(3, 2);
         ai.mode = 'recover';
         ai.t = 0.6;
       } else if (ai.kind === 'rain') {
@@ -2095,7 +2150,7 @@
           lastHit = 'boss';
           hurt(medBossDmg(b.rain.dmg), true);
         }
-        addShake(2.5);
+        addShake(2.5, 2);
         ai.mode = 'recover';
         ai.t = 0.5;
       } else {
@@ -2838,10 +2893,20 @@
       if (en.hitFlash > 0) en.hitFlash -= dt;
       if (en.dying > 0) {
         en.dying -= dt;
+        if (en.gemDue > 0 && (en.dyingMax || 0.22) - en.dying >= en.gemDue) settleGem(en);
         if (en.dying <= 0) releaseEnemy(i);
         continue;
       }
       if (en.life <= 0) { releaseEnemy(i); continue; }
+      if (en.hitAge < 1) {
+        const kb = en.kDist > 0 ? fxBox() : null;
+        if (kb && typeof kb.knockStep === 'function') {
+          const f = kb.knockStep(en.hitAge, dt);
+          en.x += en.kdx * en.kDist * f;
+          en.y += en.kdy * en.kDist * f;
+        }
+        en.hitAge += dt;
+      }
       if (en.kx || en.ky) {
         en.x += en.kx * dt;
         en.y += en.ky * dt;
@@ -3243,6 +3308,17 @@
       fxCall('update', dt);
       evoWindow = false;
       return;
+    }
+    const stopBox = fxBox();
+    if (stopBox && typeof stopBox.consumeHitstop === 'function') {
+      // UI hitstop: freeze the sim clock only (draw keeps running).
+      const simDt = stopBox.consumeHitstop(dt);
+      if (simDt <= 0) {
+        fxCall('update', dt);
+        evoWindow = false;
+        return;
+      }
+      dt = simDt;
     }
     if (state === 'playing' && (evoHold || time >= evoPollAt)) {
       if (time >= evoPollAt) evoPollAt = time + 1;
@@ -5017,7 +5093,28 @@
     foeDraw.dying = en.dying || 0;
     foeDraw.crowd = crowd;
     foeDraw.time = animT;
-    SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
+    const poseBox = fxBox();
+    if (poseBox && typeof poseBox.foePose === 'function') {
+      // UI game feel: squash on hit, death pop/shrink, white flash from FX's cached white atlas.
+      const dyingNow = en.dying > 0;
+      const pose = poseBox.foePose(en.hitAge, en.hitFlash, dyingNow ? (en.dyingMax || 0.22) - en.dying : -1, en.pop);
+      foeDraw.flash = false;
+      foeDraw.dying = 0;
+      const posed = pose.sx !== 1 || pose.sy !== 1;
+      if (posed) {
+        if (!(pose.sx > 0.01)) return;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(pose.sx, pose.sy);
+        ctx.translate(-x, -y);
+      }
+      SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
+      if (pose.white > 0) poseBox.drawWhite(ctx, foeVisual(en, true), x, y, pose.white);
+      if (posed) ctx.restore();
+      if (dyingNow) return;
+    } else {
+      SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
+    }
     const medDemon = MEDIEVAL && en.bossKind === 'demon';
     if (medDemon && en.life > 0 && !(en.dying > 0)) drawBossPlate(en, x, y);
     if (!medDemon) drawTell(en, x, y);
@@ -5430,17 +5527,32 @@
       const max = f.max || FLOAT_LIFE;
       const age = max - f.life;
       let scale = 1;
-      if (age < 0.12) scale = 1.4 - 0.4 * (age / 0.12);
-      if (f.crit) scale *= 1.5;
-      const size = Math.round((f.big ? 28 : 15) * (f.guard ? (guardStyle().scale || 0.8) : 1) * scale);
+      let size;
       let alpha = 1;
-      if (f.life < 0.15) alpha = f.life > 0 ? f.life / 0.15 : 0;
+      if (MEDIEVAL && f.dmg) {
+        if (f.crit) {
+          // Crit: pop in from 1.7x to 1x over 0.12 s (eased), from the moment it turned crit.
+          const ca = time - (f.born || 0);
+          if (ca < 0.12) { const k = 1 - ca / 0.12; scale = 1 + 0.7 * k * k; }
+          size = Math.round(22 * scale);
+        } else {
+          size = Math.round((f.big ? 16 : 13) * (f.guard ? (guardStyle().scale || 0.8) : 1));
+        }
+        // Hold, then fade over the back half of the ~0.6 s rise.
+        const half = max * 0.5;
+        if (f.life < half) alpha = f.life > 0 ? f.life / half : 0;
+      } else {
+        if (age < 0.12) scale = 1.4 - 0.4 * (age / 0.12);
+        if (f.crit) scale *= 1.5;
+        size = Math.round((f.big ? 28 : 15) * (f.guard ? (guardStyle().scale || 0.8) : 1) * scale);
+        if (f.life < 0.15) alpha = f.life > 0 ? f.life / 0.15 : 0;
+      }
       ctx.globalAlpha = alpha;
       ctx.font = floatFont(!!f.big, size);
       ctx.lineWidth = 1;
       ctx.strokeStyle = f.crit ? '#14120f' : '#140e0c';
       ctx.strokeText(f.text, fx, fy);
-      ctx.fillStyle = f.crit ? '#ffffff' : f.color;
+      ctx.fillStyle = f.crit ? CRIT_COLOR : f.color;
       ctx.fillText(f.text, fx, fy);
     }
     ctx.globalAlpha = 1;
@@ -5482,6 +5594,34 @@
     }
   }
 
+  // HUD boxes in canvas pixels, refreshed at most twice a second (the boss bar appears late).
+  const hudBox = { at: -9, list: [] };
+  function hudRects() {
+    const now = animT;
+    if (Math.abs(now - hudBox.at) < 0.5) return hudBox.list;
+    hudBox.at = now;
+    hudBox.list.length = 0;
+    try {
+      const cr = canvas.getBoundingClientRect();
+      const kx = canvas.width / (cr.width || 1);
+      const ky = canvas.height / (cr.height || 1);
+      const els = document.querySelectorAll('#sv-hud .sv-top, #sv-hud .sv-stats > span, #sv-boss, #sv-pause-btn');
+      for (let i = 0; i < els.length; i++) {
+        const r = els[i].getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) continue;
+        hudBox.list.push({ x0: (r.left - cr.left) * kx, y0: (r.top - cr.top) * ky, x1: (r.right - cr.left) * kx, y1: (r.bottom - cr.top) * ky });
+      }
+    } catch (e) { /* no DOM (VM tests) */ }
+    return hudBox.list;
+  }
+  function hudHit(list, x, y, m) {
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      if (x > r.x0 - m && x < r.x1 + m && y > r.y0 - m && y < r.y1 + m) return true;
+    }
+    return false;
+  }
+
   // Edge arrow toward Malgrath while he is off-screen (same shape as the chest arrows).
   function drawBossArrow() {
     if (!MEDIEVAL) return;
@@ -5501,7 +5641,10 @@
       const dist = len2(dx, dy) || 1;
       dx /= dist;
       dy /= dist;
-      const k = 1 / Math.max(Math.abs(dx) / (w * 0.5 - pad), Math.abs(dy) / (h * 0.5 - pad));
+      let k = 1 / Math.max(Math.abs(dx) / (w * 0.5 - pad), Math.abs(dy) / (h * 0.5 - pad));
+      // Slide in along the ray until the arrow clears the HUD text (time, kills, bars, pause).
+      const rects = hudRects();
+      for (let n = 0; n < 80 && k > 40 && hudHit(rects, cx + dx * k, cy + dy * k, 26); n++) k -= 8;
       ctx.save();
       ctx.translate(cx + dx * k, cy + dy * k);
       ctx.rotate(Math.atan2(dy, dx));
@@ -6121,6 +6264,8 @@
       boss: boss ? boss.name : '',
       bossLife: boss ? boss.life : 0,
       bossMax: boss ? boss.maxLife : 0,
+      bossX: boss ? boss.x : 0,
+      bossY: boss ? boss.y : 0,
       chest: chest,
       bossTell: (() => { const d = enemies.find((e) => e.bossKind === 'demon'); return d && d.ai && d.ai.mode === 'tell' ? d.ai.kind : ''; })(),
       hazards: hazards.length,
