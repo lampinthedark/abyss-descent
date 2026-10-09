@@ -4657,7 +4657,16 @@
     const ai = en.ai;
     if (!ai || ai.mode !== 'tell') return;
     ctx.save();
-    if (en.behaviour === 'charger') {
+    const tellBox = fxBox();
+    const mobTell = !!(tellBox && typeof tellBox.paintMobTell === 'function');
+    if (en.behaviour === 'charger' && mobTell) {
+      const lane = 8.2 * 0.38 * TILE;
+      const u = Math.max(0, Math.min(1, 1 - ai.t / 0.6));
+      tellBox.paintMobTell(ctx, 'line', x, y, x + ai.vx * lane, y + ai.vy * lane, (en.radius || 0.34) * TILE * 0.5, u);
+    } else if (en.behaviour === 'shooter' && mobTell) {
+      const u = Math.max(0, Math.min(1, 1 - Math.max(0, ai.t) / 0.7));
+      tellBox.paintMobTell(ctx, 'dot', x, y - 18, 0.22 * TILE, 0, 0, u);
+    } else if (en.behaviour === 'charger') {
       ctx.strokeStyle = '#d0b4ff';
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -4676,6 +4685,23 @@
       const st = bc.tell;
       const span = ai.tell0 || 1;
       const u = Math.max(0, Math.min(1, 1 - ai.t / span));
+      // UI owns the telegraph look: use FX.paintTell when present (survivor-fx.js).
+      const box = tellBox;
+      if (box && typeof box.paintTell === 'function') {
+        if (ai.kind === 'cleave') {
+          box.paintTell(ctx, 'cone', x, y, bc.cleave.range * TILE, ai.aim, bc.cleave.arc, u);
+        } else if (ai.kind === 'rain' && ai.circles) {
+          for (let i = 0; i < ai.circles.length; i++) {
+            box.paintTell(ctx, 'circle', sxOf(ai.circles[i].x), syOf(ai.circles[i].y), bc.rain.radius * TILE, 0, 0, u);
+          }
+        } else if (ai.kind === 'charge') {
+          const len = bc.charge.speed * bc.charge.time * TILE;
+          const half = ((en.radius || 1) + 0.35) * TILE * 0.5;
+          box.paintTell(ctx, 'line', x, y - 20, x + Math.cos(ai.aim) * len, y - 20 + Math.sin(ai.aim) * len, half, u);
+        }
+        ctx.restore();
+        return;
+      }
       const fill = st.fill.replace('A', String(st.fillFrom + (st.fillTo - st.fillFrom) * u));
       const edge = (shape) => {
         ctx.lineWidth = st.edgeWidth + 3;
