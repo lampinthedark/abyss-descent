@@ -226,6 +226,8 @@
   let doubleLocked = false;
   let bankedAmount = 0;
   let goldBeforeCut = 0;
+  let timeGoldAcc = 0;
+  const goldSrc = { kills: 0, time: 0, purse: 0, boss: 0, win: 0 };
   let toastEntry = null;
   let medGoldLine = '';
   let bestAtStart = 0;
@@ -486,7 +488,23 @@
     const whole = Math.floor(goldMilli / 1000);
     if (whole <= 0) return;
     runGold += whole;
+    goldSrc.kills += whole;
     goldMilli -= whole * 1000;
+  }
+
+  function goldGreed() {
+    return (1 + shopRank('greed') * medPer('greed', 0.08)) * (1 + (itemStats().greed || 0)) * vowMult();
+  }
+
+  // Medieval: flat gold for time survived, so careful play is never paid less.
+  function tickTimeGold(dt) {
+    if (!MEDIEVAL || !(MED.gold.perMinute > 0)) return;
+    timeGoldAcc += dt * MED.gold.perMinute / 60 * goldGreed();
+    if (timeGoldAcc < 1) return;
+    const whole = Math.floor(timeGoldAcc);
+    timeGoldAcc -= whole;
+    runGold += whole;
+    goldSrc.time += whole;
   }
 
   // Pickup streak for the later sound pass: +1 semitone per gem, capped at 12.
@@ -686,7 +704,7 @@
       if (MEDIEVAL && en.bossKind === 'demon' && MED.boss.radius) en.radius = MED.boss.radius;
     } else if (en.elite) en.radius = 0.48;
     en.flashAt = 0;
-    const greed = (1 + shopRank('greed') * medPer('greed', 0.08)) * (1 + (itemStats().greed || 0)) * vowMult();
+    const greed = goldGreed();
     const baseGold = bossFlag ? SurvivorData.REWARDS.gold.mini : (en.elite ? 6 : (SurvivorData.REWARDS.gold[type.id] || 1));
     if (!(en.elite && en.gold > baseGold)) en.gold = baseGold * greed;
     else en.gold *= greed;
@@ -1291,6 +1309,9 @@
         demonCleared = true;
         if (MEDIEVAL && en.bossKind === 'demon' && victoryAt < 0) {
           victoryAt = time + MED.boss.winDelay;
+          const bossPay = Math.round((MED.gold.bossBonus || 0) * goldGreed());
+          runGold += bossPay;
+          goldSrc.boss += bossPay;
           raiseBanner('Malgrath is slain!', true);
           if (!reduceMotion) slowLeft = Math.max(slowLeft, 1.2);
         }
@@ -1726,7 +1747,7 @@
         }
       }
     }
-    if (MEDIEVAL) medDirector();
+    if (MEDIEVAL) { medDirector(); tickTimeGold(dt); }
     if (!eliteWarned && time >= 148) {
       eliteWarned = true;
       raiseBanner('Grave Warden approaches', true);
@@ -1777,7 +1798,10 @@
       }
     }
     if (MEDIEVAL && victoryAt >= 0 && time >= victoryAt) {
-      runGold += MED.boss.winGold;
+      // Win pay: a flat purse plus a bonus for the life you kept (clean play pays more).
+      const winPay = Math.round((MED.boss.winGold + (MED.gold.winHpBonus || 0) * Math.max(0, player.life) / Math.max(1, player.maxLife)) * goldGreed());
+      runGold += winPay;
+      goldSrc.win += winPay;
       finish('won');
       return;
     }
@@ -3236,6 +3260,8 @@
     boltBossTurn = true;
     bankedAmount = 0;
     goldBeforeCut = 0;
+    timeGoldAcc = 0;
+    goldSrc.kills = 0; goldSrc.time = 0; goldSrc.purse = 0; goldSrc.boss = 0; goldSrc.win = 0;
     medGoldLine = '';
     doubled = false;
     doubleLocked = false;
@@ -4077,7 +4103,9 @@
   function applyChoice(item) {
     if (!item) return;
     if (item.id === 'purse') {
-      runGold += SurvivorData.REWARDS.gold.purse;
+      const purse = MEDIEVAL && MED.gold.purse != null ? MED.gold.purse : SurvivorData.REWARDS.gold.purse;
+      runGold += purse;
+      goldSrc.purse += purse;
       return;
     }
     if (item.id === 'heal') {
@@ -5756,6 +5784,7 @@
       levelUps: levelUps,
       kills: kills,
       gold: runGold,
+      goldSrc: MEDIEVAL ? Object.assign({}, goldSrc) : null,
       vowSeen: vowSeen,
       vow: vowPayout,
       vowCount: vowCount,

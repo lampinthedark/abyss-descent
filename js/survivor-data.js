@@ -406,7 +406,7 @@ const SurvivorData = (() => {
       blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
     },
     // Gold per run target 150-250 (100 or less on an early death).
-    gold: { mul: 0.07, keepOnDeath: 0.5 },
+    gold: { mul: 0.005, keepOnDeath: 0.5, perMinute: 18, bossBonus: 30, winHpBonus: 35, purse: 5 }, // mul: kill gold; perMinute: flat gold per minute alive; bossBonus: on Malgrath's death; winHpBonus: x life fraction left at the win (+ boss.winGold); purse: filler card gold
 
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },
