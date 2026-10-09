@@ -333,22 +333,23 @@ const SurvivorData = (() => {
       { at: 0, kinds: { skel: 1 }, cap: 15, rate: 3 },
       { at: 30, kinds: { skel: 2, goblin: 1 }, cap: 25, rate: 5 },
       { at: 60, kinds: { goblin: 2, skel: 1 }, cap: 40, rate: 8 },
-      { at: 90, kinds: { skel: 1 }, cap: 60, rate: 16 },
-      { at: 120, kinds: { imp: 1, skel: 2 }, cap: 55, rate: 12, xpMul: 2.4 },
-      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 55, rate: 12, xpMul: 1.8 },
-      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 50, rate: 12, xpMul: 1.8 },
-      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 80, rate: 22, xpMul: 1.3 },
-      { at: 240, kinds: { fiend: 1, imp: 1, skel: 2 }, cap: 55, rate: 16, walls: true, xpMul: 1.8 },
-      { at: 270, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
-      { at: 300, kinds: { skel: 2, imp: 1 }, cap: 40, rate: 12 }, // boss phase, scaled by boss.spawnMul
+      { at: 90, kinds: { skel: 1 }, cap: 60, rate: 16, xpMul: 1.2 },
+      { at: 120, kinds: { imp: 1, skel: 2 }, cap: 55, rate: 12, xpMul: 1.9 },
+      { at: 150, kinds: { imp: 1, armored: 1, skel: 1 }, cap: 60, rate: 14, xpMul: 1.8, dmgMul: 1.2 },
+      { at: 180, kinds: { fiend: 1, skel: 1, goblin: 1 }, cap: 70, rate: 16, xpMul: 1, dmgMul: 1.5, speedMul: 1.15 },
+      { at: 210, kinds: { skel: 2, goblin: 2, imp: 1, fiend: 1, armored: 1 }, cap: 90, rate: 24, xpMul: 1, dmgMul: 2.0, speedMul: 1.2 },
+      { at: 240, kinds: { fiend: 1, imp: 1, skel: 2 }, cap: 80, rate: 20, walls: true, xpMul: 2.0, dmgMul: 2.3, speedMul: 1.25 },
+      { at: 275, kinds: { skel: 1 }, cap: 30, rate: 1.5, breather: true, xpMul: 3 },
+      { at: 300, kinds: { skel: 2, imp: 1 }, cap: 40, rate: 12, dmgMul: 2.4 }, // boss phase, scaled by boss.spawnMul
     ],
+    // dmgMul (optional) scales contact damage, imp shots and fiend dashes; speedMul scales foe speed.
     // How each kind maps onto the engine (eid = stat/AI template, sprite = 0x72 art).
     kinds: {
-      skel: { eid: 'skel', sprite: 'skel', name: 'Bone Rattler', speedMul: 1, hpMul: 1 },
-      goblin: { eid: 'skel', sprite: 'goblin', name: 'Gutter Goblin', speedMul: 1.36, hpMul: 1 },
-      armored: { eid: 'skel', sprite: 'armored', name: 'Armoured Rattler', speedMul: 0.82, hpMul: 3 },
+      skel: { eid: 'skel', sprite: 'skel', name: 'Bone Rattler', speedMul: 1, hpMul: 1, dmg: 4 },
+      goblin: { eid: 'skel', sprite: 'goblin', name: 'Gutter Goblin', speedMul: 1.36, hpMul: 1, dmg: 4 },
+      armored: { eid: 'skel', sprite: 'armored', name: 'Armoured Rattler', speedMul: 0.82, hpMul: 3, dmg: 7 },
       imp: { eid: 'shooter', sprite: 'imp', name: 'Cinder Imp', speedMul: 1, hpMul: 1 },
-      fiend: { eid: 'charger', sprite: 'chort', name: 'Horned Fiend', speedMul: 1, hpMul: 1.5 },
+      fiend: { eid: 'charger', sprite: 'chort', name: 'Horned Fiend', speedMul: 1, hpMul: 1.5, dmg: 6 }, // dmg: contact hit before armour
     },
     // One-shot beats.
     events: [
@@ -364,29 +365,29 @@ const SurvivorData = (() => {
     // The Goblin Chief's chest grants it (never before evoAt); evoForce is the
     // safety net if the chief is not dead yet.
     evolution: { evoAt: 75, evoForce: 82, chiefGrants: true, relicGate: ['nova'] }, // relicGate: these evolutions wait for Malgrath's relic
-    gems: { driftAfter: 3, driftRange: 16, driftSpeed: 5 }, // soul gems left lying driftAfter s slide to the hero (tiles, tiles/s)
+    gems: { driftAfter: 1.5, driftRange: 40, driftSpeed: 10 }, // soul gems left lying driftAfter s slide to the hero (tiles, tiles/s)
     // After Dawnbreaker the horde speeds up and thickens so it still reaches the hero.
     postEvo: { speedMul: 1.25, capMul: 1.3, rateMul: 1.3, until: 210 },
 
     // XP to the next level, indexed by current level (1-based). Past the end
     // each level adds xpStep. Tuned for a level-up every ~10-20 s after Lv10.
     xpCurve: [0, 8, 10, 12, 16, 20, 28, 34, 40, 44, 48, 52, 56, 60, 64],
-    xpStep: 4,
+    xpStep: 7,
     startWeapons: { knight: { bolt: 1, orbit: 1 }, ysolde: { bolt: 1, nova: 1 } },
 
     // ---- 5. Malgrath, the Pit Sovereign.
     boss: {
-      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 10, // scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
-      adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
-      spawnMul: 0.2, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
+      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 1500, hpPerLevel: 0.04, dmgPerLevel: 0.012, hpLevelFrom: 20, minFight: 52, glance: 0, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 16, // hp grows hpPerLevel per hero level past hpLevelFrom; damage past maxLife/minFight per second glances (x glance). scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
+      adds: 10, winDelay: 2.0, winGold: 40, cycle: 1.6,
+      spawnMul: 0.35, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
       // Telegraph style: bright edge + a fill that grows over the windup.
       tell: { edge: '#ffd040', edgeWidth: 5, fill: 'rgba(230, 40, 25, A)', fillFrom: 0.2, fillTo: 0.5, grow: 'rgba(255, 150, 60, 0.45)' },
       // Loot shower on the kill: one guaranteed relic (banked straight into the
       // inventory so walking to it is optional) plus a ring of gold.
       relic: { rarity: 'legendary', title: 'Relic' },
       shower: { gold: 20, coins: 10 },
-      cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 14 },
-      rain: { tell: 1.5, circles: 7, radius: 0.85, spread: 3.6, dmg: 10 },
+      cleave: { tell: 1.0, range: 3.4, arc: Math.PI / 2, dmg: 28 },
+      rain: { tell: 1.5, circles: 9, radius: 1.2, spread: 3.0, dmg: 31, lead: 1.0 }, // lead: aims at the hero's position this share of the windup ahead,
       charge: { tell: 0.8, belowHp: 0.5, speed: 11, time: 0.6, dmg: 12, imps: 4 },
     },
 
@@ -405,7 +406,7 @@ const SurvivorData = (() => {
       blurb: 'Hero: starts with the Ward Bell, +15% area, -20% HP',
     },
     // Gold per run target 150-250 (100 or less on an early death).
-    gold: { mul: 0.22, keepOnDeath: 0.5 },
+    gold: { mul: 0.07, keepOnDeath: 0.5 },
 
     // ---- 7. Oath of Ruin, sworn on the title screen before the run.
     vow: { name: 'Oath of Ruin', lifeMul: 0.7, keepOnDeath: 0, winGoldMul: 2, extraChest: true, noAdRevive: true },

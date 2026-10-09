@@ -644,6 +644,12 @@
       if (k && !(opts && opts.name)) en.name = k.name;
       if (k) en.speed *= k.speedMul || 1;
       if (postEvoOn()) en.speed *= MCFG.postEvo.speedMul || 1;
+      const row = medWave();
+      en.speed *= row.speedMul || 1;
+      // Contact damage per kind, scaled by the wave's dmgMul (also scales imp shots and fiend dashes).
+      en.medDmgMul = row.dmgMul || 1;
+      if (k && k.dmg) en.dmg = k.dmg;
+      en.dmg *= en.medDmgMul;
     }
     if (bossFlag) en.scale = (MEDIEVAL && en.bossKind === 'demon') ? MED.boss.scale : BOSS_SCALE;
     else if (en.elite) en.scale = 1.65;
@@ -1211,6 +1217,14 @@
     if (!tick && Math.random() < critChance()) {
       crit = true;
       amount *= 2;
+    }
+    if (MEDIEVAL && en.bossKind === 'demon' && MED.boss.minFight > 0) {
+      // Malgrath's hide: damage past a per-second budget (maxLife / minFight) mostly glances off.
+      const rate = en.maxLife / MED.boss.minFight;
+      en.dmgBudget = Math.min(rate * 1.5, (en.dmgBudget || 0) + rate * Math.max(0, time - (en.dmgBudgetAt || time)));
+      en.dmgBudgetAt = time;
+      if (amount > en.dmgBudget) amount = en.dmgBudget + (amount - en.dmgBudget) * (MED.boss.glance != null ? MED.boss.glance : 0.1);
+      en.dmgBudget = Math.max(0, en.dmgBudget - amount);
     }
     en.life -= amount;
     if (en.bossKind === 'demon' && !en.shieldUsed && en.life > 0 && en.life <= en.maxLife * 0.5) {
@@ -1830,6 +1844,11 @@
     const spot = spawnBossEdge();
     const b = MED.boss;
     const demon = spawnEnemy('brute', spot.x, spot.y, { bossKind: 'demon', name: b.name });
+    // HP grows with the hero's level so a strong build still gets a real fight.
+    demon.maxLife = Math.round(b.hp * (1 + (b.hpPerLevel || 0) * Math.max(0, player.level - (b.hpLevelFrom || 0))));
+    demon.life = demon.maxLife;
+    demon.dmgBudget = 0;
+    demon.dmgBudgetAt = time;
     demon.shieldUsed = true;
     demon.speed *= b.speedMul || 1;
     if (b.touchDmg) demon.dmg = b.touchDmg;
@@ -1844,11 +1863,25 @@
     return demon;
   }
 
+  // Malgrath hits harder against a higher-level hero (boss.dmgPerLevel past hpLevelFrom).
+  function medBossDmg(base) {
+    const b = MED.boss;
+    return base * (1 + (b.dmgPerLevel || 0) * Math.max(0, player.level - (b.hpLevelFrom || 0)));
+  }
+
   // Malgrath: Hellfire Cleave (cone), Brimstone Rain (circles), and below
   // half life a Pit Charge. Every attack is telegraphed for its windup.
   function tickMedBoss(en, dt) {
     const b = MED.boss;
     const ai = en.ai;
+    // Track the hero's velocity so telegraphs can lead a moving target.
+    if (dt > 0 && ai.px != null) {
+      const k = Math.min(1, dt * 4);
+      ai.pvx = (ai.pvx || 0) * (1 - k) + ((player.x - ai.px) / dt) * k;
+      ai.pvy = (ai.pvy || 0) * (1 - k) + ((player.y - ai.py) / dt) * k;
+    }
+    ai.px = player.x;
+    ai.py = player.y;
     const dx = player.x - en.x;
     const dy = player.y - en.y;
     const dist = len2(dx, dy) || 1;
@@ -1861,7 +1894,7 @@
         const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
         if (dist <= b.cleave.range && off <= b.cleave.arc / 2) {
           lastHit = 'boss';
-          hurt(b.cleave.dmg, true);
+          hurt(medBossDmg(b.cleave.dmg), true);
         }
         addShake(3);
         ai.mode = 'recover';
@@ -1875,7 +1908,7 @@
         }
         if (hit) {
           lastHit = 'boss';
-          hurt(b.rain.dmg, true);
+          hurt(medBossDmg(b.rain.dmg), true);
         }
         addShake(2.5);
         ai.mode = 'recover';
@@ -1894,7 +1927,7 @@
       if (!ai.hitDone && len2(player.x - en.x, player.y - en.y) < (en.radius || 1) + 0.35) {
         ai.hitDone = true;
         lastHit = 'boss';
-        hurt(b.charge.dmg, true);
+        hurt(medBossDmg(b.charge.dmg), true);
       }
       if (ai.t <= 0) {
         for (let i = 0; i < b.charge.imps; i++) {
@@ -1927,11 +1960,15 @@
       ai.t = b.cleave.tell;
     } else if (ai.kind === 'rain') {
       ai.t = b.rain.tell;
-      ai.circles = [{ x: player.x, y: player.y }];
-      for (let i = 1; i < b.rain.circles; i++) {
+      // Brimstone Rain leads the hero: circles land where they are heading.
+      const lead = (b.rain.lead || 0) * b.rain.tell;
+      const tx = player.x + (ai.pvx || 0) * lead;
+      const ty = player.y + (ai.pvy || 0) * lead;
+      ai.circles = [{ x: tx, y: ty }, { x: player.x, y: player.y }];
+      for (let i = 2; i < b.rain.circles; i++) {
         const ang = Math.random() * Math.PI * 2;
         const r = 1 + Math.random() * (b.rain.spread - 1);
-        ai.circles.push({ x: player.x + Math.cos(ang) * r, y: player.y + Math.sin(ang) * r });
+        ai.circles.push({ x: tx + Math.cos(ang) * r, y: ty + Math.sin(ang) * r });
       }
     } else {
       ai.t = b.charge.tell;
@@ -2490,7 +2527,7 @@
       if (hit && en.touchCd <= 0) {
         en.touchCd = 0.8;
         lastHit = 'dash';
-        hurt(player.moving ? 4 : en.dmg + 3, false);
+        hurt(player.moving ? 4 * (MEDIEVAL ? (en.medDmgMul || 1) : 1) : en.dmg + 3, false);
       }
       if (ai.t <= 0) {
         ai.mode = 'recover';
@@ -2513,7 +2550,7 @@
       ai.t -= dt;
       if (ai.t <= 0) {
         const sp = 2.7;
-        const shot = 5 + lateT() * (BALANCE.lateShot - 5);
+        const shot = (5 + lateT() * (BALANCE.lateShot - 5)) * (MEDIEVAL ? (en.medDmgMul || 1) : 1);
         spawnFoeShot(en.x, en.y, (dx / dist) * sp, (dy / dist) * sp, shot);
         ai.mode = 'recover';
         ai.t = 2.6;
@@ -4227,6 +4264,35 @@
       sy = (ay / ad) * (prefer - ad) * 0.85;
       sx += (-ay / ad) * 1.35;
       sy += (ax / ad) * 1.35;
+    }
+    // Dodge Malgrath's telegraphs (the kite bot plays like a careful human).
+    if (MEDIEVAL) {
+      for (let n = 0; n < enemies.length; n++) {
+        const en = enemies[n];
+        if (en.bossKind !== 'demon' || !en.ai || en.ai.mode !== 'tell') continue;
+        const ai = en.ai;
+        if ((ai.tell0 || 0) - ai.t < 0.75) continue; // human reaction time before the dodge
+        const b = MED.boss;
+        if (ai.kind === 'rain' && ai.circles) {
+          for (let c = 0; c < ai.circles.length; c++) {
+            const dx = player.x - ai.circles[c].x;
+            const dy = player.y - ai.circles[c].y;
+            const d = len2(dx, dy) || 0.01;
+            if (d < b.rain.radius + 0.7) { sx += (dx / d) * 6; sy += (dy / d) * 6; }
+          }
+        } else if (ai.kind === 'cleave') {
+          const dx = player.x - en.x;
+          const dy = player.y - en.y;
+          const d = len2(dx, dy) || 0.01;
+          if (d < b.cleave.range + 0.8) { sx += (dx / d) * 6; sy += (dy / d) * 6; }
+        } else if (ai.kind === 'charge') {
+          const px = -Math.sin(ai.aim);
+          const py = Math.cos(ai.aim);
+          const side = ((player.x - en.x) * px + (player.y - en.y) * py) >= 0 ? 1 : -1;
+          sx += px * side * 6;
+          sy += py * side * 6;
+        }
+      }
     }
     for (let i = 0; i < foeShots.length; i++) {
       const shot = foeShots[i];
