@@ -364,7 +364,7 @@ const SurvivorData = (() => {
 
     // ---- 5. Malgrath, the Pit Sovereign.
     boss: {
-      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.45, speedMul: 0.7, touchDmg: 10, // scale 1.45: ~3x a 16px mob
+      at: 300, name: 'Malgrath, the Pit Sovereign', plate: 'MALGRATH', hp: 750, scale: 1.6, radius: 1.1, speedMul: 0.7, touchDmg: 10, // scale 1.6: body ~3.2x a skeleton's on-screen height; radius (tiles) matches his body
       adds: 10, winDelay: 2.0, winGold: 40, cycle: 2.0,
       spawnMul: 0.2, // regular spawns (cap and rate) while Malgrath lives; charge imps are extra
       // Telegraph style: bright edge + a fill that grows over the windup.
@@ -400,7 +400,7 @@ const SurvivorData = (() => {
 
     // ---- Art readability. The hero must be the brightest actor on the dark floor.
     // Multipliers apply to sprite pixels; rims are the 1px outlines.
-    art: { heroBright: 1.12, heroRim: [255, 255, 255], skelDim: 0.8, foeBright: 1.12, foeRim: [216, 74, 58] },
+    art: { heroBright: 1.12, heroRim: [255, 255, 255], skelDim: 0.8, foeBright: 1.12, foeRim: [216, 74, 58], bossRim: [[176, 52, 26], [34, 6, 4]] }, // bossRim: Malgrath's 2px outline, inner ember then outer near-black
 
     // ---- Level-up names. [name, blurb, optional rank lines]. Ids stay the same.
     names: {

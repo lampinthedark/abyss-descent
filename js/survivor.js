@@ -674,6 +674,7 @@
     if (bossFlag) {
       const tuned = bossKind === 'warden' ? (0.78 / 0.9) : 0.9;
       en.radius = tuned * BOSS_SCALE;
+      if (MEDIEVAL && en.bossKind === 'demon' && MED.boss.radius) en.radius = MED.boss.radius;
     } else if (en.elite) en.radius = 0.48;
     en.flashAt = 0;
     const greed = (1 + shopRank('greed') * medPer('greed', 0.08)) * (1 + (itemStats().greed || 0)) * vowMult();
@@ -1475,6 +1476,7 @@
     }
     const bossBar = $('sv-boss');
     if (bossBar) bossBar.classList.add('hidden');
+    if (MEDIEVAL && document.body && document.body.classList) document.body.classList.remove('sv-bossfight');
     const name = $('sv-boss-name');
     if (name) name.textContent = '';
     const hp = $('sv-boss-hp');
@@ -4541,6 +4543,8 @@
     const bossBar = $('sv-boss');
     if (bossBar) {
       bossBar.classList.toggle('hidden', !liveBoss);
+      // Medieval: loot pop-ups sit just under the boss bar while it's up.
+      if (MEDIEVAL && document.body && document.body.classList) document.body.classList.toggle('sv-bossfight', !!liveBoss);
       if (liveBoss) {
         const name = $('sv-boss-name');
         const bar = $('sv-boss-hp');
@@ -4611,8 +4615,9 @@
     foeDraw.crowd = crowd;
     foeDraw.time = animT;
     SurvivorSprites.drawFoe(ctx, x, y, foeDraw);
-    if (MEDIEVAL && en.bossKind === 'demon' && en.life > 0 && !(en.dying > 0)) drawBossPlate(en, x, y);
-    drawTell(en, x, y);
+    const medDemon = MEDIEVAL && en.bossKind === 'demon';
+    if (medDemon && en.life > 0 && !(en.dying > 0)) drawBossPlate(en, x, y);
+    if (!medDemon) drawTell(en, x, y);
     drawTypeLabel(en, x, y);
   }
 
@@ -4975,6 +4980,13 @@
     for (let i = 0; i < enemies.length; i++) drawOrder[drawCount++] = enemies[i];
     sortByY(drawOrder, drawCount);
     const crowd = enemies.length > 100;
+    // Malgrath's telegraphs go on the floor, under every actor (his sprite included).
+    if (MEDIEVAL) {
+      for (let i = 0; i < drawCount; i++) {
+        const en = drawOrder[i];
+        if (en.bossKind === 'demon') drawTell(en, sxOf(en.x), syOf(en.y));
+      }
+    }
     let hermitDrawn = !hermit.on;
     for (let i = 0; i < drawCount; i++) {
       const en = drawOrder[i];

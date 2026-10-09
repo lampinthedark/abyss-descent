@@ -319,7 +319,7 @@ const SurvivorSprites = (() => {
 
   function growOutline(src, w, h) {
     const px = BOSS_OUTLINE_PX;
-    const rgb = hexRgb(BOSS_OUTLINE_COLOR);
+    const ring = (MEDIEVAL && ART.bossRim) || [hexRgb(BOSS_OUTLINE_COLOR)];
     const ow = w + px * 2;
     const oh = h + px * 2;
     const data = new Uint8ClampedArray(ow * oh * 4);
@@ -354,6 +354,7 @@ const SurvivorSprites = (() => {
           if (!hit) continue;
           next[i] = 1;
           const o = i * 4;
+          const rgb = ring[Math.min(step, ring.length - 1)];
           data[o] = rgb[0];
           data[o + 1] = rgb[1];
           data[o + 2] = rgb[2];

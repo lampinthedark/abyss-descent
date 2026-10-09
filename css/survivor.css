@@ -386,5 +386,8 @@ body.sv-medieval #sv-boss span {
   text-shadow: 0 0 6px #ff3a1a, 0 2px 0 #000;
 }
 body.sv-medieval #sv-boss .bar-wrap { height: 16px; border: 2px solid #ffd27a; border-radius: 6px; background: #1a0806; }
+body.sv-medieval.sv-bossfight #sv-toast {
+  top: calc(env(safe-area-inset-top, 0px) + 126px); padding: 4px 10px; font-size: 14px; z-index: 6;
+}
 body.sv-medieval #sv-boss-hp { background: linear-gradient(180deg, #ff6a3a, #b0140a); height: 100%; }
 .sv-end-relic { margin: 6px 0 0; color: #f2f6ff; font-weight: 700; text-shadow: 0 0 6px #c9a2ff; }
