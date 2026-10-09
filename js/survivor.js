@@ -324,6 +324,10 @@
   // UI game feel batch 2: Dawnbreaker cinematic owner + banner state.
   let evoCineId = '';
   let evoCineBanner = false;
+  // UI game feel batch 3: level-up pillar slow-mo before the cards.
+  let lvlSlow = 0;
+  let lvlBlasted = false;
+  let lvlSlowLevel = -1;
   const evolveQueue = [];
   let spawnedThisFrame = 0;
   let uiGuardUntil = 0;
@@ -846,6 +850,7 @@
   function settleGem(en) {
     if (en.gemDue > 0) { en.gemDue = 0; placeGem(en); }
   }
+  const GEM_EASE = 0.22;
   function placeGem(en) {
     if (gemCount() >= GEM_CAP) evictOldestGem();
     const g = gemPool.pop() || {};
@@ -857,6 +862,7 @@
     g.vx = 0;
     g.vy = 0;
     g.fly = 0;
+    g.flyT = 0;
     g.age = 0;
     g.big = false;
     g.shower = 0;
@@ -3176,8 +3182,12 @@
           g.x += (dx / dist) * step;
           g.y += (dy / dist) * step;
         }
+        if (!g.fly) g.flyT = 0;
         if (g.fly && dist > 0) {
-          const rush = g.shower ? Math.max(18, dist / 0.55) : (14 + (owned.magnet || 0) * 4);
+          // Ease-in flight: starts at 25% speed and reaches full rush after GEM_EASE s (quad).
+          g.flyT = (g.flyT || 0) + dt;
+          const u = Math.min(1, g.flyT / GEM_EASE);
+          const rush = (g.shower ? Math.max(18, dist / 0.55) : (14 + (owned.magnet || 0) * 4)) * (0.25 + 0.75 * u * u);
           const step = Math.min(dist, rush * dt);
           g.x += (dx / dist) * step;
           g.y += (dy / dist) * step;
@@ -3209,14 +3219,21 @@
           grantXp(g.value || 0);
         }
         if (kind !== 'chest' && kind !== 'food') spark(player.x, player.y, '#ffffff', 3, 2.6);
+        let gemPitch = 0;
         if (kind === 'gem') {
           chainInfo.chain = bumpGemChain();
+          const chainBox = fxBox();
+          if (chainBox && typeof chainBox.gemChainStep === 'function') {
+            // UI game feel batch 3: FX owns the chain; its pitch drives the Kenney gem clip's playbackRate.
+            gemPitch = chainBox.gemChainStep();
+            chainInfo.chain = chainBox.gemChainIndex() + 1;
+          }
           fxCall('pickup', g.x, g.y, 'gem', chainInfo);
         } else if (kind !== 'item' && kind !== 'chest') {
           fxCall('pickup', g.x, g.y, kind);
         }
         releaseGemAt(i);
-        if (MEDIEVAL) sfx(kind === 'gem' ? 'gem' : (kind === 'chest' ? 'chest' : 'loot'));
+        if (MEDIEVAL) sfx(kind === 'gem' ? 'gem' : (kind === 'chest' ? 'chest' : 'loot'), gemPitch > 0 ? { pitch: gemPitch } : undefined);
         else if (time - lootSnd > 0.07) {
           lootSnd = time;
           sfx('loot');
@@ -3245,8 +3262,18 @@
       if (!en.boss && !en.elite && en.life <= gate) damageEnemy(en, en.life + 1, true);
       else {
         const d = Math.sqrt(d2) || 1;
-        en.kx += (dx / d) * 7;
-        en.ky += (dy / d) * 7;
+        const kb = fxBox();
+        if (kb && typeof kb.knockStep === 'function') {
+          // Level-up push: survivors slide 24 art px away (elites 12, Malgrath none), eased.
+          if (en.boss) continue;
+          en.kdx = dx / d;
+          en.kdy = dy / d;
+          en.kDist = (en.elite ? 12 : 24) / 16;
+          en.hitAge = 0;
+        } else {
+          en.kx += (dx / d) * 7;
+          en.ky += (dy / d) * 7;
+        }
       }
     }
     const art = (typeof FX !== 'undefined' && FX.LEVELUP_RADIUS) || 48;
@@ -3281,7 +3308,18 @@
       return;
     }
     if (pendingLevels <= 0) return;
-    levelBlast();
+    if (lvlSlow > 0) return;
+    const lvBox = fxBox();
+    if (!lvlBlasted && !reduceMotion && !bench && lvlSlowLevel !== player.level && lvBox && lvBox.LEVEL_SLOW_S > 0) {
+      // UI game feel batch 3: blast + light pillar, 0.3 s at 30% speed, then the cards.
+      levelBlast();
+      lvlBlasted = true;
+      lvlSlowLevel = player.level; // once per level reached
+      lvlSlow = lvBox.LEVEL_SLOW_S;
+      return;
+    }
+    if (!lvlBlasted) levelBlast();
+    lvlBlasted = false;
     bankLevels();
     openLevel();
   }
@@ -3465,6 +3503,14 @@
       step = dt * BALANCE.evoScale;
       evoSlow = Math.max(0, evoSlow - dt);
     }
+    let fxDt = 0;
+    if (lvlSlow > 0 && state === 'playing') {
+      // UI game feel batch 3: sim at FX.LEVEL_SLOW_SCALE, FX (pillar) at real speed.
+      const slowBox = fxBox();
+      fxDt = step;
+      step *= (slowBox && slowBox.LEVEL_SLOW_SCALE) || 0.3;
+      lvlSlow = Math.max(0, lvlSlow - dt);
+    }
     dt = step;
     time += dt;
     if (stillBite > 0) stillBite = Math.max(0, stillBite - dt);
@@ -3474,7 +3520,7 @@
       track(SurvivorData.minuteReachedEvent(minuteMark));
     }
     animT += dt;
-    fxCall('update', dt);
+    fxCall('update', fxDt > 0 ? fxDt : dt);
     if (player.hitFlash > 0) player.hitFlash -= dt;
     if (player.swing > 0) player.swing = Math.max(0, player.swing - dt);
     if (player.invuln > 0) player.invuln -= dt;
@@ -3712,6 +3758,9 @@
     for (let qi = 0; qi < queuedKeys.length; qi++) delete evoQueued[queuedKeys[qi]];
     evolveFreeze = 0;
     evoSlow = 0;
+    lvlSlow = 0;
+    lvlBlasted = false;
+    lvlSlowLevel = -1;
     evoHold = false;
     evoIgnoreClock = false;
     evoPollAt = 1;
@@ -5571,7 +5620,10 @@
           trailBox.gemTrail(ctx, sx, sy, (dx / d) * rush, (dy / d) * rush);
         }
       }
-      SurvivorSprites.drawGem(ctx, sx, sy, g.big ? 1.85 : 1);
+      const bobBox = !g.fly && !g.drift ? fxBox() : null;
+      // UI game feel batch 3: idle 1 px bob (800 ms sine).
+      const bob = bobBox && typeof bobBox.gemBob === 'function' ? Math.round(bobBox.gemBob(g.x * 3.1 + g.y * 1.7) * zoom) : 0;
+      SurvivorSprites.drawGem(ctx, sx, sy - bob, g.big ? 1.85 : 1);
       return;
     }
     if (kind === 'heart') {

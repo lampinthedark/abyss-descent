@@ -109,7 +109,10 @@ const GameAudio = (() => {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     let rate = 1 + (Math.random() * 2 - 1) * (clip.jitter != null ? clip.jitter : 0.06);
-    if (clip.chain) {
+    if (opts && opts.pitch > 0) {
+      // Caller owns the pitch (gem chain: FX.gemChainStep()'s 2^(n/12)).
+      rate = opts.pitch;
+    } else if (clip.chain) {
       // Gem pickups climb a semitone per quick pickup (up to an octave), reset after a pause.
       gemChain = now - gemAt < (clip.chainReset || 650) ? Math.min(clip.chain, gemChain + 1) : 0;
       gemAt = now;
